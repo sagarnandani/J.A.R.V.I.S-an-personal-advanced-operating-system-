@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JARVIS -- Stage 0 test console</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.25rem; }
+  .banner { background: #fff3cd; border: 1px solid #e0c36a; padding: 0.75rem 1rem; border-radius: 6px; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 4rem; font: inherit; padding: 0.5rem; }
+  button { font: inherit; padding: 0.5rem 1rem; margin: 0.25rem 0.25rem 0.25rem 0; cursor: pointer; }
+  pre { background: #f4f4f4; padding: 0.75rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  #whoami { font-size: 0.85rem; color: #555; }
+  section { margin-bottom: 2rem; }
+</style>
+</head>
+<body>
+  <h1>JARVIS -- Stage 0 test console</h1>
+  <div class="banner">
+    This is a bare-bones verification page, not the JARVIS app. It exists so
+    Stage 0 can be tested end-to-end from a browser. See <code>core/static/README.md</code>.
+  </div>
+
+  <section>
+    <div id="whoami">Not signed in.</div>
+    <button id="signin">Sign in with Google</button>
+    <button id="signout" style="display:none">Sign out</button>
+  </section>
+
+  <section>
+    <h2>Send a message</h2>
+    <textarea id="messageInput" placeholder="Say something to JARVIS..."></textarea><br/>
+    <button id="send">Send</button>
+    <pre id="messageOut">(response will appear here)</pre>
+  </section>
+
+  <section>
+    <h2>Verify it's being recorded</h2>
+    <button id="loadMemories">Load recent memories</button>
+    <button id="loadAudit">Load recent audit log</button>
+    <button id="loadBudget">Load budget status</button>
+    <pre id="verifyOut">(nothing loaded yet)</pre>
+  </section>
+
+  <!-- Firebase JS SDK, loaded from Google's own CDN. -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+    import {
+      getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+    } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+
+    const whoami = document.getElementById("whoami");
+    const signinBtn = document.getElementById("signin");
+    const signoutBtn = document.getElementById("signout");
+    const messageOut = document.getElementById("messageOut");
+    const verifyOut = document.getElementById("verifyOut");
+
+    let auth = null;
+
+    async function currentIdToken() {
+      if (!auth || !auth.currentUser) {
+        throw new Error("Not signed in yet.");
+      }
+      return auth.currentUser.getIdToken();
+    }
+
+    async function authedFetch(path, options = {}) {
+      const token = await currentIdToken();
+      return fetch(path, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+    }
+
+    (async () => {
+      let config;
+      try {
+        config = await fetch("/public/firebase-config").then((r) => r.json());
+      } catch (e) {
+        whoami.textContent = "Could not load Firebase config from the server.";
+        return;
+      }
+      if (!config.apiKey) {
+        whoami.textContent =
+          "Firebase is not configured on this deployment yet (no apiKey). " +
+          "See /docs/DEPLOYMENT.md.";
+        return;
+      }
+
+      const app = initializeApp(config);
+      auth = getAuth(app);
+
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          whoami.textContent = `Signed in as ${user.email || user.uid}`;
+          signinBtn.style.display = "none";
+          signoutBtn.style.display = "inline-block";
+        } else {
+          whoami.textContent = "Not signed in.";
+          signinBtn.style.display = "inline-block";
+          signoutBtn.style.display = "none";
+        }
+      });
+
+      signinBtn.onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
+      signoutBtn.onclick = () => signOut(auth);
+    })();
+
+    document.getElementById("send").onclick = async () => {
+      const text = document.getElementById("messageInput").value;
+      messageOut.textContent = "Sending...";
+      try {
+        const res = await authedFetch("/v1/message", {
+          method: "POST",
+          body: JSON.stringify({ text }),
+        });
+        const data = await res.json();
+        messageOut.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        messageOut.textContent = `Error: ${e.message}`;
+      }
+    };
+
+    async function loadJson(path) {
+      verifyOut.textContent = "Loading...";
+      try {
+        const res = await authedFetch(path);
+        verifyOut.textContent = JSON.stringify(await res.json(), null, 2);
+      } catch (e) {
+        verifyOut.textContent = `Error: ${e.message}`;
+      }
+    }
+
+    document.getElementById("loadMemories").onclick = () => loadJson("/v1/memories");
+    document.getElementById("loadAudit").onclick = () => loadJson("/v1/audit");
+    document.getElementById("loadBudget").onclick = () => loadJson("/v1/budget");
+  </script>
+</body>
+</html>

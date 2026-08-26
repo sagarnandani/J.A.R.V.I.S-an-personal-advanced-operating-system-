@@ -1,0 +1,48 @@
+# Local development only. Brings up a throwaway Postgres + the JARVIS
+# Core container, wired together, so the whole loop can be tested on a
+# laptop before anything touches real cloud infrastructure.
+#
+# Usage (from the repo root):
+#   docker compose -f infra/docker-compose.yml up --build
+#   # in another terminal, once postgres is healthy:
+#   DATABASE_URL=postgres://jarvis:jarvis@localhost:5432/jarvis python3 db/migrate.py
+#
+# Then: curl http://localhost:8080/health
+name: jarvis-stage0
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: jarvis
+      POSTGRES_DB: jarvis
+    ports:
+      - "5432:5432"
+    volumes:
+      - jarvis_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  core:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://jarvis:jarvis@postgres:5432/jarvis
+      DEV_MODE: "true"
+      PORT: "8080"
+      # ANTHROPIC_API_KEY intentionally unset here -- the mock LLM adapter
+      # takes over automatically. Set it in your shell and pass it through
+      # (see .env.example) to test against the real Claude API instead.
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  jarvis_pg_data:
