@@ -250,8 +250,9 @@ cd jarvis
 bash infra/deploy.sh
 ```
 
-It will ask you for two things — your Supabase connection string (step 1b)
-and your Anthropic API key (step 3). Typing is hidden. Both go straight
+It asks for your Supabase connection string (step 1b) and your Gemini API
+key (step 3a), then optionally an Anthropic key for fallback — press Enter
+to skip that one. Typing is hidden. Both go straight
 into Google Secret Manager and are never written to the repo, the
 container image, or the deployment logs.
 

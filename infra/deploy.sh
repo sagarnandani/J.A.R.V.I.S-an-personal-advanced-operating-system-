@@ -37,7 +37,11 @@ LLM_PROVIDER="${LLM_PROVIDER:-gemini}"
 GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
 CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-5}"
 
-IMAGE="gcr.io/${PROJECT_ID}/${SERVICE}"
+AR_REPO="${AR_REPO:-jarvis}"
+# Artifact Registry, not gcr.io: Container Registry was shut down in March
+# 2025 and gcr.io URLs only still resolve for projects that were migrated.
+# A brand-new project has no such mapping, so pushing to gcr.io fails.
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${SERVICE}"
 
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
@@ -50,8 +54,21 @@ gcloud services enable \
   cloudbuild.googleapis.com \
   secretmanager.googleapis.com \
   artifactregistry.googleapis.com \
-  containerregistry.googleapis.com \
+  compute.googleapis.com \
   --quiet
+
+say "Making sure the container repository exists"
+if gcloud artifacts repositories describe "${AR_REPO}" \
+     --location="${REGION}" --quiet >/dev/null 2>&1; then
+  echo "  repository '${AR_REPO}' already exists."
+else
+  gcloud artifacts repositories create "${AR_REPO}" \
+    --repository-format=docker \
+    --location="${REGION}" \
+    --description="JARVIS container images" \
+    --quiet
+  echo "  created repository '${AR_REPO}' in ${REGION}."
+fi
 
 # --- Secrets -------------------------------------------------------------
 # Both of these are real credentials, so they go into Secret Manager rather
@@ -110,7 +127,23 @@ fi
 
 say "Granting the service permission to read those secrets"
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+# The account Cloud Run runs as by default. It is created when the Compute
+# Engine API is enabled (done above); on a very new project that can lag by
+# a few seconds, so check rather than assuming.
 RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+if ! gcloud iam service-accounts describe "${RUNTIME_SA}" --quiet >/dev/null 2>&1; then
+  echo "  Waiting for the default service account to appear..."
+  for _ in 1 2 3 4 5 6; do
+    sleep 10
+    gcloud iam service-accounts describe "${RUNTIME_SA}" --quiet >/dev/null 2>&1 && break
+  done
+fi
+if ! gcloud iam service-accounts describe "${RUNTIME_SA}" --quiet >/dev/null 2>&1; then
+  echo "  Could not find ${RUNTIME_SA}." >&2
+  echo "  This normally appears once the Compute Engine API finishes enabling." >&2
+  echo "  Wait a minute and re-run this script -- it will pick up where it left off." >&2
+  exit 1
+fi
 for secret in "${SECRET_PRESENT[@]}"; do
   gcloud secrets add-iam-policy-binding "${secret}" \
     --member="serviceAccount:${RUNTIME_SA}" \

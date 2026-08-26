@@ -17,10 +17,11 @@ and locally test the complete Stage 0 codebase:
   it actually blocks requests.
 - 35 automated tests, all passing (`core/tests/`).
 
-None of that required a cloud account — it ran against a local Postgres
-and, because no `ANTHROPIC_API_KEY` was configured, a mock LLM adapter
-that honestly labels its replies as fake rather than pretending. See
-`core/app/llm/mock_adapter.py`.
+None of that required a cloud account — it ran against a local Postgres,
+with no provider key configured, so a mock adapter answered and labelled
+its replies as placeholders rather than pretending. See
+`core/app/llm/mock_adapter.py`. The Gemini adapter was additionally
+verified against Google's live API endpoint.
 
 **The database is real and ready.** Supabase project
 `ggnyypoopkmhfgtbqync` has the full Stage 0 schema applied (confirmed by
@@ -46,8 +47,8 @@ leaked key.)
 |---|---|---|---|
 | 1 | Apply the database schema | Supabase SQL Editor | **Done** |
 | 2 | Firebase project + Google sign-in | Firebase Console | **Done** |
-| 3 | Get a Gemini API key (free) | aistudio.google.com | Next |
-| 4 | Deploy (`bash infra/deploy.sh`) | Google Cloud Shell | Not started |
+| 3 | Get a Gemini API key (free) | aistudio.google.com | **Done** |
+| 4 | Deploy (`bash infra/deploy.sh`) | Google Cloud Shell | Next |
 | 5 | Sign in from your iPad and send a message | Your browser | Not started |
 
 Firebase project: `jarvis-by-claude-a1026`. Because a Firebase project is
@@ -96,8 +97,8 @@ provisioned, and nothing has called a paid API yet.
 Once deployed on the free/scale-to-zero tiers named in
 `DEPLOYMENT.md`, expected cost at solo, low-volume usage is
 still close to ₹0 for compute/database/auth — the only real variable cost
-is Anthropic API usage per message, tracked by `GET /v1/budget` once
-deployed. See `BUDGET.md` for exactly what that number does and doesn't
+is model API usage per message, tracked by `GET /v1/budget` once
+deployed — and on Gemini's free tier that is expected to be ₹0 too. See `BUDGET.md` for exactly what that number does and doesn't
 include.
 
 ## How to check if it's running

@@ -1,0 +1,22 @@
+# What NOT to upload when running `gcloud builds submit`.
+#
+# Without this, the build uploads the entire folder -- including the git
+# history and any local Python virtual environment. That's slow, and on a
+# metered connection it's wasteful. None of it is needed: the Dockerfile
+# only copies core/app, core/static, and core/requirements.txt.
+#
+# Note gcloud falls back to reading .gitignore when this file is absent,
+# which mostly works -- but .git itself isn't in .gitignore, and it's
+# usually the biggest thing in the folder.
+.git/
+.gitignore
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+docs/
+workers/
+db/
+core/tests/

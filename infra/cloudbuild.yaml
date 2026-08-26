@@ -18,4 +18,9 @@ images:
 options:
   logging: CLOUD_LOGGING_ONLY
 substitutions:
-  _IMAGE: gcr.io/${PROJECT_ID}/jarvis-core
+  # Always passed explicitly by infra/deploy.sh. This default exists only so
+  # the file is valid on its own; it points at Artifact Registry because
+  # Container Registry (gcr.io/<project>/...) was shut down in March 2025.
+  # Note the builder image above keeps its gcr.io address -- Google-owned
+  # builder images are explicitly unaffected by that shutdown.
+  _IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/jarvis/jarvis-core
