@@ -36,12 +36,14 @@ Nothing is deployed to the internet yet — see
 `docs/STAGE0_STATUS.md` for exactly what state the project is in and why.
 The code is complete and has been tested locally (a real Postgres
 database, real HTTP requests, the full message → memory → audit →
-budget → emergency-stop path all verified working). What's left is
-**provisioning your own cloud accounts** (Supabase, Firebase, Google Cloud)
-— steps I can't do for you without your credentials. `docs/DEPLOYMENT.md`
-is the exact checklist; once you've done those steps (or handed me the
-credentials to do it in a session), `GET /health` on the deployed URL
-tells you it's alive.
+budget → emergency-stop path all verified working).
+
+What's left is provisioning: a Supabase project exists
+(`ggnyypoopkmhfgtbqync`) but still needs its schema applied — a
+copy-paste job you can do from an iPad in about a minute — plus Firebase,
+an Anthropic API key, and a Cloud Run deploy. `docs/DEPLOYMENT.md` is the
+exact checklist, in order. Once deployed, `GET /health` tells you it's
+alive.
 
 ## How to try it locally (no cloud account needed)
 

@@ -1,31 +1,86 @@
 # Deployment checklist
 
-I (Claude Code) don't have your cloud accounts' credentials, so I can't
-click through these steps for you in this session — but I can do them
-*with* you if you paste in the relevant keys/tokens when we get there, or
-you can follow this yourself. Each step says which is which.
+These are steps you run yourself. I can't run them for me-side, and it's
+worth being precise about why, because it changes what's worth sending me:
+
+**This build session has no network route to your infrastructure.** I
+tested against your real Supabase project and hit a hard block in three
+independent ways — outbound HTTPS to `*.supabase.co` is refused by this
+session's egress policy (403), the direct database host is IPv6-only and
+this sandbox has no IPv6, and the IPv4 pooler port times out. So sending
+me a database password or API key wouldn't unblock anything; it would just
+put a secret in a chat transcript for no benefit. Don't.
+
+Everything below is therefore written to be done from a browser wherever
+possible — no terminal, no local Python — since your primary device is an
+iPad.
 
 Nothing here costs money at Stage 0 usage levels if you stick to the
 tiers named below — see `BUDGET.md`.
 
 ## 1. Database — Supabase (free tier)
 
-1. Create a free account at supabase.com, create a new project.
-2. From the project's Settings → Database, copy the **connection string**
-   (the "URI" one, not the pooler one, for Stage 0's low traffic). This is
-   your `DATABASE_URL`.
-3. Apply the schema:
-   ```bash
-   DATABASE_URL="<the connection string>" python3 db/migrate.py
-   ```
-   You should see `Applying 001_init.sql ... done.`
+**Your project:** `ggnyypoopkmhfgtbqync` — already created, nothing to set
+up here. Dashboard: https://supabase.com/dashboard/project/ggnyypoopkmhfgtbqync
 
-**Why Supabase over Cloud SQL:** the brief's own table listed Supabase
-free tier as the preferred option "if it meets needs — genuinely $0 at
-this scale," ahead of Cloud SQL's smallest paid tier. Stage 0's usage
-(one user, occasional messages) is well inside Supabase's free tier, so
-that's what these instructions assume. Cloud SQL works identically if you
-ever want to switch — it's the same `DATABASE_URL` env var either way.
+### 1a. Apply the schema (do this from any browser, iPad included)
+
+You do **not** need Python, a terminal, or this repo on your device.
+
+1. Open the SQL Editor:
+   https://supabase.com/dashboard/project/ggnyypoopkmhfgtbqync/sql/new
+2. Open `db/manual_setup.sql` from this repo on GitHub, click the "Copy raw
+   file" button, and paste the whole thing into the editor.
+3. Press **Run**.
+
+You should see a success message. To confirm it worked, open the Table
+Editor — you should now have six tables: `memories`, `tasks`, `audit_log`,
+`approvals`, `system_control`, and `schema_migrations`. Click `approvals`
+and you should see your five approval defaults already filled in
+(research/drafting → `auto`, publishing/spending/credentials →
+`ask_every_time`).
+
+That file is safe to run twice — every statement in it is written to skip
+work that's already been done, and the whole thing runs as a single
+transaction, so a failure partway through leaves the database untouched
+rather than half-built.
+
+(The alternative, if you ever do have a terminal handy:
+`DATABASE_URL="<your connection string>" python3 db/migrate.py`. Both
+paths record the same bookkeeping, so you can freely switch between them
+without anything being applied twice.)
+
+### 1b. Get the connection string for the deployed service
+
+Open Settings → Database → **Connection string**, and pick the
+**Session pooler** tab (NOT "Direct connection"). It looks like:
+
+```
+postgresql://postgres.ggnyypoopkmhfgtbqync:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:5432/postgres
+```
+
+Replace `[YOUR-PASSWORD]` with your database password (Settings →
+Database → Reset database password if you don't have it). That whole
+string is your `DATABASE_URL`.
+
+**Why the pooler and not the direct connection** — this is a correction to
+what I originally wrote here, and I found it by actually testing against
+your project rather than assuming:
+
+- Supabase's direct database host (`db.ggnyypoopkmhfgtbqync.supabase.co`)
+  now resolves to an **IPv6-only** address. I confirmed this on your
+  project specifically.
+- Google Cloud Run's outbound networking is IPv4. So a direct connection
+  string would deploy fine and then fail to reach the database at runtime
+  — the most annoying category of bug, because everything *looks* correct.
+- The pooler hosts are reachable over IPv4, which sidesteps it entirely.
+  Supabase also charges extra for an IPv4 add-on on direct connections;
+  the pooler is free.
+
+If you accidentally grab the **Transaction pooler** string (port `6543`)
+instead of the Session pooler (port `5432`), it still works — the code
+detects that port and adjusts how it talks to the database automatically
+(`core/app/db.py`). Either is fine; session pooler is marginally faster.
 
 ## 2. Auth — Firebase
 

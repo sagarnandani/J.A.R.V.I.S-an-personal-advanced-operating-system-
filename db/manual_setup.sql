@@ -1,3 +1,21 @@
+-- GENERATED FILE -- do not edit by hand.
+-- Regenerate with: bash db/build_manual_setup.sh
+--
+-- Paste the whole of this file into the Supabase dashboard's SQL
+-- Editor and press Run. It applies the full JARVIS schema and marks
+-- each migration as applied, so running db/migrate.py later will
+-- correctly skip them instead of trying to apply them twice.
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    filename    TEXT PRIMARY KEY,
+    applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ================================================================
+-- 001_init.sql
+-- ================================================================
 -- Stage 0 schema: memories, tasks, audit_log, approvals, system_control
 --
 -- Design notes (plain language):
@@ -96,3 +114,8 @@ CREATE TABLE IF NOT EXISTS system_control (
 
 INSERT INTO system_control (key, value) VALUES ('emergency_stop', false)
 ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO schema_migrations (filename) VALUES ('001_init.sql')
+    ON CONFLICT (filename) DO NOTHING;
+
+COMMIT;

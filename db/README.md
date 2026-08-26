@@ -15,6 +15,21 @@ python3 db/migrate.py
 Safe to re-run — already-applied files are skipped (tracked in a
 `schema_migrations` table it creates for itself).
 
+## Applying it without a terminal (the iPad path)
+
+`manual_setup.sql` is every migration bundled into one file you can paste
+straight into a hosted SQL console (Supabase's SQL Editor, for example)
+and run. It wraps everything in a single transaction and records the same
+`schema_migrations` rows `migrate.py` would, so the two paths are
+interchangeable — apply the schema by pasting, and a later `migrate.py`
+run will correctly report "already up to date" rather than trying again.
+
+It's a generated file. After adding a migration, regenerate it:
+
+```bash
+bash db/build_manual_setup.sh
+```
+
 ## Adding a new migration later
 
 Add a new file named `002_<short_description>.sql`, write plain SQL, run
