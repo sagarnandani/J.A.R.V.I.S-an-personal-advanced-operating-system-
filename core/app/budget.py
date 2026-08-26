@@ -24,12 +24,37 @@ WARN_50 = Decimal("0.5")
 WARN_80 = Decimal("0.8")
 
 
+def provider_rates(provider: str, settings: Settings) -> tuple[Decimal, Decimal]:
+    """(input, output) USD per 1M tokens for a provider.
+
+    An unknown provider -- including the mock adapter -- costs nothing,
+    because nothing was actually bought.
+    """
+    if provider == "claude":
+        return (
+            settings.price_claude_input_usd_per_1m,
+            settings.price_claude_output_usd_per_1m,
+        )
+    if provider == "gemini":
+        return (
+            settings.price_gemini_input_usd_per_1m,
+            settings.price_gemini_output_usd_per_1m,
+        )
+    return (Decimal("0"), Decimal("0"))
+
+
 def estimate_cost_inr(
-    input_tokens: int, output_tokens: int, settings: Settings
+    input_tokens: int, output_tokens: int, settings: Settings, provider: str = "claude"
 ) -> Decimal:
+    """What this one call cost, in rupees.
+
+    Priced per provider, because a fallback to the other provider mid-flight
+    must not be billed at the primary's rates.
+    """
+    price_in, price_out = provider_rates(provider, settings)
     usd = (
-        Decimal(input_tokens) / Decimal(1_000_000) * settings.price_input_usd_per_1m
-        + Decimal(output_tokens) / Decimal(1_000_000) * settings.price_output_usd_per_1m
+        Decimal(input_tokens) / Decimal(1_000_000) * price_in
+        + Decimal(output_tokens) / Decimal(1_000_000) * price_out
     )
     return (usd * settings.usd_to_inr_rate).quantize(Decimal("0.000001"))
 

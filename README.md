@@ -57,9 +57,14 @@ Then open `http://localhost:8080` in a browser. Firebase login won't work
 locally (no project configured), but with `DEV_MODE=true` (already set in
 `infra/docker-compose.yml`) every request is treated as the owner, so you
 can type a message straight into the test console and see it round-trip.
-Without an `ANTHROPIC_API_KEY` set, JARVIS replies with an honest "no real
-model was called" mock response instead of pretending — see
+With no model provider key set, JARVIS replies with an honest "no real
+model was called" placeholder instead of pretending — see
 `core/app/llm/mock_adapter.py`.
+
+JARVIS speaks to models through a swappable adapter (`core/app/llm/`).
+Google Gemini and Anthropic Claude are both supported; `LLM_PROVIDER`
+picks which one answers, and if both have keys the other is used
+automatically as a fallback when the first fails.
 
 ## How to stop it entirely
 

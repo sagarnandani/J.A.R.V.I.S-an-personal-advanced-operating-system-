@@ -3,13 +3,21 @@
 These are steps you run yourself. I can't run them for me-side, and it's
 worth being precise about why, because it changes what's worth sending me:
 
-**This build session has no network route to your infrastructure.** I
-tested against your real Supabase project and hit a hard block in three
-independent ways — outbound HTTPS to `*.supabase.co` is refused by this
-session's egress policy (403), the direct database host is IPv6-only and
-this sandbox has no IPv6, and the IPv4 pooler port times out. So sending
-me a database password or API key wouldn't unblock anything; it would just
-put a secret in a chat transcript for no benefit. Don't.
+**I can't reach your infrastructure, and shouldn't hold its keys.** Two
+separate limits, stated precisely:
+
+- **Supabase is blocked outright** from this build session. Outbound HTTPS
+  to `*.supabase.co` is refused by the session's egress policy (403), the
+  direct database host is IPv6-only and this sandbox has no IPv6, and the
+  IPv4 pooler port times out. No credential changes that.
+- **Google Cloud and the model APIs are reachable** — I verified the Gemini
+  adapter against Google's live API and got a proper response back. But I
+  have no credentials for your Google account, and you shouldn't give me
+  any: a key pasted into a chat transcript is a leaked key, and the deploy
+  script collects them directly instead.
+
+So: don't send passwords or API keys. Nothing below needs them from you in
+chat.
 
 Everything below is therefore written to be done from a browser wherever
 possible — no terminal, no local Python — since your primary device is an
@@ -170,21 +178,53 @@ Two details worth knowing:
 If neither is set, JARVIS refuses every request with an error saying so,
 rather than defaulting to letting anyone in.
 
-## 3. Anthropic API key
+## 3. Model provider API key
 
-This is what lets JARVIS actually think. Without it the system runs but
-replies with an obvious placeholder saying no model was called.
+JARVIS speaks to a language model through a swappable adapter, so which
+provider answers is a setting, not a rewrite. Two are built in:
 
-1. Go to https://console.anthropic.com → **API keys** → *Create key*.
-2. Copy it (starts with `sk-ant-`). You can only see it once.
-3. **Don't paste it here in chat** — the deploy script in step 4 asks for
-   it directly and puts it straight into Google Secret Manager.
+| | Cost | Notes |
+|---|---|---|
+| **Google Gemini** (default) | Free tier: ₹0, capped ~250 requests/day | Your choice for Stage 0 |
+| **Anthropic Claude** | Sonnet 5: $2 / $10 per million tokens in/out | Optional; acts as automatic fallback |
 
-Also worth doing while you're there: set a **spend limit** on the Anthropic
-account itself (Settings → Limits). JARVIS tracks its own estimated spend
-and warns you, but a hard cap at the source is the one guardrail that
-can't be undone by a bug in my code. ₹3,500/month is roughly $40 — see
-`BUDGET.md`.
+### 3a. Get a Gemini key (free)
+
+1. Go to https://aistudio.google.com/apikey and sign in.
+2. Click **Create API key**.
+3. **Create it in a NEW project, not `jarvis-by-claude-a1026`.**
+
+That last point matters and is easy to get wrong. **Enabling billing on a
+Google Cloud project removes its Gemini free tier** — every call then bills
+from the first token. Cloud Run *requires* billing, so the project JARVIS
+deploys into will have billing on. A key issued from that same project
+would quietly stop being free.
+
+Keeping the Gemini key in its own separate, billing-free project is what
+keeps Stage 0 at ₹0.
+
+**Don't paste the key here** — the deploy script asks for it directly and
+puts it into Google Secret Manager.
+
+### 3b. Optionally add Claude as a fallback
+
+Not required. If you also set an Anthropic key
+([console.anthropic.com](https://console.anthropic.com) → API keys), JARVIS
+automatically retries with Claude whenever Gemini fails or is rate-limited,
+and the reply tells you which one answered. Without it, a Gemini outage
+means JARVIS reports the failure plainly rather than answering.
+
+The deploy script offers this as optional — press Enter to skip.
+
+### 3c. A caution about free tiers
+
+Google revised its free-tier quotas down by 50–80% in December 2025
+without notice, and doesn't guarantee them. At your usage that's still
+comfortably free, but treat ₹0 as "currently free", not "guaranteed free".
+`GET /v1/budget` will keep reporting ₹0 while Gemini is priced at zero —
+JARVIS logs a warning at startup saying exactly that, so the zero is never
+mistaken for verified proof that nothing is being spent. If you ever
+enable billing, set the real prices (see `BUDGET.md`).
 
 ## 4. Deploy — Google Cloud Run
 

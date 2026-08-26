@@ -72,7 +72,11 @@ async def send_message(
     )
     await memory.link_memories(user_memory_id, reply_memory_id)
 
-    cost_inr = estimate_cost_inr(result.input_tokens, result.output_tokens, settings)
+    # Priced against whichever provider actually answered -- which may not
+    # be the configured primary, if it failed and the fallback took over.
+    cost_inr = estimate_cost_inr(
+        result.input_tokens, result.output_tokens, settings, provider=result.provider
+    )
     audit_log_id = await audit.log_audit(
         actor="system",
         action="llm_message_exchange",

@@ -3,5 +3,16 @@ uvicorn[standard]>=0.32,<0.33
 asyncpg>=0.30,<0.31
 pydantic>=2.9,<3
 pydantic-settings>=2.6,<3
-anthropic>=0.39,<0.40
 firebase-admin>=6.6,<7
+
+# --- Model providers ---
+# Both are installed regardless of which one is configured as primary, so
+# failover to the other has something to fail over TO. Which one actually
+# answers is decided at runtime by LLM_PROVIDER.
+#
+# anthropic must be 1.x: the 0.x line passes a `proxies` argument that
+# newer httpx removed, and google-genai requires that newer httpx. Pinning
+# anthropic to 0.x here makes the container crash the first time it tries
+# to build a Claude client.
+google-genai>=2.20,<3
+anthropic>=1.1,<2

@@ -15,7 +15,7 @@ and locally test the complete Stage 0 codebase:
   `memories` with correct provenance, seeing it logged in `audit_log`,
   reading back the budget estimate, toggling Emergency Stop and confirming
   it actually blocks requests.
-- 13 automated tests, all passing (`core/tests/`).
+- 35 automated tests, all passing (`core/tests/`).
 
 None of that required a cloud account — it ran against a local Postgres
 and, because no `ANTHROPIC_API_KEY` was configured, a mock LLM adapter
@@ -28,13 +28,17 @@ the owner on 2026-08-26) — six tables, with the five approval defaults
 seeded. Nothing is deployed against it yet, so it's sitting empty and
 costing ₹0 on the free tier.
 
-Note that I can't verify the database's contents myself from a build
-session: this sandbox has no network route to Supabase at all (HTTPS is
-refused by the session's egress policy, the direct DB host is IPv6-only
-with no IPv6 available here, the IPv4 pooler port times out). That's a
-sandbox restriction, not a problem with your project, and no credential
-would change it — so please don't send any. It just means database state
-is reported by you, not measured by me.
+Note that I can't verify the database's contents myself: this sandbox has
+no network route to Supabase (HTTPS refused by the session's egress
+policy, the direct DB host is IPv6-only with no IPv6 available here, the
+IPv4 pooler port times out). That's a sandbox restriction, not a problem
+with your project, and no credential would change it. It means database
+state is reported by you, not measured by me.
+
+(Google's and Anthropic's APIs *are* reachable from here — that's how the
+Gemini adapter was verified against a live endpoint. But I hold no
+credentials for your accounts and shouldn't: a key pasted into chat is a
+leaked key.)
 
 **What's left**, in order:
 
@@ -42,7 +46,7 @@ is reported by you, not measured by me.
 |---|---|---|---|
 | 1 | Apply the database schema | Supabase SQL Editor | **Done** |
 | 2 | Firebase project + Google sign-in | Firebase Console | **Done** |
-| 3 | Get an Anthropic API key | console.anthropic.com | Next |
+| 3 | Get a Gemini API key (free) | aistudio.google.com | Next |
 | 4 | Deploy (`bash infra/deploy.sh`) | Google Cloud Shell | Not started |
 | 5 | Sign in from your iPad and send a message | Your browser | Not started |
 
@@ -52,8 +56,16 @@ means no service account key file has to be created, stored, or protected
 anywhere. Cloud Run supplies those credentials to the service by itself.
 
 Step 4 is one command, run in Google Cloud Shell (a terminal that runs in
-a browser tab, so an iPad is fine). It asks for the two secrets it needs
-and puts them straight into Google Secret Manager.
+a browser tab, so an iPad is fine). It asks for the secrets it needs and
+puts them straight into Google Secret Manager.
+
+**Model provider:** JARVIS supports Google Gemini and Anthropic Claude
+behind a common interface, chosen with one setting (`LLM_PROVIDER`).
+Gemini is the default because its free tier keeps Stage 0 at ₹0. If a
+Claude key is also configured, JARVIS automatically retries with it when
+Gemini fails, and the reply says which one answered. Neither key
+configured is still a working system — replies are clearly-labelled
+placeholders rather than a crash or a fake answer.
 
 Step 5 is the actual Stage 0 sign-off — the point where the Definition of
 Done is met and Stage 1 can begin. `DEPLOYMENT.md` has each step in full.

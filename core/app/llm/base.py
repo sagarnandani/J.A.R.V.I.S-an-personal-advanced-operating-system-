@@ -8,6 +8,15 @@ outside this package should ever import a provider SDK directly.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+# One definition, shared by every provider -- JARVIS should behave the same
+# whichever model is answering. If this differed per adapter, switching
+# providers would quietly change JARVIS's personality along with it.
+JARVIS_SYSTEM_PROMPT = (
+    "You are JARVIS, a personal AI operating system. This is Stage 0: a "
+    "plain request/response loop with no tools, no agents, and no memory "
+    "recall yet. Respond helpfully and briefly."
+)
+
 
 @dataclass
 class LLMResult:

@@ -2,22 +2,52 @@
 
 ## What counts toward the number `GET /v1/budget` shows you
 
-Every call to the language model. Specifically: each time `/v1/message`
-calls Claude, the API tells us exactly how many input and output tokens
-that call used. We multiply those by a price-per-token you configure
-(`PRICE_INPUT_USD_PER_1M`, `PRICE_OUTPUT_USD_PER_1M` — defaults are
-placeholder figures, **verify them against
-[anthropic.com/pricing](https://www.anthropic.com/pricing) and update the
-env vars if they've drifted**), convert to INR at a configurable rate
-(`USD_TO_INR_RATE`, also an estimate — real exchange rates move), and add
-it to that calendar month's running total in `audit_log`.
+Every call to a language model, priced by **which provider actually
+answered** — not which one was configured. That distinction matters
+because JARVIS falls back to the other provider if the primary fails, and
+billing a Gemini answer at Claude's rates (or the reverse) would be wrong.
 
-This is a real calculation from real usage, every time — not a guess and
-not manually typed in. But it's still an *estimate*: Anthropic doesn't
-expose a real-time billing API, so nothing here is pulled from an actual
-invoice. Check your Anthropic Console billing page occasionally to confirm
-the estimate hasn't drifted from what you're actually being charged
-(pricing changes or a wrong exchange rate are the two ways it could).
+Each call reports its real token counts; those are multiplied by the
+per-provider prices below, converted to INR, and added to the month's
+running total in `audit_log`.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `PRICE_GEMINI_INPUT_USD_PER_1M` | `0.00` | Gemini free tier |
+| `PRICE_GEMINI_OUTPUT_USD_PER_1M` | `0.00` | Gemini free tier |
+| `PRICE_CLAUDE_INPUT_USD_PER_1M` | `2.00` | Claude Sonnet 5 |
+| `PRICE_CLAUDE_OUTPUT_USD_PER_1M` | `10.00` | Claude Sonnet 5 |
+| `USD_TO_INR_RATE` | `90` | Estimate, not a live rate |
+
+### The zero-price trap — read this one
+
+Gemini defaults to **₹0 because the plan is Google's free tier.** If
+billing is ever enabled on the Google project your Gemini key belongs to,
+the free tier stops applying and real charges begin — while these zeros
+would keep reporting **₹0 spent forever.**
+
+That's a silent failure in the dangerous direction: the budget guard says
+"you're fine" while money is actually going out. Two things guard against
+it:
+
+- JARVIS logs a warning at every startup whenever the active provider is
+  priced at zero, saying exactly this.
+- This paragraph, so the ₹0 on your dashboard is never mistaken for
+  verified proof that nothing is being spent.
+
+If you enable billing, set the real rates (Gemini 2.5 Pro was $1.25 in /
+$10 out per million tokens as of August 2026 — check
+[ai.google.dev/pricing](https://ai.google.dev/pricing)).
+
+### It's an estimate, not a bill
+
+These are real calculations from real token counts, but neither provider
+exposes live billing through their API, so nothing here comes from an
+actual invoice. Check the provider's own billing page occasionally —
+price changes or a drifted exchange rate are the two ways this can go
+wrong. Also note Gemini 2.5 models charge for internal "thinking" tokens
+that never appear in the reply; JARVIS counts those (many tools forget to),
+so its figure should if anything be slightly *higher* than a naive one.
 
 ## What does NOT count toward this number
 

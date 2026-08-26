@@ -54,6 +54,19 @@ class Settings(BaseSettings):
     owner_email: str | None = None
 
     # --- LLM provider ---
+    # Which provider answers by default: "gemini", "claude", or "mock".
+    # Changing this is a config change, not a code change -- that's what
+    # the adapter layer in app/llm/ exists for.
+    llm_provider: str = "gemini"
+    # When both providers have keys, automatically retry with the other one
+    # if the primary fails (architecture doc, section L: graceful
+    # degradation). The reply always reports which provider actually
+    # answered, so a fallback is never invisible.
+    llm_fallback_enabled: bool = True
+
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
+
     anthropic_api_key: str | None = None
     claude_model: str = "claude-sonnet-5"
 
@@ -69,12 +82,22 @@ class Settings(BaseSettings):
     # exchange rate over time -- it is an estimate, not a live FX lookup,
     # and is called out as such in /docs/BUDGET.md.
     usd_to_inr_rate: Decimal = Decimal("90")
-    # USD per 1,000,000 tokens. These are placeholder figures -- verify
-    # against https://www.anthropic.com/pricing before trusting the budget
-    # dashboard for a real spending decision. Overridable per-deployment so
-    # a price change never requires a code change.
-    price_input_usd_per_1m: Decimal = Decimal("3.00")
-    price_output_usd_per_1m: Decimal = Decimal("15.00")
+    # USD per 1,000,000 tokens, per provider. Overridable per-deployment so
+    # a price change never requires a code change. Verify against the
+    # providers' own pricing pages before trusting the budget figure for a
+    # real spending decision -- see /docs/BUDGET.md.
+    #
+    # Claude defaults are Sonnet 5's rates.
+    price_claude_input_usd_per_1m: Decimal = Decimal("2.00")
+    price_claude_output_usd_per_1m: Decimal = Decimal("10.00")
+    # Gemini defaults to zero because the plan is Google's free tier.
+    # IMPORTANT: if billing is ever enabled on the Google Cloud project the
+    # Gemini key belongs to, the free tier stops applying and real charges
+    # begin -- while these zeros would keep reporting Rs.0 spent. That is a
+    # silent under-report in the dangerous direction, so the app logs a
+    # warning at startup whenever a provider in use is priced at zero.
+    price_gemini_input_usd_per_1m: Decimal = Decimal("0.00")
+    price_gemini_output_usd_per_1m: Decimal = Decimal("0.00")
 
     # --- CORS ---
     # Stage 0 has no real client yet, only the test console, so this

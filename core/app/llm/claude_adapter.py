@@ -1,13 +1,7 @@
 """Claude provider adapter -- the only place the `anthropic` SDK is imported."""
 from anthropic import AsyncAnthropic
 
-from app.llm.base import LLMProvider, LLMResult
-
-JARVIS_SYSTEM_PROMPT = (
-    "You are JARVIS, a personal AI operating system. This is Stage 0: a "
-    "plain request/response loop with no tools, no agents, and no memory "
-    "recall yet. Respond helpfully and briefly."
-)
+from app.llm.base import JARVIS_SYSTEM_PROMPT, LLMProvider, LLMResult
 
 
 class ClaudeAdapter(LLMProvider):

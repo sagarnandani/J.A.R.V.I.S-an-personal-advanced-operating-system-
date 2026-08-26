@@ -30,10 +30,36 @@ async def lifespan(app: FastAPI):
             "reachable from the internet."
         )
     init_firebase()
+    _warn_if_spend_is_untracked(settings)
     async with lifespan_db(app):
         logger.info("JARVIS Core started.")
         yield
     logger.info("JARVIS Core stopped.")
+
+
+def _warn_if_spend_is_untracked(settings) -> None:
+    """Shout if the configured provider is priced at zero.
+
+    A zero price is correct for Google's free tier, and wrong the moment
+    billing gets enabled on that project -- at which point real money would
+    be spent while the budget guard cheerfully reports Rs.0 used. That
+    failure is silent and points the wrong way, so it gets a startup
+    warning rather than a comment nobody reads.
+    """
+    from app.budget import provider_rates
+
+    provider = settings.llm_provider.strip().lower()
+    if provider == "mock":
+        return
+    price_in, price_out = provider_rates(provider, settings)
+    if price_in == 0 and price_out == 0:
+        logger.warning(
+            "Provider '%s' is priced at 0, so /v1/budget will report zero spend "
+            "no matter how much is used. That is correct ONLY while it is on a "
+            "genuinely free tier. If billing is enabled for it, set its price "
+            "environment variables -- see /docs/BUDGET.md.",
+            provider,
+        )
 
 
 app = FastAPI(title="JARVIS Core", version="0.1.0-stage0", lifespan=lifespan)

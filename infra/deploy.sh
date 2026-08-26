@@ -29,6 +29,12 @@ FIREBASE_APP_ID="${FIREBASE_APP_ID:-1:701562415519:web:1d377f036cd62c4c66b5aa}"
 # Budget guardrail -- see docs/BUDGET.md.
 MONTHLY_BUDGET_INR="${MONTHLY_BUDGET_INR:-3500}"
 USD_TO_INR_RATE="${USD_TO_INR_RATE:-90}"
+
+# Which model provider answers by default. Gemini's free tier keeps Stage 0
+# at zero cost; Claude is used automatically as a fallback if its key is
+# also set. Change this line (or export LLM_PROVIDER) to swap them.
+LLM_PROVIDER="${LLM_PROVIDER:-gemini}"
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
 CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-5}"
 
 IMAGE="gcr.io/${PROJECT_ID}/${SERVICE}"
@@ -54,36 +60,58 @@ gcloud services enable \
 # they show up in deployment logs; Secret Manager values do not. The
 # database URL counts as a secret because it contains the database
 # password.
+# optional=yes means pressing Enter skips it rather than aborting.
 ensure_secret() {
-  local name="$1" prompt="$2"
+  local name="$1" prompt="$2" optional="${3:-no}"
   if gcloud secrets describe "${name}" --quiet >/dev/null 2>&1; then
     echo "  secret '${name}' already exists -- leaving it alone."
+    SECRET_PRESENT+=("${name}")
     return
   fi
   echo
   echo "  ${prompt}"
-  echo "  (typing is hidden; paste and press Enter)"
+  if [[ "${optional}" == "yes" ]]; then
+    echo "  (optional -- press Enter to skip)"
+  else
+    echo "  (typing is hidden; paste and press Enter)"
+  fi
   local value
   read -r -s value
   if [[ -z "${value}" ]]; then
+    if [[ "${optional}" == "yes" ]]; then
+      echo "  skipped."
+      return
+    fi
     echo "  Nothing entered -- aborting so nothing is half-configured." >&2
     exit 1
   fi
   printf '%s' "${value}" \
     | gcloud secrets create "${name}" --data-file=- --replication-policy=automatic --quiet
   echo "  stored '${name}'."
+  SECRET_PRESENT+=("${name}")
 }
 
 say "Checking secrets"
+SECRET_PRESENT=()
 ensure_secret jarvis-database-url \
   "Paste your Supabase SESSION POOLER connection string (docs/DEPLOYMENT.md step 1b):"
+ensure_secret jarvis-gemini-api-key \
+  "Paste your Google Gemini API key (docs/DEPLOYMENT.md step 3a):"
 ensure_secret jarvis-anthropic-api-key \
-  "Paste your Anthropic API key (starts with sk-ant-):"
+  "Paste an Anthropic API key to use Claude as automatic fallback:" yes
+
+if [[ ! " ${SECRET_PRESENT[*]} " =~ " jarvis-gemini-api-key " \
+   && ! " ${SECRET_PRESENT[*]} " =~ " jarvis-anthropic-api-key " ]]; then
+  echo
+  echo "  WARNING: no model provider key is configured. JARVIS will deploy and" >&2
+  echo "  run, but every reply will be a clearly-labelled placeholder saying no" >&2
+  echo "  real model was called. Re-run this script once you have a key." >&2
+fi
 
 say "Granting the service permission to read those secrets"
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
-for secret in jarvis-database-url jarvis-anthropic-api-key; do
+for secret in "${SECRET_PRESENT[@]}"; do
   gcloud secrets add-iam-policy-binding "${secret}" \
     --member="serviceAccount:${RUNTIME_SA}" \
     --role=roles/secretmanager.secretAccessor \
@@ -94,6 +122,15 @@ echo "  done (${RUNTIME_SA})"
 say "Building the container image (this takes a few minutes the first time)"
 gcloud builds submit --config infra/cloudbuild.yaml --substitutions=_IMAGE="${IMAGE}" --quiet
 
+# Only reference secrets that exist -- naming a missing one fails the deploy.
+SECRET_FLAGS="DATABASE_URL=jarvis-database-url:latest"
+for s_name in "${SECRET_PRESENT[@]}"; do
+  case "${s_name}" in
+    jarvis-gemini-api-key)    SECRET_FLAGS+=",GEMINI_API_KEY=jarvis-gemini-api-key:latest" ;;
+    jarvis-anthropic-api-key) SECRET_FLAGS+=",ANTHROPIC_API_KEY=jarvis-anthropic-api-key:latest" ;;
+  esac
+done
+
 say "Deploying to Cloud Run"
 gcloud run deploy "${SERVICE}" \
   --image="${IMAGE}" \
@@ -102,8 +139,8 @@ gcloud run deploy "${SERVICE}" \
   --allow-unauthenticated \
   --min-instances=0 \
   --max-instances=2 \
-  --set-env-vars="DEV_MODE=false,OWNER_EMAIL=${OWNER_EMAIL},CLAUDE_MODEL=${CLAUDE_MODEL},MONTHLY_BUDGET_INR=${MONTHLY_BUDGET_INR},USD_TO_INR_RATE=${USD_TO_INR_RATE},FIREBASE_API_KEY=${FIREBASE_API_KEY},FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIREBASE_APP_ID=${FIREBASE_APP_ID}" \
-  --set-secrets="DATABASE_URL=jarvis-database-url:latest,ANTHROPIC_API_KEY=jarvis-anthropic-api-key:latest" \
+  --set-env-vars="DEV_MODE=false,OWNER_EMAIL=${OWNER_EMAIL},LLM_PROVIDER=${LLM_PROVIDER},GEMINI_MODEL=${GEMINI_MODEL},CLAUDE_MODEL=${CLAUDE_MODEL},MONTHLY_BUDGET_INR=${MONTHLY_BUDGET_INR},USD_TO_INR_RATE=${USD_TO_INR_RATE},FIREBASE_API_KEY=${FIREBASE_API_KEY},FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN},FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID},FIREBASE_APP_ID=${FIREBASE_APP_ID}" \
+  --set-secrets="${SECRET_FLAGS}" \
   --quiet
 
 URL="$(gcloud run services describe "${SERVICE}" --region="${REGION}" --format='value(status.url)')"
