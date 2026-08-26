@@ -104,7 +104,7 @@ Google sign-in is the right choice here over email/password: no password
 to type on an iPad keyboard, and Google guarantees the email address is
 verified, which the next step relies on.
 
-### 2c. Register a web app and copy four values
+### 2c. Register a web app
 
 1. Click the **gear icon → Project settings**.
 2. Scroll to **Your apps**, click the **web icon** (`</>`).
@@ -113,27 +113,38 @@ verified, which the next step relies on.
 4. Firebase shows you a code block. You need exactly four values from it:
    `apiKey`, `authDomain`, `projectId`, `appId`.
 
-**Send me those four values** — they're safe to share. They're public
-identifiers that ship inside any web page using Firebase, not credentials;
-they identify your project the way a street address identifies a house.
-The thing that actually protects JARVIS is the owner check in 2e.
+These are public identifiers that ship inside any web page using Firebase,
+not credentials — they name your project the way a street address names a
+house. What actually protects JARVIS is the owner check in 2e.
 
-### 2d. Download the service account key — this one IS secret
+**Already done for your project.** These values are baked into
+`infra/deploy.sh`, so there's nothing to copy:
 
-1. **Project settings → Service accounts** tab.
-2. Click **Generate new private key** → **Generate key**. A `.json` file
-   downloads.
+| | |
+|---|---|
+| `projectId` | `jarvis-by-claude-a1026` |
+| `authDomain` | `jarvis-by-claude-a1026.firebaseapp.com` |
+| `apiKey` | `AIzaSyCezIYP0fAG-Yq55Z43W4qdwLXEKzC4g1M` |
+| `appId` | `1:701562415519:web:1d377f036cd62c4c66b5aa` |
 
-**Do NOT send me this file, and don't put it in the repo.** It lets
-anything holding it act as your Firebase project's administrator. It goes
-into Google Secret Manager in step 3, and nowhere else.
+(`storageBucket` and `messagingSenderId` were in the block you copied but
+aren't needed — JARVIS uses Firebase only for sign-in, not storage or
+messaging.)
 
-(If you'd rather skip handling this file entirely: when JARVIS runs on
-Google Cloud Run it can authenticate automatically using the service
-account Cloud Run already gives it, provided the Firebase and Cloud Run
-projects are the same one. If you create the Firebase project *inside*
-your existing Google Cloud project, you can skip this download. Tell me
-which way you went and I'll set the config accordingly.)
+### 2d. Service account key — you can skip this
+
+Firebase's *Project settings → Service accounts* tab offers a **Generate
+new private key** button. **You don't need it, and you shouldn't download
+it.**
+
+A Firebase project *is* a Google Cloud project. Yours is
+`jarvis-by-claude-a1026`, and that's where JARVIS will be deployed. When
+a service runs on Cloud Run inside the same project, Google hands it the
+right credentials automatically — no key file, nothing to store, nothing
+that can leak. The deploy script relies on this.
+
+(If you ever run JARVIS somewhere outside Google Cloud — a Mac mini, say —
+you'd need that key then. Not now.)
 
 ### 2e. Say who the owner is
 
@@ -159,47 +170,78 @@ Two details worth knowing:
 If neither is set, JARVIS refuses every request with an error saying so,
 rather than defaulting to letting anyone in.
 
-## 3. Secrets — Google Secret Manager
+## 3. Anthropic API key
 
-Store these as secrets, not plain env vars, in whatever platform you
-deploy to:
-- `ANTHROPIC_API_KEY`
-- the Firebase service account JSON (step 2.4)
+This is what lets JARVIS actually think. Without it the system runs but
+replies with an obvious placeholder saying no model was called.
 
-Everything else in `.env.example` is non-secret config and can be a plain
-Cloud Run environment variable.
+1. Go to https://console.anthropic.com → **API keys** → *Create key*.
+2. Copy it (starts with `sk-ant-`). You can only see it once.
+3. **Don't paste it here in chat** — the deploy script in step 4 asks for
+   it directly and puts it straight into Google Secret Manager.
 
-## 4. Compute — Google Cloud Run
+Also worth doing while you're there: set a **spend limit** on the Anthropic
+account itself (Settings → Limits). JARVIS tracks its own estimated spend
+and warns you, but a hard cap at the source is the one guardrail that
+can't be undone by a bug in my code. ₹3,500/month is roughly $40 — see
+`BUDGET.md`.
 
-1. Create/select a GCP project, enable the Cloud Run and Secret Manager APIs.
-2. Build and push the image (from the repo root):
-   ```bash
-   gcloud builds submit --tag gcr.io/<your-project-id>/jarvis-core -f infra/Dockerfile .
-   ```
-3. Deploy:
-   ```bash
-   gcloud run deploy jarvis-core \
-     --image gcr.io/<your-project-id>/jarvis-core \
-     --platform managed \
-     --region <a region near you> \
-     --allow-unauthenticated \
-     --set-env-vars DATABASE_URL=...,DEV_MODE=false,OWNER_EMAIL=...,CLAUDE_MODEL=claude-sonnet-5,MONTHLY_BUDGET_INR=3500,USD_TO_INR_RATE=90,PRICE_INPUT_USD_PER_1M=3.00,PRICE_OUTPUT_USD_PER_1M=15.00,FIREBASE_API_KEY=...,FIREBASE_AUTH_DOMAIN=...,FIREBASE_PROJECT_ID=...,FIREBASE_APP_ID=... \
-     --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-sa.json=firebase-service-account:latest
-   ```
-   (`--allow-unauthenticated` at the Cloud Run layer is intentional and
-   safe here — the API itself still requires a valid Firebase ID token
-   matching `OWNER_UID` for every real endpoint; only `/health` and the
-   static test console are meant to be reachable without one.)
-4. **Double-check `DEV_MODE` is `false`** in the deployed environment.
-   `DEV_MODE=true` disables login entirely and must only ever be used
-   locally.
-5. Verify: `curl https://<the deployed URL>/health` →
-   `{"status": "ok", ...}`.
+## 4. Deploy — Google Cloud Run
 
-**Why Cloud Run over a VM:** scales to zero when idle, so a solo user
-generates near-$0 compute cost between uses — exactly the brief's
-requirement, and the container is identical if you later redeploy it to a
-Mac mini or home server (that's the whole point of containerizing it).
+Deploying needs a command line, which an iPad doesn't have. **Google Cloud
+Shell** solves this: it's a full terminal that runs in a browser tab, free,
+with the Google Cloud tools already installed.
+
+### 4a. Open Cloud Shell and get the code
+
+1. Go to https://console.cloud.google.com/?cloudshell=true and make sure
+   the project selector at the top says **jarvis-by-claude-a1026**.
+2. Wait for the terminal to appear at the bottom, then run:
+
+```bash
+git clone -b claude/new-session-v0jp79 \
+  https://github.com/sagarnandani/J.A.R.V.I.S-an-personal-advanced-operating-system-.git jarvis
+cd jarvis
+```
+
+### 4b. Run the deploy
+
+```bash
+bash infra/deploy.sh
+```
+
+It will ask you for two things — your Supabase connection string (step 1b)
+and your Anthropic API key (step 3). Typing is hidden. Both go straight
+into Google Secret Manager and are never written to the repo, the
+container image, or the deployment logs.
+
+Everything else is already filled in: your Firebase details, your email as
+the owner, the budget ceiling, the region (Mumbai). The first run takes a
+few minutes, mostly building the container.
+
+It's safe to run again any time — that's also how you deploy future
+changes. It skips secrets that already exist and won't ask twice.
+
+When it finishes it prints your JARVIS URL. It looks like
+`https://jarvis-core-<random>-el.a.run.app`.
+
+### 4c. Tell Firebase to trust that URL
+
+**Sign-in will fail without this step**, with a confusing
+"unauthorized domain" error.
+
+1. Open https://console.firebase.google.com/project/jarvis-by-claude-a1026/authentication/settings
+2. Under **Authorised domains**, click **Add domain**.
+3. Paste the *host part* of your JARVIS URL — the middle bit only, no
+   `https://` and no trailing slash. For example, if the URL is
+   `https://jarvis-core-abc123-el.a.run.app`, add
+   `jarvis-core-abc123-el.a.run.app`.
+
+Firebase only allows sign-ins that originate from a domain on this list —
+a sensible protection, but it can't know about your new URL until you add
+it.
+
+**Send me the URL** once you have it and I'll walk you through step 5.
 
 ## 5. Verify the full loop
 

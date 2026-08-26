@@ -37,14 +37,26 @@ def init_firebase() -> None:
         return
     if _firebase_app is not None:
         return
+    # Naming the project explicitly matters: verifying a sign-in includes
+    # checking the token was issued for THIS project. Left to be guessed
+    # from the environment, that check can silently end up looking at the
+    # wrong project -- or fail to start at all. Since we already know the
+    # project ID from config, we say so.
+    options = (
+        {"projectId": settings.firebase_project_id}
+        if settings.firebase_project_id
+        else None
+    )
+
     if settings.firebase_service_account_path:
         cred = credentials.Certificate(settings.firebase_service_account_path)
-        _firebase_app = firebase_admin.initialize_app(cred)
+        _firebase_app = firebase_admin.initialize_app(cred, options)
     else:
-        # Falls back to Application Default Credentials, which is what
-        # Cloud Run provides automatically via its service account -- no
-        # JSON file needed in that environment.
-        _firebase_app = firebase_admin.initialize_app()
+        # Falls back to Application Default Credentials -- what Cloud Run
+        # supplies automatically from its own service account. This is why
+        # deploying into the same Google Cloud project as Firebase means
+        # no service account key file is needed anywhere.
+        _firebase_app = firebase_admin.initialize_app(options=options)
 
 
 def is_owner(decoded_token: dict, settings) -> bool:

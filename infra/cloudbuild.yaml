@@ -1,0 +1,21 @@
+# Build config for `gcloud builds submit --config infra/cloudbuild.yaml`.
+#
+# Why this file exists rather than the simpler `gcloud builds submit --tag`:
+# that shortcut only works when the Dockerfile sits at the root of what's
+# being uploaded. Ours lives in infra/, because the repo is organised by
+# purpose rather than by what Docker expects. This config keeps the build
+# context at the repo root (the Dockerfile needs to copy from core/) while
+# pointing explicitly at the Dockerfile's real location.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=infra/Dockerfile
+      - --tag=${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _IMAGE: gcr.io/${PROJECT_ID}/jarvis-core

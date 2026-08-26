@@ -41,10 +41,19 @@ is reported by you, not measured by me.
 | # | Step | Where | Status |
 |---|---|---|---|
 | 1 | Apply the database schema | Supabase SQL Editor | **Done** |
-| 2 | Create Firebase project + Google sign-in | Firebase Console | Next |
-| 3 | Get an Anthropic API key | console.anthropic.com | Not started |
-| 4 | Deploy to Cloud Run | Google Cloud | Not started |
+| 2 | Firebase project + Google sign-in | Firebase Console | **Done** |
+| 3 | Get an Anthropic API key | console.anthropic.com | Next |
+| 4 | Deploy (`bash infra/deploy.sh`) | Google Cloud Shell | Not started |
 | 5 | Sign in from your iPad and send a message | Your browser | Not started |
+
+Firebase project: `jarvis-by-claude-a1026`. Because a Firebase project is
+also a Google Cloud project, JARVIS deploys into that same project — which
+means no service account key file has to be created, stored, or protected
+anywhere. Cloud Run supplies those credentials to the service by itself.
+
+Step 4 is one command, run in Google Cloud Shell (a terminal that runs in
+a browser tab, so an iPad is fine). It asks for the two secrets it needs
+and puts them straight into Google Secret Manager.
 
 Step 5 is the actual Stage 0 sign-off — the point where the Definition of
 Done is met and Stage 1 can begin. `DEPLOYMENT.md` has each step in full.
