@@ -38,9 +38,20 @@ class Settings(BaseSettings):
     firebase_auth_domain: str = ""
     firebase_project_id: str = ""
     firebase_app_id: str = ""
-    # The single owner's Firebase UID. Once set, only this UID may
-    # authenticate -- JARVIS Stage 0 is explicitly single-user.
+    # Who is allowed in. JARVIS Stage 0 is explicitly single-user, so
+    # exactly one person may authenticate. Identify them either way:
+    #
+    #   owner_email -- easiest, because you know it before deploying.
+    #     Only honoured when the sign-in provider says the address is
+    #     verified, so nobody can claim ownership by registering an
+    #     unverified account with your address.
+    #   owner_uid   -- Firebase's internal user ID. Exact and immutable,
+    #     but you can only look it up after signing in at least once.
+    #
+    # Setting both is fine (either one matching grants access). Setting
+    # neither is a misconfiguration and the API refuses all requests.
     owner_uid: str | None = None
+    owner_email: str | None = None
 
     # --- LLM provider ---
     anthropic_api_key: str | None = None

@@ -22,25 +22,32 @@ and, because no `ANTHROPIC_API_KEY` was configured, a mock LLM adapter
 that honestly labels its replies as fake rather than pretending. See
 `core/app/llm/mock_adapter.py`.
 
-**Supabase project `ggnyypoopkmhfgtbqync` exists** but the schema hasn't
-been applied to it yet. I couldn't do that from this build session — it
-has no network route to Supabase at all (outbound HTTPS to `*.supabase.co`
-is refused by the session's egress policy, the direct DB host is IPv6-only
-with no IPv6 available here, and the IPv4 pooler port times out). That's a
-sandbox restriction, not a problem with your project. Credentials wouldn't
-change it, so please don't send any.
+**The database is real and ready.** Supabase project
+`ggnyypoopkmhfgtbqync` has the full Stage 0 schema applied (confirmed by
+the owner on 2026-08-26) — six tables, with the five approval defaults
+seeded. Nothing is deployed against it yet, so it's sitting empty and
+costing ₹0 on the free tier.
+
+Note that I can't verify the database's contents myself from a build
+session: this sandbox has no network route to Supabase at all (HTTPS is
+refused by the session's egress policy, the direct DB host is IPv6-only
+with no IPv6 available here, the IPv4 pooler port times out). That's a
+sandbox restriction, not a problem with your project, and no credential
+would change it — so please don't send any. It just means database state
+is reported by you, not measured by me.
 
 **What's left**, in order:
 
-1. **Apply the schema** — paste `db/manual_setup.sql` into Supabase's SQL
-   Editor and press Run. Browser-only, works from an iPad, takes a minute.
-   Step 1a of `DEPLOYMENT.md` has the direct link.
-2. **Firebase project** — for login (step 2).
-3. **Anthropic API key** — so JARVIS talks to a real model instead of the
-   mock (step 3).
-4. **Deploy to Cloud Run** — step 4.
+| # | Step | Where | Status |
+|---|---|---|---|
+| 1 | Apply the database schema | Supabase SQL Editor | **Done** |
+| 2 | Create Firebase project + Google sign-in | Firebase Console | Next |
+| 3 | Get an Anthropic API key | console.anthropic.com | Not started |
+| 4 | Deploy to Cloud Run | Google Cloud | Not started |
+| 5 | Sign in from your iPad and send a message | Your browser | Not started |
 
-Step 1 is the one you can do right now with nothing else in place.
+Step 5 is the actual Stage 0 sign-off — the point where the Definition of
+Done is met and Stage 1 can begin. `DEPLOYMENT.md` has each step in full.
 
 ## What isn't built (on purpose)
 

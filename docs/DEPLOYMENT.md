@@ -84,25 +84,80 @@ detects that port and adjusts how it talks to the database automatically
 
 ## 2. Auth — Firebase
 
-1. Create a free Firebase project at console.firebase.google.com.
-2. Authentication → Sign-in method → enable **Google** (simplest for a
-   single owner; email/password also works if you prefer).
-3. Project settings → General → "Your apps" → add a **Web app**. Copy the
-   config object's `apiKey`, `authDomain`, `projectId`, `appId` — these
-   are public values, not secrets. Set them as `FIREBASE_API_KEY`,
-   `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID`.
-4. Project settings → Service accounts → **Generate new private key**.
-   This downloads a JSON file — this one *is* a secret (it lets code act
-   as your Firebase project's admin). Never commit it. In Cloud Run,
-   store it in Secret Manager (step 4 below) and mount it; locally, save
-   it somewhere outside the repo and point
-   `FIREBASE_SERVICE_ACCOUNT_PATH` at it.
-5. **Set the owner**: sign in once through the test console (after step 3
-   deploy) or via `curl` to get your Firebase UID — it's in the decoded ID
-   token, or visible in Firebase Console → Authentication → Users after
-   your first sign-in. Set `OWNER_UID` to that value and redeploy. Until
-   this is set, the API returns a 500 telling you so (see `app/auth.py`)
-   rather than silently accepting anyone.
+This is what stops anyone else who finds your JARVIS URL from using it.
+All of it is browser work — fine from an iPad.
+
+### 2a. Create the project
+
+1. Go to https://console.firebase.google.com and click **Create a project**.
+   Name it whatever you like (`jarvis` is fine).
+2. It'll offer Google Analytics — **turn it off**. You don't need it, and
+   it's one less thing collecting data.
+
+### 2b. Turn on Google sign-in
+
+1. In the left sidebar: **Build → Authentication → Get started**.
+2. Under **Sign-in method**, click **Google**, toggle it **Enable**.
+3. Pick a support email (your own), then **Save**.
+
+Google sign-in is the right choice here over email/password: no password
+to type on an iPad keyboard, and Google guarantees the email address is
+verified, which the next step relies on.
+
+### 2c. Register a web app and copy four values
+
+1. Click the **gear icon → Project settings**.
+2. Scroll to **Your apps**, click the **web icon** (`</>`).
+3. Give it a nickname (`jarvis-web`), **don't** tick Firebase Hosting,
+   click **Register app**.
+4. Firebase shows you a code block. You need exactly four values from it:
+   `apiKey`, `authDomain`, `projectId`, `appId`.
+
+**Send me those four values** — they're safe to share. They're public
+identifiers that ship inside any web page using Firebase, not credentials;
+they identify your project the way a street address identifies a house.
+The thing that actually protects JARVIS is the owner check in 2e.
+
+### 2d. Download the service account key — this one IS secret
+
+1. **Project settings → Service accounts** tab.
+2. Click **Generate new private key** → **Generate key**. A `.json` file
+   downloads.
+
+**Do NOT send me this file, and don't put it in the repo.** It lets
+anything holding it act as your Firebase project's administrator. It goes
+into Google Secret Manager in step 3, and nowhere else.
+
+(If you'd rather skip handling this file entirely: when JARVIS runs on
+Google Cloud Run it can authenticate automatically using the service
+account Cloud Run already gives it, provided the Firebase and Cloud Run
+projects are the same one. If you create the Firebase project *inside*
+your existing Google Cloud project, you can skip this download. Tell me
+which way you went and I'll set the config accordingly.)
+
+### 2e. Say who the owner is
+
+Set `OWNER_EMAIL` to the Google address you'll sign in with — for you,
+`sagarnandani99@gmail.com`. That's it.
+
+Only that address gets in. Everyone else who signs in gets a clear "this
+JARVIS is configured for a single owner and this account is not it."
+
+Two details worth knowing:
+
+- The check only accepts an email Firebase reports as **verified**.
+  Without that, someone could register an unverified account claiming your
+  address and be let straight in. Google sign-in always reports verified,
+  so this is invisible to you — it just closes the hole.
+- There's also an `OWNER_UID` setting (Firebase's internal user ID). It's
+  more precise, but you can only look it up *after* signing in at least
+  once — which would mean deploying, signing in, copying the ID, and
+  deploying again. Using your email avoids that entirely. You can set
+  `OWNER_UID` later as well if you ever change email address; either one
+  matching lets you in.
+
+If neither is set, JARVIS refuses every request with an error saying so,
+rather than defaulting to letting anyone in.
 
 ## 3. Secrets — Google Secret Manager
 
@@ -128,7 +183,7 @@ Cloud Run environment variable.
      --platform managed \
      --region <a region near you> \
      --allow-unauthenticated \
-     --set-env-vars DATABASE_URL=...,DEV_MODE=false,OWNER_UID=...,CLAUDE_MODEL=claude-sonnet-5,MONTHLY_BUDGET_INR=3500,USD_TO_INR_RATE=90,PRICE_INPUT_USD_PER_1M=3.00,PRICE_OUTPUT_USD_PER_1M=15.00,FIREBASE_API_KEY=...,FIREBASE_AUTH_DOMAIN=...,FIREBASE_PROJECT_ID=...,FIREBASE_APP_ID=... \
+     --set-env-vars DATABASE_URL=...,DEV_MODE=false,OWNER_EMAIL=...,CLAUDE_MODEL=claude-sonnet-5,MONTHLY_BUDGET_INR=3500,USD_TO_INR_RATE=90,PRICE_INPUT_USD_PER_1M=3.00,PRICE_OUTPUT_USD_PER_1M=15.00,FIREBASE_API_KEY=...,FIREBASE_AUTH_DOMAIN=...,FIREBASE_PROJECT_ID=...,FIREBASE_APP_ID=... \
      --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest,FIREBASE_SERVICE_ACCOUNT_PATH=/secrets/firebase-sa.json=firebase-service-account:latest
    ```
    (`--allow-unauthenticated` at the Cloud Run layer is intentional and

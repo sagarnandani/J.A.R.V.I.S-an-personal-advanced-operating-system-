@@ -47,6 +47,33 @@ def init_firebase() -> None:
         _firebase_app = firebase_admin.initialize_app()
 
 
+def is_owner(decoded_token: dict, settings) -> bool:
+    """Is this verified sign-in the owner's?
+
+    Kept separate from the request handling so the rule can be tested
+    directly -- this is the check standing between the whole system and
+    anyone else who finds the URL, so it shouldn't only be exercised
+    through a live Firebase login.
+
+    Matching on email requires the provider to have verified the address.
+    Without that check, someone could register an unverified account
+    claiming the owner's address and be let straight in.
+    """
+    if settings.owner_uid and decoded_token.get("uid") == settings.owner_uid:
+        return True
+
+    if settings.owner_email:
+        email = decoded_token.get("email")
+        if (
+            email
+            and decoded_token.get("email_verified")
+            and email.strip().lower() == settings.owner_email.strip().lower()
+        ):
+            return True
+
+    return False
+
+
 async def get_current_user(
     authorization: str | None = Header(default=None),
 ) -> CurrentUser:
@@ -68,18 +95,19 @@ async def get_current_user(
     except Exception as exc:  # firebase_admin raises several distinct types
         raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
 
-    uid = decoded["uid"]
-    if not settings.owner_uid:
+    if not settings.owner_uid and not settings.owner_email:
         raise HTTPException(
             status_code=500,
-            detail="OWNER_UID is not configured on the server yet. "
-            "See /docs/DEPLOYMENT.md step 'Set the owner'.",
+            detail="No owner is configured on this server yet, so it can't "
+            "tell who is allowed in. Set OWNER_EMAIL (or OWNER_UID) -- see "
+            "/docs/DEPLOYMENT.md step 2.",
         )
-    if uid != settings.owner_uid:
+
+    if not is_owner(decoded, settings):
         raise HTTPException(
             status_code=403,
             detail="This JARVIS instance is configured for a single owner "
             "and this account is not it.",
         )
 
-    return CurrentUser(uid=uid, email=decoded.get("email"))
+    return CurrentUser(uid=decoded["uid"], email=decoded.get("email"))
