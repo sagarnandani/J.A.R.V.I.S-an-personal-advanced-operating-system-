@@ -232,17 +232,67 @@ Deploying needs a command line, which an iPad doesn't have. **Google Cloud
 Shell** solves this: it's a full terminal that runs in a browser tab, free,
 with the Google Cloud tools already installed.
 
-### 4a. Open Cloud Shell and get the code
+### 4a. Open Cloud Shell
 
 1. Go to https://console.cloud.google.com/?cloudshell=true and make sure
    the project selector at the top says **jarvis-by-claude-a1026**.
-2. Wait for the terminal to appear at the bottom, then run:
+2. Wait for the terminal to appear at the bottom.
+
+Cloud Shell already knows who you are on the Google side — it signs you in
+with the same Google account automatically. GitHub is separate, which is
+what step 4a-i deals with.
+
+### 4a-i. Give Cloud Shell read access to the repo
+
+This repo is **private**, so cloning it asks for a GitHub username and
+password. **Entering your GitHub password will not work** — GitHub stopped
+accepting account passwords for git operations in August 2021. What goes
+in the password box is an *access token* instead.
+
+Make one that can do as little as possible:
+
+1. Open https://github.com/settings/personal-access-tokens/new
+2. **Token name:** `cloud-shell-deploy`
+3. **Expiration:** 7 days — you only need it for this deploy
+4. **Repository access:** *Only select repositories* → pick
+   `J.A.R.V.I.S-an-personal-advanced-operating-system-`
+5. **Permissions:** *Repository permissions* → **Contents** → **Read-only**
+6. **Generate token**, then copy it
+
+That token can read one repo, can't change anything, and expires by
+itself. If it ever leaked, the worst case is someone reading code you were
+willing to show me anyway.
+
+### 4a-ii. Clone the code
+
+In Cloud Shell:
 
 ```bash
 git clone -b claude/new-session-v0jp79 \
   https://github.com/sagarnandani/J.A.R.V.I.S-an-personal-advanced-operating-system-.git jarvis
 cd jarvis
 ```
+
+When it prompts:
+
+- **Username:** `sagarnandani`
+- **Password:** paste the token (nothing appears as you paste — that's
+  normal, it's hidden on purpose)
+
+Git won't remember the token afterwards, so a later `git pull` asks again.
+That's deliberate: nothing writes the token to disk.
+
+**Two alternatives**, if you'd rather not deal with tokens:
+
+- Run `gh auth login` first. If Cloud Shell has GitHub's own tool
+  installed, this signs you in through a browser with a short code and no
+  token to copy. If you get "command not found", it isn't installed — use
+  the token above.
+- Make the repo public (GitHub → Settings → General → bottom of the page).
+  Then cloning needs no login at all. There are no passwords or keys in
+  this repo — everything secret lives in Google Secret Manager — so this is
+  safe from a credentials standpoint. It's your call whether you want the
+  code visible; nothing about JARVIS requires it either way.
 
 ### 4b. Run the deploy
 
