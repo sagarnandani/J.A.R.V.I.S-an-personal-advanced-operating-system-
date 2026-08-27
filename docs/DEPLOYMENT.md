@@ -290,13 +290,46 @@ and anyone could use the service — tell me immediately.
 
 ### 4d. Tell Firebase to trust that URL
 
-**Sign-in will fail without this**, with an unhelpful "unauthorized
-domain" error.
+**Sign-in fails without this**, with an unhelpful "unauthorized domain"
+error.
 
 1. Open [Firebase authentication settings](https://console.firebase.google.com/project/jarvis-by-claude-a1026/authentication/settings)
-2. **Authorised domains** → **Add domain**
-3. Paste just the host part — e.g. `jarvis-core-xxxx.onrender.com`, with
+2. **Authorised domains** -> **Add domain**
+3. Paste just the host part -- e.g. `jarvis-core-xxxx.onrender.com`, with
    no `https://` and no trailing slash.
+
+### 4e. Allow the sign-in to come back to your address
+
+One more paste, in a different console. Sign-in sends you to Google, and
+Google sends you back -- and Google only returns to addresses it has been
+told about in advance.
+
+1. Open [Google Cloud credentials](https://console.cloud.google.com/apis/credentials?project=jarvis-by-claude-a1026)
+2. Under **OAuth 2.0 Client IDs**, open the one named something like
+   *Web client (auto created by Google Service)*
+3. Under **Authorised redirect URIs**, click **Add URI** and paste your
+   address with `/__/auth/handler` on the end:
+
+```
+https://jarvis-core-xxxx.onrender.com/__/auth/handler
+```
+
+4. **Save.** It can take a few minutes to take effect.
+
+**Why this step is needed** -- it is genuinely unusual, so it is worth
+knowing rather than just following:
+
+Signing in with a pop-up window does not work on iPhone or iPad, because
+Safari blocks pop-ups. The obvious alternative, redirecting the whole
+page, normally fails too: Firebase's sign-in helper is hosted on its own
+domain, separate from the app, and completing the redirect needs those two
+domains to share browser storage -- exactly what Safari blocks.
+
+Google's documented answer is to serve that helper from the app's own
+domain. JARVIS does this now (`core/app/routes/auth_proxy.py` relays those
+few paths), so the browser only ever sees one domain and nothing is
+cross-origin. The address Google returns to changes as a result, and this
+step is telling Google about it.
 
 ### What the free tier costs you
 
