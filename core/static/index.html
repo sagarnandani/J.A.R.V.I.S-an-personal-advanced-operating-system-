@@ -25,7 +25,10 @@
   <section>
     <div id="whoami">Not signed in.</div>
     <button id="signin">Sign in with Google</button>
+    <button id="popup" style="display:none">Try pop-up sign-in instead</button>
     <button id="signout" style="display:none">Sign out</button>
+    <button id="diagnose">Why isn't sign-in working?</button>
+    <pre id="diagOut" style="display:none"></pre>
   </section>
 
   <section>
@@ -48,12 +51,14 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
     import {
       getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
-      signOut, onAuthStateChanged,
+      signInWithPopup, signOut, onAuthStateChanged,
     } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 
     const whoami = document.getElementById("whoami");
     const signinBtn = document.getElementById("signin");
+    const popupBtn = document.getElementById("popup");
     const signoutBtn = document.getElementById("signout");
+    const diagOut = document.getElementById("diagOut");
     const messageOut = document.getElementById("messageOut");
     const verifyOut = document.getElementById("verifyOut");
 
@@ -108,24 +113,44 @@
         }
       });
 
-      // Redirect rather than a pop-up: iOS Safari blocks pop-ups by
-      // default, so the pop-up version simply never opened. This sends the
-      // whole page to Google and back. It only works because the server
-      // serves Firebase's sign-in helper from this same domain -- see
-      // core/app/routes/auth_proxy.py.
-      signinBtn.onclick = () => {
+      // Redirect rather than a pop-up: iOS Safari blocks pop-ups, so the
+      // pop-up version never opened at all. This sends the whole page to
+      // Google and back, which works because the server serves Firebase's
+      // sign-in helper from this same domain (core/app/routes/auth_proxy.py).
+      //
+      // Every failure below is shown on screen. An earlier version let
+      // these reject silently, which looked exactly like nothing
+      // happening and gave nothing to debug.
+      signinBtn.onclick = async () => {
         whoami.textContent = "Taking you to Google...";
-        signInWithRedirect(auth, new GoogleAuthProvider());
+        try {
+          await signInWithRedirect(auth, new GoogleAuthProvider());
+        } catch (e) {
+          whoami.textContent = `Redirect sign-in failed: ${e.code || e.message}`;
+          popupBtn.style.display = "inline-block";
+        }
       };
+
+      // Kept as a manual fallback. It won't work on iOS with pop-ups
+      // blocked, but on any other browser it's a second way in -- and if
+      // it succeeds where redirect fails, that itself narrows the fault.
+      popupBtn.onclick = async () => {
+        whoami.textContent = "Opening Google sign-in window...";
+        try {
+          await signInWithPopup(auth, new GoogleAuthProvider());
+        } catch (e) {
+          whoami.textContent = `Pop-up sign-in failed too: ${e.code || e.message}`;
+        }
+      };
+
       signoutBtn.onclick = () => signOut(auth);
 
-      // Coming back from Google. onAuthStateChanged reports the signed-in
-      // user either way; this call is what surfaces a failure instead of
-      // leaving you on a page that just looks signed-out for no reason.
+      // Coming back from Google.
       try {
         await getRedirectResult(auth);
       } catch (e) {
-        whoami.textContent = `Sign-in failed: ${e.code || e.message}`;
+        whoami.textContent = `Sign-in failed on the way back: ${e.code || e.message}`;
+        popupBtn.style.display = "inline-block";
       }
     })();
 
@@ -153,6 +178,48 @@
         verifyOut.textContent = `Error: ${e.message}`;
       }
     }
+
+    // Checks the two things that actually stop sign-in working, so a
+    // failure can be reported precisely instead of as "nothing happened".
+    document.getElementById("diagnose").onclick = async () => {
+      diagOut.style.display = "block";
+      diagOut.textContent = "Checking...";
+      const lines = [];
+
+      lines.push(`This page is served from: ${location.host}`);
+
+      try {
+        const cfg = await fetch("/public/firebase-config").then((r) => r.json());
+        lines.push(`Server reports sign-in domain: ${cfg.authDomain || "(not set)"}`);
+        lines.push(`Firebase project: ${cfg.projectId || "(not set)"}`);
+        if (cfg.authDomain !== location.host) {
+          lines.push("PROBLEM: those two must match, and don't.");
+        } else {
+          lines.push("OK: sign-in domain matches this page's domain.");
+        }
+        if (!cfg.apiKey) lines.push("PROBLEM: no Firebase apiKey configured on the server.");
+      } catch (e) {
+        lines.push(`PROBLEM: could not read server config -- ${e.message}`);
+      }
+
+      try {
+        const res = await fetch("/__/auth/iframe.js", { method: "GET" });
+        lines.push(`Sign-in helper (/__/auth/iframe.js): HTTP ${res.status}`);
+        if (res.status === 502) {
+          lines.push("PROBLEM: this server cannot reach Google to fetch it.");
+        } else if (res.status === 404) {
+          lines.push("PROBLEM: the relay route is missing -- server needs redeploying.");
+        } else if (res.ok) {
+          lines.push("OK: the sign-in helper is being served from this domain.");
+        }
+      } catch (e) {
+        lines.push(`PROBLEM: could not reach the sign-in helper -- ${e.message}`);
+      }
+
+      lines.push("");
+      lines.push("Send this whole block to Claude.");
+      diagOut.textContent = lines.join("\n");
+    };
 
     document.getElementById("loadMemories").onclick = () => loadJson("/v1/memories");
     document.getElementById("loadAudit").onclick = () => loadJson("/v1/audit");
