@@ -60,8 +60,12 @@ without anything being applied twice.)
 
 ### 1b. Get the connection string for the deployed service
 
-Open Settings → Database → **Connection string**, and pick the
-**Session pooler** tab (NOT "Direct connection"). It looks like:
+Tap **Connect** in the header bar at the top of your project page (not
+under Settings — Supabase moved it). Direct link:
+https://supabase.com/dashboard/project/ggnyypoopkmhfgtbqync?showConnect=true
+
+In that panel, **copy whichever string has the word `pooler` in its
+address.** That's the whole rule. It looks like:
 
 ```
 postgresql://postgres.ggnyypoopkmhfgtbqync:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:5432/postgres
@@ -85,10 +89,11 @@ your project rather than assuming:
   Supabase also charges extra for an IPv4 add-on on direct connections;
   the pooler is free.
 
-If you accidentally grab the **Transaction pooler** string (port `6543`)
-instead of the Session pooler (port `5432`), it still works — the code
-detects that port and adjusts how it talks to the database automatically
-(`core/app/db.py`). Either is fine; session pooler is marginally faster.
+**Session pooler or Transaction pooler — either is fine.** The code
+detects which one you gave it and adjusts how it talks to the database
+(`core/app/db.py`), so there is no wrong choice between those two. The
+only string to avoid is **Direct connection**, which has no `pooler` in
+its address and is unreachable from most hosts (see above).
 
 ## 2. Auth — Firebase
 
