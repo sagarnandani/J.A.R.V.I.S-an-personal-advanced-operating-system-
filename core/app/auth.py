@@ -1,27 +1,47 @@
 """Authentication.
 
-Stage 0 is explicitly single-user: only the owner may ever call the
+Stage 0 is explicitly single-user: only the owner may call the
 authenticated endpoints. A request must carry a valid Firebase ID token
-(`Authorization: Bearer <token>`) whose `uid` matches `settings.owner_uid`.
-Firebase verifies the token was genuinely issued to a signed-in user; the
-owner_uid check is defense-in-depth on top of that, in case a second
-account is ever added to the Firebase project by mistake.
+(`Authorization: Bearer <token>`) belonging to the owner.
 
-`dev_mode` bypasses all of this and returns a fixed fake user. It exists
-so the API can be developed and tested without live Firebase credentials.
-It must be false in any deployment reachable from the internet -- see the
-loud warning in main.py's startup log when it's on.
+**No Google credentials are needed to run this.** Firebase ID tokens are
+signed by Google, and the keys needed to check that signature are
+published openly. We fetch those public keys and verify the token
+ourselves, rather than using Firebase's Admin library, which would demand
+either a secret key file or a Google-hosted environment. That choice is
+what lets JARVIS run on Render, a home server, or anywhere else without a
+Google service account -- the portability the architecture doc asks for
+(section D), and one fewer secret to store and protect.
+
+`dev_mode` bypasses all of this and returns a fixed fake user, so the API
+can be developed and tested without live Firebase. It must be false in any
+deployment reachable from the internet.
 """
+import threading
+import time
 from dataclasses import dataclass
 
-import firebase_admin
+import requests
 from fastapi import Header, HTTPException
-from firebase_admin import auth as firebase_auth
-from firebase_admin import credentials
+from google.auth import jwt as google_jwt
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 
-_firebase_app: firebase_admin.App | None = None
+# Where Google publishes the public keys for Firebase ID tokens. Public
+# data -- no authentication required to read it.
+FIREBASE_CERTS_URL = (
+    "https://www.googleapis.com/robot/v1/metadata/x509/"
+    "securetoken@system.gserviceaccount.com"
+)
+# Google rotates these keys occasionally. Re-fetching on every request
+# would add a network round trip to every message; caching for 30 minutes
+# keeps verification fast while picking up rotations well within the time
+# Google keeps old keys valid.
+_CERT_CACHE_SECONDS = 1800
+
+_certs_lock = threading.Lock()
+_certs: dict | None = None
+_certs_fetched_at: float = 0.0
 
 
 @dataclass
@@ -31,32 +51,83 @@ class CurrentUser:
 
 
 def init_firebase() -> None:
-    global _firebase_app
-    settings = get_settings()
-    if settings.dev_mode:
-        return
-    if _firebase_app is not None:
-        return
-    # Naming the project explicitly matters: verifying a sign-in includes
-    # checking the token was issued for THIS project. Left to be guessed
-    # from the environment, that check can silently end up looking at the
-    # wrong project -- or fail to start at all. Since we already know the
-    # project ID from config, we say so.
-    options = (
-        {"projectId": settings.firebase_project_id}
-        if settings.firebase_project_id
-        else None
-    )
+    """Kept as a no-op so startup code reads the same.
 
-    if settings.firebase_service_account_path:
-        cred = credentials.Certificate(settings.firebase_service_account_path)
-        _firebase_app = firebase_admin.initialize_app(cred, options)
-    else:
-        # Falls back to Application Default Credentials -- what Cloud Run
-        # supplies automatically from its own service account. This is why
-        # deploying into the same Google Cloud project as Firebase means
-        # no service account key file is needed anywhere.
-        _firebase_app = firebase_admin.initialize_app(options=options)
+    Verification needs no initialisation any more -- there is no client to
+    build and no credential to load.
+    """
+    return None
+
+
+def _get_certs(force_refresh: bool = False) -> dict:
+    global _certs, _certs_fetched_at
+    with _certs_lock:
+        fresh = (
+            _certs is not None
+            and (time.time() - _certs_fetched_at) < _CERT_CACHE_SECONDS
+        )
+        if fresh and not force_refresh:
+            return _certs
+
+        response = requests.get(FIREBASE_CERTS_URL, timeout=10)
+        response.raise_for_status()
+        _certs = response.json()
+        _certs_fetched_at = time.time()
+        return _certs
+
+
+def verify_firebase_token(token: str, settings: Settings) -> dict:
+    """Check the token is genuinely Google's, and genuinely for us.
+
+    Three things must hold, and all three matter:
+      * the signature matches one of Google's published keys (proves
+        Google issued it and it hasn't been tampered with);
+      * the audience is our Firebase project (proves it was issued for
+        THIS app -- a valid token for some other Firebase project must
+        not open our door);
+      * the issuer is Firebase's token service for our project.
+
+    Signature, audience and expiry are checked by the library. Issuer is
+    checked here, because the library does not.
+    """
+    project_id = settings.firebase_project_id
+    if not project_id:
+        raise HTTPException(
+            status_code=500,
+            detail="FIREBASE_PROJECT_ID is not configured on this server, so "
+            "sign-ins cannot be verified. See /docs/DEPLOYMENT.md.",
+        )
+
+    def _decode(certs: dict) -> dict:
+        return google_jwt.decode(token, certs=certs, audience=project_id)
+
+    try:
+        claims = _decode(_get_certs())
+    except ValueError:
+        # A key rotation is the common innocent cause of a signature that
+        # doesn't match a cached key. Refetch once before rejecting, so a
+        # rotation doesn't lock the owner out until the cache expires.
+        try:
+            claims = _decode(_get_certs(force_refresh=True))
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not reach Google to verify the sign-in: {exc}",
+        ) from exc
+
+    expected_issuer = f"https://securetoken.google.com/{project_id}"
+    if claims.get("iss") != expected_issuer:
+        raise HTTPException(status_code=401, detail="Token has the wrong issuer.")
+
+    if not claims.get("sub"):
+        raise HTTPException(status_code=401, detail="Token has no subject.")
+
+    # Firebase puts the user id in `sub`; expose it as `uid` so the rest of
+    # the code reads naturally.
+    claims["uid"] = claims["sub"]
+    return claims
 
 
 def is_owner(decoded_token: dict, settings) -> bool:
@@ -101,11 +172,7 @@ async def get_current_user(
             "as 'Authorization: Bearer <token>'.",
         )
 
-    token = authorization.removeprefix("Bearer ").strip()
-    try:
-        decoded = firebase_auth.verify_id_token(token)
-    except Exception as exc:  # firebase_admin raises several distinct types
-        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
+    claims = verify_firebase_token(authorization.removeprefix("Bearer ").strip(), settings)
 
     if not settings.owner_uid and not settings.owner_email:
         raise HTTPException(
@@ -115,11 +182,11 @@ async def get_current_user(
             "/docs/DEPLOYMENT.md step 2.",
         )
 
-    if not is_owner(decoded, settings):
+    if not is_owner(claims, settings):
         raise HTTPException(
             status_code=403,
             detail="This JARVIS instance is configured for a single owner "
             "and this account is not it.",
         )
 
-    return CurrentUser(uid=decoded["uid"], email=decoded.get("email"))
+    return CurrentUser(uid=claims["uid"], email=claims.get("email"))

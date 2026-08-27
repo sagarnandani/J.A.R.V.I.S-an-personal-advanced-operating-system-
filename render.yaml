@@ -1,0 +1,64 @@
+# Render Blueprint -- deploys JARVIS from this repo with no terminal.
+#
+# Render reads this file when you connect the repository, so the service
+# arrives pre-configured: the right Dockerfile, the right region, the
+# right settings. You only fill in the two secrets, in a web form.
+#
+# This file lives at the repo root because that is where Render looks for
+# it. Everything else stays in infra/.
+services:
+  - type: web
+    name: jarvis-core
+    runtime: docker
+    # Build context is the repo root (the Dockerfile copies from core/),
+    # with the Dockerfile itself in infra/.
+    dockerfilePath: ./infra/Dockerfile
+    dockerContext: .
+    region: singapore          # closest Render region to India
+    plan: free
+    healthCheckPath: /health
+    # Deploy automatically whenever this branch is updated.
+    autoDeploy: true
+    branch: claude/new-session-v0jp79
+    envVars:
+      # --- Safety: must stay false on anything reachable from the internet ---
+      - key: DEV_MODE
+        value: "false"
+
+      # --- Who is allowed in ---
+      - key: OWNER_EMAIL
+        value: sagarnandani99@gmail.com
+
+      # --- Firebase (public identifiers, not secrets) ---
+      - key: FIREBASE_PROJECT_ID
+        value: jarvis-by-claude-a1026
+      - key: FIREBASE_AUTH_DOMAIN
+        value: jarvis-by-claude-a1026.firebaseapp.com
+      - key: FIREBASE_API_KEY
+        value: AIzaSyCezIYP0fAG-Yq55Z43W4qdwLXEKzC4g1M
+      - key: FIREBASE_APP_ID
+        value: "1:701562415519:web:1d377f036cd62c4c66b5aa"
+
+      # --- Model provider ---
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: CLAUDE_MODEL
+        value: claude-sonnet-5
+
+      # --- Budget guardrail (see docs/BUDGET.md) ---
+      - key: MONTHLY_BUDGET_INR
+        value: "3500"
+      - key: USD_TO_INR_RATE
+        value: "90"
+
+      # --- Secrets: sync:false means Render asks YOU for these in the
+      #     dashboard and never stores them in this file or in git. ---
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # Optional. Leave blank unless you want Claude as automatic fallback.
+      - key: ANTHROPIC_API_KEY
+        sync: false

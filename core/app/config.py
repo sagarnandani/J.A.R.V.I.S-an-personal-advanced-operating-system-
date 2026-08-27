@@ -27,9 +27,6 @@ class Settings(BaseSettings):
     dev_mode: bool = False
 
     # --- Firebase Auth ---
-    # Path to the service account JSON (mounted from Secret Manager in
-    # prod). Only required when dev_mode is false.
-    firebase_service_account_path: str | None = None
     # The Firebase project's public web config, served to the test console
     # via GET /public/firebase-config. These values are NOT secret -- they
     # identify the project to Firebase's client SDK, the same way a

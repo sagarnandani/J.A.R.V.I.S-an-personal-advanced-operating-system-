@@ -38,12 +38,10 @@ The code is complete and has been tested locally (a real Postgres
 database, real HTTP requests, the full message → memory → audit →
 budget → emergency-stop path all verified working).
 
-What's left is provisioning: a Supabase project exists
-(`ggnyypoopkmhfgtbqync`) but still needs its schema applied — a
-copy-paste job you can do from an iPad in about a minute — plus Firebase,
-an Anthropic API key, and a Cloud Run deploy. `docs/DEPLOYMENT.md` is the
-exact checklist, in order. Once deployed, `GET /health` tells you it's
-alive.
+The database, login and model key are all set up. What's left is the
+deploy itself, which is done from a browser on Render — connect the repo,
+fill in two secrets, press a button. `docs/DEPLOYMENT.md` is the exact
+checklist, in order. Once deployed, `GET /health` tells you it's alive.
 
 ## How to try it locally (no cloud account needed)
 

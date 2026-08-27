@@ -3,7 +3,12 @@ uvicorn[standard]>=0.32,<0.33
 asyncpg>=0.30,<0.31
 pydantic>=2.9,<3
 pydantic-settings>=2.6,<3
-firebase-admin>=6.6,<7
+# Verifying a Firebase sign-in only needs Google's PUBLIC keys, so we use
+# google-auth directly instead of firebase-admin. That drops ~11MB of
+# Cloud Firestore/Storage libraries we never call, needs no service
+# account key, and lets JARVIS run anywhere -- not just on Google.
+google-auth>=2.36,<3
+requests>=2.32,<3
 
 # --- Model providers ---
 # Both are installed regardless of which one is configured as primary, so

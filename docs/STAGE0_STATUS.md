@@ -15,7 +15,7 @@ and locally test the complete Stage 0 codebase:
   `memories` with correct provenance, seeing it logged in `audit_log`,
   reading back the budget estimate, toggling Emergency Stop and confirming
   it actually blocks requests.
-- 35 automated tests, all passing (`core/tests/`).
+- 42 automated tests, all passing (`core/tests/`).
 
 None of that required a cloud account — it ran against a local Postgres,
 with no provider key configured, so a mock adapter answered and labelled
@@ -48,17 +48,28 @@ leaked key.)
 | 1 | Apply the database schema | Supabase SQL Editor | **Done** |
 | 2 | Firebase project + Google sign-in | Firebase Console | **Done** |
 | 3 | Get a Gemini API key (free) | aistudio.google.com | **Done** |
-| 4 | Deploy (`bash infra/deploy.sh`) | Google Cloud Shell | Next |
+| 4 | Deploy from the repo | Render (browser only) | Next |
 | 5 | Sign in from your iPad and send a message | Your browser | Not started |
 
-Firebase project: `jarvis-by-claude-a1026`. Because a Firebase project is
-also a Google Cloud project, JARVIS deploys into that same project — which
-means no service account key file has to be created, stored, or protected
-anywhere. Cloud Run supplies those credentials to the service by itself.
+**Hosting: Render, not Google Cloud Run.** Cloud Run needed a command
+line and a billing account (a card on file) before it would switch its
+services on. Render deploys straight from this GitHub repo through a web
+form — no terminal at all, which suits an iPad. `render.yaml` in the repo
+root pre-fills everything except the two secrets, which Render asks for in
+its dashboard and never stores in git.
 
-Step 4 is one command, run in Google Cloud Shell (a terminal that runs in
-a browser tab, so an iPad is fine). It asks for the secrets it needs and
-puts them straight into Google Secret Manager.
+The trade-off is honest: Render's free service sleeps after 15 minutes
+idle and takes about a minute to wake. Cloud Run doesn't sleep, and
+`infra/deploy.sh` still deploys the same container there whenever that
+matters more than avoiding a card. Because JARVIS is a container talking
+to a standard database, moving between them is configuration, not a
+rewrite — which is exactly what the architecture doc's portability
+requirement was for.
+
+**No Google credentials are needed anywhere.** Verifying a Firebase
+sign-in only requires Google's public keys, so JARVIS checks the signature
+itself rather than using Firebase's Admin library. That removed a secret
+from the system entirely and made the login work on any host.
 
 **Model provider:** JARVIS supports Google Gemini and Anthropic Claude
 behind a common interface, chosen with one setting (`LLM_PROVIDER`).

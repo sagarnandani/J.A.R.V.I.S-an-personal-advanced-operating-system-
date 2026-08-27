@@ -139,20 +139,21 @@ house. What actually protects JARVIS is the owner check in 2e.
 aren't needed — JARVIS uses Firebase only for sign-in, not storage or
 messaging.)
 
-### 2d. Service account key — you can skip this
+### 2d. Service account key — never needed
 
 Firebase's *Project settings → Service accounts* tab offers a **Generate
-new private key** button. **You don't need it, and you shouldn't download
-it.**
+new private key** button. **Don't.** JARVIS never uses it.
 
-A Firebase project *is* a Google Cloud project. Yours is
-`jarvis-by-claude-a1026`, and that's where JARVIS will be deployed. When
-a service runs on Cloud Run inside the same project, Google hands it the
-right credentials automatically — no key file, nothing to store, nothing
-that can leak. The deploy script relies on this.
+Checking that a sign-in is genuine only needs Google's **public** keys,
+which anyone can read. JARVIS fetches those and verifies the signature
+itself (`core/app/auth.py`). No secret key, nothing to store, nothing that
+can leak — and it works identically on Render, Google Cloud, or a Mac mini
+in your house.
 
-(If you ever run JARVIS somewhere outside Google Cloud — a Mac mini, say —
-you'd need that key then. Not now.)
+(I originally said to skip this because Google Cloud would supply the
+credentials automatically. That was true but narrower: it only held while
+JARVIS ran on Google. Verifying against the public keys is better —
+it needs no credentials anywhere.)
 
 ### 2e. Say who the owner is
 
@@ -226,113 +227,104 @@ JARVIS logs a warning at startup saying exactly that, so the zero is never
 mistaken for verified proof that nothing is being spent. If you ever
 enable billing, set the real prices (see `BUDGET.md`).
 
-## 4. Deploy — Google Cloud Run
+## 4. Deploy — Render
 
-Deploying needs a command line, which an iPad doesn't have. **Google Cloud
-Shell** solves this: it's a full terminal that runs in a browser tab, free,
-with the Google Cloud tools already installed.
+**No terminal. No command line. All of this is taps in a browser.**
 
-### 4a. Open Cloud Shell
+Render reads `render.yaml` from this repo, so the service arrives already
+configured — region, Dockerfile, all the non-secret settings. You supply
+two secrets in a web form and press a button.
 
-1. Go to https://console.cloud.google.com/?cloudshell=true and make sure
-   the project selector at the top says **jarvis-by-claude-a1026**.
-2. Wait for the terminal to appear at the bottom.
+### 4a. Sign up and connect GitHub
 
-Cloud Shell already knows who you are on the Google side — it signs you in
-with the same Google account automatically. GitHub is separate, which is
-what step 4a-i deals with.
+1. Go to **[render.com](https://render.com)** → *Get Started* → **Sign in
+   with GitHub**.
+2. Authorise Render. When it asks which repositories, you can grant access
+   to **only** the JARVIS repo rather than all of them — do that.
 
-### 4a-i. Give Cloud Shell read access to the repo
+Signing in through GitHub is also what gives Render read access to your
+private repo, so there's no token to create this time.
 
-This repo is **private**, so cloning it asks for a GitHub username and
-password. **Entering your GitHub password will not work** — GitHub stopped
-accepting account passwords for git operations in August 2021. What goes
-in the password box is an *access token* instead.
+### 4b. Create the service from the blueprint
 
-Make one that can do as little as possible:
+1. In the Render dashboard: **New +** → **Blueprint**.
+2. Pick your JARVIS repository.
+3. Branch: **`claude/new-session-v0jp79`**.
+4. Render reads `render.yaml` and shows a service called **jarvis-core**.
+   It will ask you to fill in three values:
 
-1. Open https://github.com/settings/personal-access-tokens/new
-2. **Token name:** `cloud-shell-deploy`
-3. **Expiration:** 7 days — you only need it for this deploy
-4. **Repository access:** *Only select repositories* → pick
-   `J.A.R.V.I.S-an-personal-advanced-operating-system-`
-5. **Permissions:** *Repository permissions* → **Contents** → **Read-only**
-6. **Generate token**, then copy it
+| Field | What to paste |
+|---|---|
+| `DATABASE_URL` | Your Supabase **Session pooler** string (step 1b), with `[YOUR-PASSWORD]` replaced by your real database password |
+| `GEMINI_API_KEY` | Your Gemini key (step 3a) |
+| `ANTHROPIC_API_KEY` | **Leave blank** unless you want Claude as fallback |
 
-That token can read one repo, can't change anything, and expires by
-itself. If it ever leaked, the worst case is someone reading code you were
-willing to show me anyway.
+5. **Apply** / **Create**.
 
-### 4a-ii. Clone the code
+Those three are marked `sync: false` in `render.yaml`, which is Render's
+way of saying "ask the human, never store this in the repo". That's why
+they aren't in the file even though everything else is.
 
-In Cloud Shell:
+### 4c. Wait for the build
 
-```bash
-git clone -b claude/new-session-v0jp79 \
-  https://github.com/sagarnandani/J.A.R.V.I.S-an-personal-advanced-operating-system-.git jarvis
-cd jarvis
+Five to ten minutes on the free tier. The log ends with your service
+going **Live** and a URL like:
+
+```
+https://jarvis-core-xxxx.onrender.com
 ```
 
-When it prompts:
+Visit `<that URL>/health`. You want:
 
-- **Username:** `sagarnandani`
-- **Password:** paste the token (nothing appears as you paste — that's
-  normal, it's hidden on purpose)
-
-Git won't remember the token afterwards, so a later `git pull` asks again.
-That's deliberate: nothing writes the token to disk.
-
-**Two alternatives**, if you'd rather not deal with tokens:
-
-- Run `gh auth login` first. If Cloud Shell has GitHub's own tool
-  installed, this signs you in through a browser with a short code and no
-  token to copy. If you get "command not found", it isn't installed — use
-  the token above.
-- Make the repo public (GitHub → Settings → General → bottom of the page).
-  Then cloning needs no login at all. There are no passwords or keys in
-  this repo — everything secret lives in Google Secret Manager — so this is
-  safe from a credentials standpoint. It's your call whether you want the
-  code visible; nothing about JARVIS requires it either way.
-
-### 4b. Run the deploy
-
-```bash
-bash infra/deploy.sh
+```json
+{"status":"ok","emergency_stop":false,"dev_mode":false}
 ```
 
-It asks for your Supabase connection string (step 1b) and your Gemini API
-key (step 3a), then optionally an Anthropic key for fallback — press Enter
-to skip that one. Typing is hidden. Both go straight
-into Google Secret Manager and are never written to the repo, the
-container image, or the deployment logs.
+`dev_mode` must read **false**. If it ever says true, sign-in is disabled
+and anyone could use the service — tell me immediately.
 
-Everything else is already filled in: your Firebase details, your email as
-the owner, the budget ceiling, the region (Mumbai). The first run takes a
-few minutes, mostly building the container.
+### 4d. Tell Firebase to trust that URL
 
-It's safe to run again any time — that's also how you deploy future
-changes. It skips secrets that already exist and won't ask twice.
+**Sign-in will fail without this**, with an unhelpful "unauthorized
+domain" error.
 
-When it finishes it prints your JARVIS URL. It looks like
-`https://jarvis-core-<random>-el.a.run.app`.
+1. Open [Firebase authentication settings](https://console.firebase.google.com/project/jarvis-by-claude-a1026/authentication/settings)
+2. **Authorised domains** → **Add domain**
+3. Paste just the host part — e.g. `jarvis-core-xxxx.onrender.com`, with
+   no `https://` and no trailing slash.
 
-### 4c. Tell Firebase to trust that URL
+### What the free tier costs you
 
-**Sign-in will fail without this step**, with a confusing
-"unauthorized domain" error.
+Not money — responsiveness. A free Render service **sleeps after 15
+minutes of no use**, and the next request takes about a minute to wake it.
+So JARVIS will feel instant while you're using it and slow on the first
+message after a break. Fine for proving Stage 0 works; worth revisiting
+before JARVIS becomes something you rely on during a working day.
 
-1. Open https://console.firebase.google.com/project/jarvis-by-claude-a1026/authentication/settings
-2. Under **Authorised domains**, click **Add domain**.
-3. Paste the *host part* of your JARVIS URL — the middle bit only, no
-   `https://` and no trailing slash. For example, if the URL is
-   `https://jarvis-core-abc123-el.a.run.app`, add
-   `jarvis-core-abc123-el.a.run.app`.
+### Deploying changes later
 
-Firebase only allows sign-ins that originate from a domain on this list —
-a sensible protection, but it can't know about your new URL until you add
-it.
+Push to the branch and Render rebuilds automatically (`autoDeploy: true`).
+Nothing to run.
 
-**Send me the URL** once you have it and I'll walk you through step 5.
+---
+
+## 4-alt. Deploy — Google Cloud Run (the other option)
+
+`infra/deploy.sh` deploys the same container to Google Cloud Run instead.
+It's kept because Cloud Run doesn't sleep, so it stays snappy, and it's a
+better home once JARVIS is doing real work.
+
+Two reasons it isn't the default any more:
+
+- It needs a command line (Google Cloud Shell in a browser tab works, but
+  it's fiddly on an iPad).
+- Cloud Run, Cloud Build and Artifact Registry all require a **billing
+  account attached to the project** — a card on file — even though usage
+  at this scale stays inside the free allowance. Render's free tier does
+  not require that up front.
+
+If you'd rather go this way, everything for it is in `infra/deploy.sh`;
+run `bash infra/deploy.sh` from Cloud Shell after cloning the repo.
 
 ## 5. Verify the full loop
 

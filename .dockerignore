@@ -1,0 +1,16 @@
+# Keeps the Docker build context small -- matters most on Render's free
+# tier, where builds get modest CPU. The Dockerfile only needs core/app,
+# core/static and core/requirements.txt.
+.git/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+docs/
+workers/
+db/
+core/tests/
+infra/deploy.sh
+infra/docker-compose.yml
