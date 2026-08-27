@@ -9,6 +9,10 @@ pydantic-settings>=2.6,<3
 # account key, and lets JARVIS run anywhere -- not just on Google.
 google-auth>=2.36,<3
 requests>=2.32,<3
+# Used by the Firebase sign-in proxy (app/routes/auth_proxy.py). It
+# arrives anyway as a dependency of google-genai, but this code imports it
+# directly, so it is named directly.
+httpx>=0.27,<0.29
 
 # --- Model providers ---
 # Both are installed regardless of which one is configured as primary, so

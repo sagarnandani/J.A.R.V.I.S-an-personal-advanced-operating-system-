@@ -47,7 +47,8 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
     import {
-      getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+      getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
+      signOut, onAuthStateChanged,
     } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 
     const whoami = document.getElementById("whoami");
@@ -107,8 +108,25 @@
         }
       });
 
-      signinBtn.onclick = () => signInWithPopup(auth, new GoogleAuthProvider());
+      // Redirect rather than a pop-up: iOS Safari blocks pop-ups by
+      // default, so the pop-up version simply never opened. This sends the
+      // whole page to Google and back. It only works because the server
+      // serves Firebase's sign-in helper from this same domain -- see
+      // core/app/routes/auth_proxy.py.
+      signinBtn.onclick = () => {
+        whoami.textContent = "Taking you to Google...";
+        signInWithRedirect(auth, new GoogleAuthProvider());
+      };
       signoutBtn.onclick = () => signOut(auth);
+
+      // Coming back from Google. onAuthStateChanged reports the signed-in
+      // user either way; this call is what surfaces a failure instead of
+      // leaving you on a page that just looks signed-out for no reason.
+      try {
+        await getRedirectResult(auth);
+      } catch (e) {
+        whoami.textContent = `Sign-in failed: ${e.code || e.message}`;
+      }
     })();
 
     document.getElementById("send").onclick = async () => {

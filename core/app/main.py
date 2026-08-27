@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from app.auth import init_firebase
 from app.config import get_settings
 from app.db import lifespan_db
-from app.routes import admin, budget, health, message, records
+from app.routes import admin, auth_proxy, budget, health, message, records
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jarvis")
@@ -73,6 +73,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(auth_proxy.router)
 app.include_router(message.router)
 app.include_router(records.router)
 app.include_router(budget.router)
