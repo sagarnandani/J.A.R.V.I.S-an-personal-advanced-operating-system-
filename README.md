@@ -30,6 +30,16 @@ autonomous behaviour. Those are later stages, described in
 /docs   — plain-language docs: status, deployment steps, budget rules
 ```
 
+## Deploy it
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/sagarnandani/J.A.R.V.I.S-an-personal-advanced-operating-system-)
+
+One tap. Render reads `render.yaml` from this repo and sets everything up
+except two secrets, which it asks you for in a form: your Supabase
+connection string and your Gemini API key. Full walkthrough, including the
+one Firebase setting that must be changed afterwards, is in
+`docs/DEPLOYMENT.md` step 4.
+
 ## Is it running right now?
 
 Nothing is deployed to the internet yet — see
