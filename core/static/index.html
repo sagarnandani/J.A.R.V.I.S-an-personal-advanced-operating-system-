@@ -256,18 +256,58 @@
       }
     })();
 
+    // Says what happened in words. The raw response is kept underneath for
+    // when the details matter, but nobody should have to read JSON to find
+    // out whether their assistant answered.
+    function explainMessageResult(res, data) {
+      if (res.ok) {
+        const who =
+          data.provider === "mock"
+            ? "\n\n(No real model answered. The server has no working model key, " +
+              "so this is a placeholder reply. Check GEMINI_API_KEY in Render.)"
+            : `\n\n(Answered by ${data.provider}, model ${data.model}. Saved to memory.)`;
+        return `JARVIS says:\n\n${data.reply}${who}`;
+      }
+
+      const detail = (data && data.detail) || "";
+      if (res.status === 503 && detail.includes("Emergency Stop")) {
+        return "JARVIS is stopped. The emergency stop is switched on, so it " +
+               "is refusing all requests until it's turned off.";
+      }
+      if (res.status === 502) {
+        return "JARVIS could not get an answer from the model.\n\n" +
+               `What the model service said:\n${detail}\n\n` +
+               "Most often this is an API key that is missing, wrong, or out " +
+               "of free quota for the day.";
+      }
+      if (res.status === 401 || res.status === 403) {
+        return `You are not signed in as the owner.\n\n${detail}`;
+      }
+      if (res.status >= 500) {
+        return "Something failed inside JARVIS itself.\n\n" + detail +
+               "\n\nIf this mentions the database, the Supabase project may " +
+               "have paused -- open its dashboard and restore it.";
+      }
+      return `Unexpected response (HTTP ${res.status}).\n\n${detail}`;
+    }
+
     document.getElementById("send").onclick = async () => {
       const text = document.getElementById("messageInput").value;
-      messageOut.textContent = "Sending...";
+      messageOut.textContent =
+        "Sending... the first message after a break can take a minute while " +
+        "the server wakes up.";
       try {
         const res = await authedFetch("/v1/message", {
           method: "POST",
           body: JSON.stringify({ text }),
         });
-        const data = await res.json();
-        messageOut.textContent = JSON.stringify(data, null, 2);
+        let data = {};
+        try { data = await res.json(); } catch (e) { /* not JSON */ }
+        messageOut.textContent = explainMessageResult(res, data);
       } catch (e) {
-        messageOut.textContent = `Error: ${e.message}`;
+        messageOut.textContent =
+          `Could not reach JARVIS at all: ${e.message}\n\n` +
+          "The server may still be waking up. Wait a minute and try again.";
       }
     };
 
@@ -321,6 +361,29 @@
         }
       } catch (e) {
         lines.push(`PROBLEM: could not reach the sign-in helper -- ${e.message}`);
+      }
+
+      // Whether JARVIS can actually get an answer out of the model -- the
+      // one thing the other checks do not cover.
+      try {
+        const res = await authedFetch("/v1/message", {
+          method: "POST",
+          body: JSON.stringify({ text: "Reply with the single word: ready" }),
+        });
+        let data = {};
+        try { data = await res.json(); } catch (e) { /* not JSON */ }
+        if (res.ok && data.provider && data.provider !== "mock") {
+          lines.push(`OK: the model answered (${data.provider}, ${data.model}).`);
+        } else if (res.ok) {
+          lines.push(
+            "PROBLEM: no real model key on the server -- replies are placeholders. " +
+            "Set GEMINI_API_KEY in Render."
+          );
+        } else {
+          lines.push(`PROBLEM: model call failed (HTTP ${res.status}): ${data.detail || ""}`);
+        }
+      } catch (e) {
+        lines.push(`PROBLEM: could not complete a test message -- ${e.message}`);
       }
 
       lines.push("");
