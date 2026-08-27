@@ -123,9 +123,24 @@
       // happening and gave nothing to debug.
       signinBtn.onclick = async () => {
         whoami.textContent = "Taking you to Google...";
+
+        // If the browser is going to leave this page, it happens within a
+        // second or two. Still being here after four seconds means the
+        // navigation never started -- a failure that otherwise looks
+        // identical to nothing happening at all, which is exactly what it
+        // looked like the first time round.
+        const stalled = setTimeout(() => {
+          whoami.textContent =
+            "The browser did not navigate to Google. The sign-in request " +
+            "was made but this page never left. Tap 'Why isn't sign-in " +
+            "working?' and send the result.";
+          popupBtn.style.display = "inline-block";
+        }, 4000);
+
         try {
           await signInWithRedirect(auth, new GoogleAuthProvider());
         } catch (e) {
+          clearTimeout(stalled);
           whoami.textContent = `Redirect sign-in failed: ${e.code || e.message}`;
           popupBtn.style.display = "inline-block";
         }
