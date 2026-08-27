@@ -80,6 +80,36 @@
     // works, supplies its own token instead -- the server accepts either.
     let googleToken = null;
 
+    // Reads the email out of a sign-in token purely to show who you are.
+    // Nothing is trusted from this -- the server checks the signature
+    // properly before letting anything through.
+    function emailFromToken(token) {
+      try {
+        const body = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        return JSON.parse(atob(body)).email || null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function showAuthState() {
+      const firebaseUser = auth && auth.currentUser;
+      if (googleToken) {
+        const email = emailFromToken(googleToken);
+        whoami.textContent = `Signed in as ${email || "your Google account"}. Send a message below.`;
+        signoutBtn.style.display = "inline-block";
+        document.getElementById("gsiButton").style.display = "none";
+      } else if (firebaseUser) {
+        whoami.textContent = `Signed in as ${firebaseUser.email || firebaseUser.uid}`;
+        signoutBtn.style.display = "inline-block";
+        document.getElementById("gsiButton").style.display = "none";
+      } else {
+        whoami.textContent = "Not signed in.";
+        signoutBtn.style.display = "none";
+        document.getElementById("gsiButton").style.display = "block";
+      }
+    }
+
     async function currentIdToken() {
       if (googleToken) return googleToken;
       if (!auth || !auth.currentUser) {
@@ -124,10 +154,25 @@
           }
           window.google.accounts.id.initialize({
             client_id: config.googleClientId,
-            callback: (response) => {
+            callback: async (response) => {
               googleToken = response.credential;
-              whoami.textContent = "Signed in. Send a message below.";
-              signoutBtn.style.display = "inline-block";
+              showAuthState();
+              // Confirm the server actually accepts this sign-in, rather
+              // than looking signed in and only finding out on the first
+              // real request.
+              try {
+                const res = await authedFetch("/v1/budget");
+                if (!res.ok) {
+                  const body = await res.json().catch(() => ({}));
+                  googleToken = null;
+                  showAuthState();
+                  whoami.textContent =
+                    `Google signed you in, but JARVIS refused it (HTTP ${res.status}). ` +
+                    (body.detail || "");
+                }
+              } catch (e) {
+                whoami.textContent = `Signed in, but could not reach JARVIS: ${e.message}`;
+              }
             },
           });
           window.google.accounts.id.renderButton(
@@ -145,17 +190,11 @@
       const app = initializeApp(config);
       auth = getAuth(app);
 
-      onAuthStateChanged(auth, (user) => {
-        if (user) {
-          whoami.textContent = `Signed in as ${user.email || user.uid}`;
-          signinBtn.style.display = "none";
-          signoutBtn.style.display = "inline-block";
-        } else {
-          whoami.textContent = "Not signed in.";
-          signinBtn.style.display = "inline-block";
-          signoutBtn.style.display = "none";
-        }
-      });
+      // Firebase has no session of its own when the in-page Google button
+      // is what signed us in, so its listener reports "not signed in" and
+      // would wipe out a perfectly good sign-in message. One function owns
+      // this display, and it checks both sources before deciding.
+      onAuthStateChanged(auth, () => showAuthState());
 
       // Redirect rather than a pop-up: iOS Safari blocks pop-ups, so the
       // pop-up version never opened at all. This sends the whole page to
@@ -202,11 +241,10 @@
         }
       };
 
-      signoutBtn.onclick = () => {
+      signoutBtn.onclick = async () => {
         googleToken = null;
-        signoutBtn.style.display = "none";
-        whoami.textContent = "Not signed in.";
-        signOut(auth);
+        try { await signOut(auth); } catch (e) { /* nothing to sign out of */ }
+        showAuthState();
       };
 
       // Coming back from Google.
