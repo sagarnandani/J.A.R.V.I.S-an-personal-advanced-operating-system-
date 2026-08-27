@@ -49,6 +49,46 @@ wrong. Also note Gemini 2.5 models charge for internal "thinking" tokens
 that never appear in the reply; JARVIS counts those (many tools forget to),
 so its figure should if anything be slightly *higher* than a naive one.
 
+## What free actually costs you
+
+Every part of Stage 0 runs on a free tier, so the money cost is ₹0. The
+price is paid in limits instead, and two of them can look like JARVIS
+being broken if you don't know about them:
+
+| Service | Free limit | What you'd notice |
+|---|---|---|
+| Render | Sleeps after 15 min idle | First message after a break takes ~1 minute |
+| **Supabase** | **Pauses after 7 days of low activity** | **JARVIS stops working entirely until you restore it** |
+| Gemini | ~250 requests/day | Replies stop for the day if you pass it |
+| Firebase Auth | 50,000 users | Irrelevant — you have one |
+
+### The Supabase pause — the one worth remembering
+
+Supabase pauses free projects after about a week of low activity. If that
+happens, JARVIS can't reach its memory and every message fails.
+
+**Nothing is lost.** The data sits there and you have a year to bring it
+back: open the Supabase dashboard and click restore. Using JARVIS a couple
+of times a week is enough to prevent it entirely.
+
+Worth knowing rather than discovering: a database that has paused looks
+identical to a database that has broken, and the fix is completely
+different.
+
+### What it would cost to remove these
+
+| Upgrade | Cost | Removes |
+|---|---|---|
+| Render Starter | ~$7/mo (~₹630) | The sleep delay |
+| Supabase Pro | ~$25/mo (~₹2,250) | The pause risk (and raises every limit) |
+
+**Recommendation: don't pay for either yet.** The Render sleep is the one
+that will actually annoy you day to day, and it's the cheaper fix — worth
+₹630/month once JARVIS is something you reach for reflexively. Supabase
+Pro is poor value at this scale: 500MB of storage is far more than Stage 0
+memory will use for a very long time, and regular use already prevents the
+pause.
+
 ## What does NOT count toward this number
 
 - **Cloud Run compute** — expected to stay at ₹0 at Stage 0 usage
