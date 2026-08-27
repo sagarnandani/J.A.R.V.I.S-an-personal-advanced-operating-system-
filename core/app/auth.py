@@ -27,12 +27,24 @@ from google.auth import jwt as google_jwt
 
 from app.config import Settings, get_settings
 
-# Where Google publishes the public keys for Firebase ID tokens. Public
-# data -- no authentication required to read it.
+# Google publishes the public keys for both kinds of sign-in token it
+# issues. Both are public data -- no authentication needed to read them.
+#
+# There are two, because there are two kinds of token:
+#   * Firebase ID tokens, from the Firebase sign-in flow;
+#   * Google ID tokens, from Google's own in-page sign-in button.
+# They are signed with different keys and carry different claims, so each
+# is checked against its own key set. JARVIS accepts either, which means a
+# problem with one route never locks the owner out entirely.
 FIREBASE_CERTS_URL = (
     "https://www.googleapis.com/robot/v1/metadata/x509/"
     "securetoken@system.gserviceaccount.com"
 )
+GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v1/certs"
+
+FIREBASE_ISSUER_PREFIX = "https://securetoken.google.com/"
+GOOGLE_ISSUERS = frozenset({"accounts.google.com", "https://accounts.google.com"})
+
 # Google rotates these keys occasionally. Re-fetching on every request
 # would add a network round trip to every message; caching for 30 minutes
 # keeps verification fast while picking up rotations well within the time
@@ -40,8 +52,7 @@ FIREBASE_CERTS_URL = (
 _CERT_CACHE_SECONDS = 1800
 
 _certs_lock = threading.Lock()
-_certs: dict | None = None
-_certs_fetched_at: float = 0.0
+_certs: dict[str, tuple[dict, float]] = {}
 
 
 @dataclass
@@ -59,25 +70,48 @@ def init_firebase() -> None:
     return None
 
 
-def _get_certs(force_refresh: bool = False) -> dict:
-    global _certs, _certs_fetched_at
+def _get_certs(url: str = FIREBASE_CERTS_URL, force_refresh: bool = False) -> dict:
     with _certs_lock:
-        fresh = (
-            _certs is not None
-            and (time.time() - _certs_fetched_at) < _CERT_CACHE_SECONDS
-        )
-        if fresh and not force_refresh:
-            return _certs
+        cached = _certs.get(url)
+        if cached and not force_refresh:
+            certs, fetched_at = cached
+            if (time.time() - fetched_at) < _CERT_CACHE_SECONDS:
+                return certs
 
-        response = requests.get(FIREBASE_CERTS_URL, timeout=10)
+        response = requests.get(url, timeout=10)
         response.raise_for_status()
-        _certs = response.json()
-        _certs_fetched_at = time.time()
-        return _certs
+        certs = response.json()
+        _certs[url] = (certs, time.time())
+        return certs
+
+
+def _decode_with_retry(token: str, certs_url: str, audience: str) -> dict:
+    """Check a token's signature, audience and expiry against Google's keys.
+
+    Key rotation is the common innocent reason a signature fails to match
+    a cached key, so a rotation shouldn't lock the owner out until the
+    cache expires: refetch once before rejecting.
+    """
+
+    def _decode(certs: dict) -> dict:
+        return google_jwt.decode(token, certs=certs, audience=audience)
+
+    try:
+        return _decode(_get_certs(certs_url))
+    except ValueError:
+        try:
+            return _decode(_get_certs(certs_url, force_refresh=True))
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not reach Google to verify the sign-in: {exc}",
+        ) from exc
 
 
 def verify_firebase_token(token: str, settings: Settings) -> dict:
-    """Check the token is genuinely Google's, and genuinely for us.
+    """A token from the Firebase sign-in flow.
 
     Three things must hold, and all three matter:
       * the signature matches one of Google's published keys (proves
@@ -98,36 +132,65 @@ def verify_firebase_token(token: str, settings: Settings) -> dict:
             "sign-ins cannot be verified. See /docs/DEPLOYMENT.md.",
         )
 
-    def _decode(certs: dict) -> dict:
-        return google_jwt.decode(token, certs=certs, audience=project_id)
+    claims = _decode_with_retry(token, FIREBASE_CERTS_URL, project_id)
 
-    try:
-        claims = _decode(_get_certs())
-    except ValueError:
-        # A key rotation is the common innocent cause of a signature that
-        # doesn't match a cached key. Refetch once before rejecting, so a
-        # rotation doesn't lock the owner out until the cache expires.
-        try:
-            claims = _decode(_get_certs(force_refresh=True))
-        except ValueError as exc:
-            raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
-    except requests.RequestException as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Could not reach Google to verify the sign-in: {exc}",
-        ) from exc
-
-    expected_issuer = f"https://securetoken.google.com/{project_id}"
-    if claims.get("iss") != expected_issuer:
+    if claims.get("iss") != f"{FIREBASE_ISSUER_PREFIX}{project_id}":
         raise HTTPException(status_code=401, detail="Token has the wrong issuer.")
-
     if not claims.get("sub"):
         raise HTTPException(status_code=401, detail="Token has no subject.")
 
-    # Firebase puts the user id in `sub`; expose it as `uid` so the rest of
-    # the code reads naturally.
     claims["uid"] = claims["sub"]
     return claims
+
+
+def verify_google_token(token: str, settings: Settings) -> dict:
+    """A token from Google's own in-page sign-in button.
+
+    Same three checks as above, against the key set and issuer Google uses
+    for these, and with our OAuth client ID as the audience -- a token
+    minted for somebody else's app must not be accepted here.
+    """
+    client_id = settings.google_client_id
+    if not client_id:
+        raise HTTPException(
+            status_code=500,
+            detail="GOOGLE_CLIENT_ID is not configured on this server, so "
+            "this sign-in cannot be verified. See /docs/DEPLOYMENT.md.",
+        )
+
+    claims = _decode_with_retry(token, GOOGLE_CERTS_URL, client_id)
+
+    if claims.get("iss") not in GOOGLE_ISSUERS:
+        raise HTTPException(status_code=401, detail="Token has the wrong issuer.")
+    if not claims.get("sub"):
+        raise HTTPException(status_code=401, detail="Token has no subject.")
+
+    claims["uid"] = claims["sub"]
+    return claims
+
+
+def verify_token(token: str, settings: Settings) -> dict:
+    """Accept either kind of sign-in token.
+
+    Which one it is can be read off the issuer without trusting anything:
+    the signature is still checked afterwards either way. Reading it first
+    just avoids attempting the wrong verification and reporting a
+    misleading reason for the failure.
+    """
+    try:
+        unverified = google_jwt.decode(token, verify=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
+
+    issuer = unverified.get("iss", "")
+    if issuer in GOOGLE_ISSUERS:
+        return verify_google_token(token, settings)
+    if issuer.startswith(FIREBASE_ISSUER_PREFIX):
+        return verify_firebase_token(token, settings)
+    raise HTTPException(
+        status_code=401,
+        detail="Token was not issued by a sign-in method this server accepts.",
+    )
 
 
 def is_owner(decoded_token: dict, settings) -> bool:
@@ -172,7 +235,7 @@ async def get_current_user(
             "as 'Authorization: Bearer <token>'.",
         )
 
-    claims = verify_firebase_token(authorization.removeprefix("Bearer ").strip(), settings)
+    claims = verify_token(authorization.removeprefix("Bearer ").strip(), settings)
 
     if not settings.owner_uid and not settings.owner_email:
         raise HTTPException(

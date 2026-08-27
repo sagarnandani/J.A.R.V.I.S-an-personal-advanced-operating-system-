@@ -74,7 +74,14 @@ def make_token(signing, **claim_overrides) -> str:
 @pytest.fixture(autouse=True)
 def use_test_certs(signing, monkeypatch):
     """Serve our test certificate instead of fetching Google's."""
-    monkeypatch.setattr(auth, "_get_certs", lambda force_refresh=False: signing["certs"])
+    monkeypatch.setattr(
+        auth,
+        "_get_certs",
+        # Same fake certificate for both key sets -- the test signs every
+        # token with one key, and which URL was consulted is not what these
+        # tests are pinning.
+        lambda url=auth.FIREBASE_CERTS_URL, force_refresh=False: signing["certs"],
+    )
 
 
 def settings(**overrides) -> Settings:
@@ -158,3 +165,81 @@ def test_missing_project_id_is_a_server_error(signing):
     with pytest.raises(HTTPException) as exc:
         auth.verify_firebase_token(make_token(signing), settings(firebase_project_id=""))
     assert exc.value.status_code == 500
+
+
+# --- Google's in-page sign-in button ------------------------------------
+#
+# A second, separate kind of token. It has to be verified against Google's
+# other key set, with our OAuth client ID as the audience -- and it must be
+# possible to accept it without weakening any of the checks above.
+
+GOOGLE_CLIENT_ID = "701562415519-example.apps.googleusercontent.com"
+
+
+def google_token(signing, **overrides) -> str:
+    now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    claims = {
+        "iss": "https://accounts.google.com",
+        "aud": GOOGLE_CLIENT_ID,
+        "sub": "google-user-1",
+        "email": "sagarnandani99@gmail.com",
+        "email_verified": True,
+        "iat": now - 10,
+        "exp": now + 3600,
+    }
+    claims.update(overrides)
+    return google_jwt.encode(
+        google_crypt.RSASigner.from_string(signing["private_pem"], KID), claims
+    ).decode()
+
+
+def google_settings(**overrides) -> Settings:
+    base = dict(
+        firebase_project_id=PROJECT_ID,
+        google_client_id=GOOGLE_CLIENT_ID,
+        owner_email="sagarnandani99@gmail.com",
+    )
+    base.update(overrides)
+    return Settings(**base)
+
+
+def test_google_button_token_is_accepted(signing):
+    claims = auth.verify_token(google_token(signing), google_settings())
+    assert claims["uid"] == "google-user-1"
+    assert claims["email"] == "sagarnandani99@gmail.com"
+
+
+def test_google_token_for_another_app_is_rejected(signing):
+    """A token Google minted for somebody else's app must not work here."""
+    token = google_token(signing, aud="some-other-app.apps.googleusercontent.com")
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_token(token, google_settings())
+    assert exc.value.status_code == 401
+
+
+def test_google_token_with_forged_issuer_is_rejected(signing):
+    token = google_token(signing, iss="https://accounts.evil.example")
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_token(token, google_settings())
+    assert exc.value.status_code == 401
+
+
+def test_expired_google_token_is_rejected(signing):
+    now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    token = google_token(signing, iat=now - 7200, exp=now - 3600)
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_token(token, google_settings())
+    assert exc.value.status_code == 401
+
+
+def test_firebase_token_still_works_through_the_shared_entry_point(signing):
+    """Adding the second route must not break the first."""
+    claims = auth.verify_token(make_token(signing), google_settings())
+    assert claims["uid"] == "firebase-uid-abc123"
+
+
+def test_a_token_from_neither_source_is_refused(signing):
+    token = google_token(signing, iss="https://login.microsoftonline.com/x")
+    with pytest.raises(HTTPException) as exc:
+        auth.verify_token(token, google_settings())
+    assert "not issued by a sign-in method this server accepts" in exc.value.detail

@@ -331,6 +331,38 @@ few paths), so the browser only ever sees one domain and nothing is
 cross-origin. The address Google returns to changes as a result, and this
 step is telling Google about it.
 
+### 4f. Turn on the in-page sign-in button
+
+This is the sign-in that works on an iPad. It needs one value from your
+Google Cloud console and one setting in Render.
+
+1. Open [Google Cloud credentials](https://console.cloud.google.com/apis/credentials?project=jarvis-by-claude-a1026)
+2. Under **OAuth 2.0 Client IDs**, open the one named something like
+   *Web client (auto created by Google Service)*
+3. Under **Authorised JavaScript origins**, click **Add URI** and paste
+   your address with nothing after it:
+
+```
+https://jarvis-core-xxxx.onrender.com
+```
+
+4. **Save**, then copy the **Client ID** shown on that page. It looks like
+   `701562415519-something.apps.googleusercontent.com` and is not a
+   secret.
+5. In Render: your service -> **Environment** -> add
+   `GOOGLE_CLIENT_ID` with that value -> **Save**. The service restarts.
+
+**Why this exists.** Signing in with a pop-up doesn't work on iPad, because
+Safari blocks pop-ups. Redirecting the page has its own problems there too.
+Google's in-page button avoids both: it neither navigates away nor opens a
+window, so no Safari restriction applies.
+
+The server accepts a sign-in from either this button or the older Firebase
+route, so a problem with one is never a lock-out. Both are verified the
+same way -- against Google's published keys, checking the signature, that
+the token was minted for *this* app specifically, and that it hasn't
+expired.
+
 ### What the free tier costs you
 
 Not money — responsiveness. A free Render service **sleeps after 15

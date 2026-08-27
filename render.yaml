@@ -39,6 +39,12 @@ services:
       - key: FIREBASE_APP_ID
         value: "1:701562415519:web:1d377f036cd62c4c66b5aa"
 
+      # OAuth client ID for Google's in-page sign-in button. Public, not a
+      # secret. Asked for in the dashboard because it is only visible in
+      # your Google Cloud console -- see docs/DEPLOYMENT.md step 4f.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
       # --- Model provider ---
       - key: LLM_PROVIDER
         value: gemini

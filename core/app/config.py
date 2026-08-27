@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     firebase_auth_domain: str = ""
     firebase_project_id: str = ""
     firebase_app_id: str = ""
+    # OAuth client ID for Google's in-page sign-in button. Public, not a
+    # secret -- it identifies the app to Google, and Google separately
+    # refuses to work from any web address not registered against it.
+    google_client_id: str = ""
     # Who is allowed in. JARVIS Stage 0 is explicitly single-user, so
     # exactly one person may authenticate. Identify them either way:
     #

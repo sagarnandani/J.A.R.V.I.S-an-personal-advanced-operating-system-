@@ -24,8 +24,18 @@
 
   <section>
     <div id="whoami">Not signed in.</div>
-    <button id="signin">Sign in with Google</button>
+
+    <!-- Google's own in-page sign-in button. Nothing navigates and
+         nothing pops up, so neither of Safari's restrictions applies.
+         This is the path that works on an iPad. -->
+    <div id="gsiButton"></div>
+
+    <details style="margin-top:.75rem">
+      <summary style="font-size:.85rem;color:#555">Other ways to sign in</summary>
+      <button id="signin">Sign in with Google (redirect)</button>
     <button id="popup" style="display:none">Try pop-up sign-in instead</button>
+    </details>
+
     <button id="signout" style="display:none">Sign out</button>
     <button id="diagnose">Why isn't sign-in working?</button>
     <pre id="diagOut" style="display:none"></pre>
@@ -46,6 +56,9 @@
     <pre id="verifyOut">(nothing loaded yet)</pre>
   </section>
 
+  <!-- Google Identity Services: renders the in-page sign-in button. -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
   <!-- Firebase JS SDK, loaded from Google's own CDN. -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -63,8 +76,12 @@
     const verifyOut = document.getElementById("verifyOut");
 
     let auth = null;
+    // Set when Google's in-page button signs us in. Firebase, when it
+    // works, supplies its own token instead -- the server accepts either.
+    let googleToken = null;
 
     async function currentIdToken() {
+      if (googleToken) return googleToken;
       if (!auth || !auth.currentUser) {
         throw new Error("Not signed in yet.");
       }
@@ -96,6 +113,33 @@
           "Firebase is not configured on this deployment yet (no apiKey). " +
           "See /docs/DEPLOYMENT.md.";
         return;
+      }
+
+      // Google's in-page button. Rendered first, because it is the one
+      // that works on an iPad.
+      if (config.googleClientId) {
+        const renderGoogleButton = () => {
+          if (!(window.google && window.google.accounts)) {
+            return setTimeout(renderGoogleButton, 200);
+          }
+          window.google.accounts.id.initialize({
+            client_id: config.googleClientId,
+            callback: (response) => {
+              googleToken = response.credential;
+              whoami.textContent = "Signed in. Send a message below.";
+              signoutBtn.style.display = "inline-block";
+            },
+          });
+          window.google.accounts.id.renderButton(
+            document.getElementById("gsiButton"),
+            { theme: "outline", size: "large", text: "signin_with" }
+          );
+        };
+        renderGoogleButton();
+      } else {
+        document.getElementById("gsiButton").textContent =
+          "GOOGLE_CLIENT_ID is not set on this server, so the in-page " +
+          "sign-in button can't be shown. See /docs/DEPLOYMENT.md step 4f.";
       }
 
       const app = initializeApp(config);
@@ -158,7 +202,12 @@
         }
       };
 
-      signoutBtn.onclick = () => signOut(auth);
+      signoutBtn.onclick = () => {
+        googleToken = null;
+        signoutBtn.style.display = "none";
+        whoami.textContent = "Not signed in.";
+        signOut(auth);
+      };
 
       // Coming back from Google.
       try {
@@ -213,6 +262,11 @@
           lines.push("OK: sign-in domain matches this page's domain.");
         }
         if (!cfg.apiKey) lines.push("PROBLEM: no Firebase apiKey configured on the server.");
+        lines.push(
+          cfg.googleClientId
+            ? "OK: in-page Google sign-in button is configured."
+            : "PROBLEM: GOOGLE_CLIENT_ID is not set -- the in-page sign-in button cannot appear."
+        );
       } catch (e) {
         lines.push(`PROBLEM: could not read server config -- ${e.message}`);
       }

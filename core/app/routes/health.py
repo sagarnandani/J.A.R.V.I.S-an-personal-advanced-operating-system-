@@ -39,4 +39,5 @@ async def firebase_config(request: Request) -> dict:
         "authDomain": host,
         "projectId": settings.firebase_project_id,
         "appId": settings.firebase_app_id,
+        "googleClientId": settings.google_client_id,
     }
