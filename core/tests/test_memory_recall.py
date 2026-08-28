@@ -171,3 +171,49 @@ def test_history_that_starts_mid_exchange_is_repaired():
         [Turn(ASSISTANT, "a reply to a question we trimmed away"), Turn(USER, "hi")]
     )
     assert [t.role for t in repaired] == [USER]
+
+
+# --- storing an exchange in one round trip ---------------------------------
+
+@pytest.mark.asyncio
+async def test_an_exchange_is_stored_linked_both_ways(clean_memories):
+    """The speed optimisation must not lose the link between the pair.
+
+    Storing the message and reply used to be four database calls: two
+    inserts and two updates to point them at each other. It is now one
+    insert, with both IDs generated up front so each row can name the
+    other before either exists. That is only worth doing if the links
+    still come out right in both directions.
+    """
+    from app.memory import store_exchange
+
+    user_id, reply_id = await store_exchange("what is my colour?", "Red.")
+
+    rows = await clean_memories.fetch(
+        "SELECT id, content, origin, related_memory_ids FROM memories"
+    )
+    by_id = {r["id"]: r for r in rows}
+
+    assert by_id[user_id]["origin"] == "stated"
+    assert by_id[reply_id]["origin"] == "retrieved"
+    assert by_id[user_id]["related_memory_ids"] == [reply_id]
+    assert by_id[reply_id]["related_memory_ids"] == [user_id]
+
+
+@pytest.mark.asyncio
+async def test_a_stored_exchange_is_recalled_as_conversation(clean_memories):
+    """The fast path and the recall path have to agree.
+
+    Two separate pieces of SQL now write and read the same rows. A change
+    to either that broke the other would show up as JARVIS quietly
+    forgetting, which is exactly the failure that is hard to notice.
+    """
+    from app.memory import store_exchange
+
+    await store_exchange("my favourite colour is red", "Noted.")
+    turns = await recall_turns(limit=20, max_chars=8000)
+
+    assert [(t.role, t.text) for t in turns] == [
+        (USER, "my favourite colour is red"),
+        (ASSISTANT, "Noted."),
+    ]

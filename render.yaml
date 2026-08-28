@@ -68,6 +68,12 @@ services:
       # the replacement -- change it here, or in Render's Environment tab.
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
+      # How much Gemini may "think" before answering. That thinking is
+      # never shown, is billed as output, and is time you spend waiting.
+      # 0 = off (fastest, cheapest). -1 = let the model decide, which is
+      # worth trying if answers ever seem shallow. See docs/BUDGET.md.
+      - key: GEMINI_THINKING_BUDGET
+        value: "0"
       - key: CLAUDE_MODEL
         value: claude-sonnet-5
 

@@ -22,7 +22,9 @@ def _build(name: str, settings: Settings) -> LLMProvider | None:
         from app.llm.gemini_adapter import GeminiAdapter
 
         return GeminiAdapter(
-            api_key=settings.gemini_api_key, model=settings.gemini_model
+            api_key=settings.gemini_api_key,
+            model=settings.gemini_model,
+            thinking_budget=settings.gemini_thinking_budget,
         )
 
     if name == CLAUDE and settings.anthropic_api_key:

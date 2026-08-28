@@ -328,7 +328,13 @@
             ? "\n\n(No real model answered. The server has no working model key, " +
               "so this is a placeholder reply. Check GEMINI_API_KEY in Render.)"
             : `\n\n(Answered by ${data.provider}, model ${data.model}. ` +
-              `Saved to memory; ${recalled}.)`;
+              `Saved to memory; ${recalled}.)` +
+              // Where the time actually went. Without this, "slow" is one
+              // number covering two completely different problems with
+              // two completely different fixes.
+              `\n(Took ${(data.total_ms / 1000).toFixed(1)}s -- ` +
+              `${(data.model_ms / 1000).toFixed(1)}s waiting for the model, ` +
+              `${(data.our_ms / 1000).toFixed(1)}s for JARVIS's own work.)`;
         return `JARVIS says:\n\n${data.reply}${who}`;
       }
 

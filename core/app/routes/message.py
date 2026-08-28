@@ -5,7 +5,9 @@ provenance-tagged memories and one audit log row. No agents, no tool use,
 no orchestration -- see Stage 0 Build Brief section 4 for what's
 deliberately not here yet.
 """
+import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -30,7 +32,27 @@ async def send_message(
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="text must not be empty")
 
-    if await system_control.is_stopped():
+    started = time.perf_counter()
+
+    # The stop flag and the conversation history are independent questions,
+    # so they are asked at the same time rather than one after the other.
+    # Against a hosted database each is a network round trip, and the owner
+    # waits through every one of them.
+    #
+    # Recalling history before the stop check is confirmed does no harm: it
+    # is a read, and if JARVIS turns out to be stopped the result is simply
+    # discarded.
+    async def _recall():
+        if not settings.memory_recall_enabled:
+            return []
+        return await memory.recall_turns(
+            limit=settings.memory_recall_turns,
+            max_chars=settings.memory_recall_max_chars,
+        )
+
+    stopped, history = await asyncio.gather(system_control.is_stopped(), _recall())
+
+    if stopped:
         raise HTTPException(
             status_code=503,
             detail="JARVIS is currently stopped (Emergency Stop is on). "
@@ -40,19 +62,11 @@ async def send_message(
 
     provider = get_provider(settings)
 
-    # What JARVIS remembers of the conversation so far. Read BEFORE this
-    # message is stored, so the model is not handed the very thing it is
-    # being asked to answer.
-    history = []
-    if settings.memory_recall_enabled:
-        history = await memory.recall_turns(
-            limit=settings.memory_recall_turns,
-            max_chars=settings.memory_recall_max_chars,
-        )
-
+    model_started = time.perf_counter()
     try:
         result = await provider.complete(body.text, history)
         outcome = "success"
+        model_ms = int((time.perf_counter() - model_started) * 1000)
     except Exception as exc:
         # Graceful degradation (architecture doc, section L): say plainly
         # that the model call failed, don't fabricate a response.
@@ -74,28 +88,29 @@ async def send_message(
     # 'stated' (that word is reserved for what the user told us) and never
     # 'inferred'/'predicted' (Stage 0 adds no interpretation about the
     # user; see memory.py's module docstring).
-    user_memory_id = await memory.store_memory(
-        content=body.text, category="episodic", origin="stated", confidence=1.0
-    )
-    reply_memory_id = await memory.store_memory(
-        content=result.text, category="episodic", origin="retrieved", confidence=1.0
-    )
-    await memory.link_memories(user_memory_id, reply_memory_id)
-
     # Priced against whichever provider actually answered -- which may not
     # be the configured primary, if it failed and the fallback took over.
     cost_inr = estimate_cost_inr(
         result.input_tokens, result.output_tokens, settings, provider=result.provider
     )
-    audit_log_id = await audit.log_audit(
-        actor="system",
-        action="llm_message_exchange",
-        category="low_risk",
-        approved_by=None,  # auto-approved: 'drafting'/'research' default to auto
-        outcome=outcome,
-        cost=cost_inr,
+
+    # Recording the exchange and recording the audit row have nothing to
+    # say to each other, so they go at once. Everything here happens after
+    # the answer already exists, which is the worst place to spend time:
+    # the owner is watching a spinner while JARVIS files paperwork.
+    (user_memory_id, reply_memory_id), audit_log_id = await asyncio.gather(
+        memory.store_exchange(body.text, result.text),
+        audit.log_audit(
+            actor="system",
+            action="llm_message_exchange",
+            category="low_risk",
+            approved_by=None,  # auto-approved: 'drafting'/'research' default to auto
+            outcome=outcome,
+            cost=cost_inr,
+        ),
     )
 
+    total_ms = int((time.perf_counter() - started) * 1000)
     return MessageResponse(
         reply=result.text,
         user_memory_id=user_memory_id,
@@ -104,4 +119,10 @@ async def send_message(
         provider=result.provider,
         model=result.model,
         recalled_turns=len(history),
+        # Reported so "it feels slow" can be answered with a number
+        # instead of a guess -- and so it is obvious whether the time went
+        # to the model or to JARVIS's own work.
+        model_ms=model_ms,
+        total_ms=total_ms,
+        our_ms=total_ms - model_ms,
     )

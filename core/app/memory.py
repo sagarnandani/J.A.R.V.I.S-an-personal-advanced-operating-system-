@@ -10,9 +10,9 @@ external source, asserted as nothing more than that). 'inferred' and
 Stage 0's code path produces them -- they wait for a real interpretation
 layer in a later stage.
 """
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from app.db import fetchrow
+from app.db import execute, fetchrow
 from app.llm.base import ASSISTANT, USER, Turn, normalise_history
 
 VALID_CATEGORIES = {
@@ -52,10 +52,58 @@ async def store_memory(
     return row["id"]
 
 
+async def store_exchange(user_text: str, reply_text: str) -> tuple[UUID, UUID]:
+    """Store a message and its reply, linked, in one round trip.
+
+    The obvious version of this is four separate database calls: insert
+    the message, insert the reply, then two updates to point them at each
+    other. Locally that is free. Against a hosted database it is four
+    network round trips, every one of them after JARVIS has already
+    worked out its answer -- so the owner sits watching a spinner while
+    the machine does bookkeeping.
+
+    The trick is generating both IDs here rather than letting Postgres do
+    it. Once each row knows the other's ID before either is written, both
+    can be inserted with their links already set, and no update is needed
+    at all.
+
+    (A data-modifying CTE cannot replace this: rows inserted by a CTE are
+    not visible to an UPDATE in the same statement, so the update would
+    silently match nothing.)
+    """
+    user_id = uuid4()
+    reply_id = uuid4()
+
+    # The timestamps are set explicitly, one millisecond apart, and that
+    # is not a detail. Both rows are written by a single statement, and
+    # inside one statement now() returns the SAME instant for every row --
+    # so left to the column default the message and the reply would carry
+    # identical timestamps, and "order by time" could put the reply first.
+    # Recall then drops it for starting mid-exchange, and JARVIS quietly
+    # remembers only half of every conversation.
+    #
+    # The reply genuinely did come after the message, so recording it that
+    # way is accurate, not a trick.
+    await execute(
+        """
+        INSERT INTO memories
+            (id, content, category, origin, confidence, related_memory_ids,
+             created_at)
+        VALUES
+            ($1, $2, 'episodic', 'stated',    1.0, ARRAY[$3]::uuid[], now()),
+            ($3, $4, 'episodic', 'retrieved', 1.0, ARRAY[$1]::uuid[],
+             now() + interval '1 millisecond')
+        """,
+        user_id,
+        user_text,
+        reply_id,
+        reply_text,
+    )
+    return user_id, reply_id
+
+
 async def link_memories(a: UUID, b: UUID) -> None:
     """Record that two memories relate to each other (e.g. a message and its reply)."""
-    from app.db import execute
-
     await execute(
         "UPDATE memories SET related_memory_ids = array_append(related_memory_ids, $2) WHERE id = $1",
         a,

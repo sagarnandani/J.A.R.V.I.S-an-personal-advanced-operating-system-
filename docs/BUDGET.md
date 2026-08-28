@@ -80,6 +80,11 @@ rather than by accident.
 Every reply tells you how many turns it recalled, so you can see this
 working rather than guess.
 
+**Thinking tokens are the other lever.** Gemini's models reason to
+themselves before answering, and that reasoning is billed as output even
+though you never see it. `GEMINI_THINKING_BUDGET` defaults to `0` — off —
+which makes replies both cheaper and faster. See `SPEED.md`.
+
 ### It's an estimate, not a bill
 
 These are real calculations from real token counts, but neither provider

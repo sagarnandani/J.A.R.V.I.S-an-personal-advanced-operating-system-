@@ -22,6 +22,13 @@ class MessageResponse(BaseModel):
     # answer sounding right -- an assistant that has silently stopped
     # remembering still produces plausible replies.
     recalled_turns: int
+    # Where the time went, in milliseconds. `model_ms` is waiting on the
+    # provider; `our_ms` is everything JARVIS itself did (database reads
+    # and writes). Split because they have completely different fixes, and
+    # guessing which one is slow wastes effort on the wrong one.
+    model_ms: int
+    our_ms: int
+    total_ms: int
 
 
 class MemoryOut(BaseModel):

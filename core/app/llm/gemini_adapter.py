@@ -16,9 +16,15 @@ logger = logging.getLogger("jarvis.llm.gemini")
 
 
 class GeminiAdapter(LLMProvider):
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, thinking_budget: int = 0) -> None:
         self._client = genai.Client(api_key=api_key)
         self._model = model
+        self._thinking_budget = thinking_budget
+        # Not every model lets thinking be configured, and I cannot check
+        # which from here. So it is attempted, and if the model rejects it
+        # the flag flips and every later call goes without -- rather than
+        # every message failing over a speed setting.
+        self._thinking_supported = True
 
     @staticmethod
     def _to_contents(message: str, history: list[Turn] | None) -> list:
@@ -41,17 +47,45 @@ class GeminiAdapter(LLMProvider):
         )
         return contents
 
+    def _config(self, with_thinking_setting: bool) -> types.GenerateContentConfig:
+        thinking = None
+        if with_thinking_setting and self._thinking_budget >= 0:
+            thinking = types.ThinkingConfig(thinking_budget=self._thinking_budget)
+        return types.GenerateContentConfig(
+            system_instruction=JARVIS_SYSTEM_PROMPT,
+            max_output_tokens=1024,
+            thinking_config=thinking,
+        )
+
     async def complete(
         self, message: str, history: list[Turn] | None = None
     ) -> LLMResult:
-        response = await self._client.aio.models.generate_content(
-            model=self._model,
-            contents=self._to_contents(message, history),
-            config=types.GenerateContentConfig(
-                system_instruction=JARVIS_SYSTEM_PROMPT,
-                max_output_tokens=1024,
-            ),
-        )
+        contents = self._to_contents(message, history)
+        try:
+            response = await self._client.aio.models.generate_content(
+                model=self._model,
+                contents=contents,
+                config=self._config(self._thinking_supported),
+            )
+        except Exception as exc:
+            # Only a rejected thinking setting is retried, and only once.
+            # Anything else is a real failure and must surface as one --
+            # swallowing it here would turn "your API key is wrong" into a
+            # mysterious silence.
+            if not (self._thinking_supported and "thinking" in str(exc).lower()):
+                raise
+            logger.warning(
+                "This model would not accept a thinking budget (%s); continuing "
+                "without one. Replies may be slower. Set GEMINI_THINKING_BUDGET "
+                "to -1 to stop asking.",
+                exc,
+            )
+            self._thinking_supported = False
+            response = await self._client.aio.models.generate_content(
+                model=self._model,
+                contents=contents,
+                config=self._config(False),
+            )
 
         text = response.text or ""
 

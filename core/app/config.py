@@ -80,6 +80,22 @@ class Settings(BaseSettings):
     llm_fallback_enabled: bool = True
 
     gemini_api_key: str | None = None
+    # How much internal "thinking" Gemini may do before answering.
+    #
+    # Gemini's flash models reason to themselves first. That reasoning is
+    # never shown, is billed as output, and is time the owner spends
+    # watching a spinner. For a conversational assistant it buys very
+    # little: these are chat replies, not maths proofs.
+    #
+    #   0  -- off. Fastest and cheapest; the default.
+    #   -1 -- let the model decide how much it needs.
+    #   >0 -- a token budget, for when answers genuinely need working out.
+    #
+    # A setting rather than a constant because the right answer changes
+    # once JARVIS is doing harder work than holding a conversation. If the
+    # model in use refuses to have it turned off, the adapter notices and
+    # carries on without it rather than failing the message.
+    gemini_thinking_budget: int = 0
     # Google retires model names. When it does, the API answers 404 and
     # names the replacement in the error, which JARVIS shows you verbatim
     # -- so the fix is always a one-line env var change, never a code
