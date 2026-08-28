@@ -34,7 +34,7 @@ USD_TO_INR_RATE="${USD_TO_INR_RATE:-90}"
 # at zero cost; Claude is used automatically as a fallback if its key is
 # also set. Change this line (or export LLM_PROVIDER) to swap them.
 LLM_PROVIDER="${LLM_PROVIDER:-gemini}"
-GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.6-flash}"
 CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-5}"
 
 AR_REPO="${AR_REPO:-jarvis}"

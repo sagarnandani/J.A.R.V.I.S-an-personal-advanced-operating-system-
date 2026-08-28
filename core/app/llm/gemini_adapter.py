@@ -28,10 +28,12 @@ class GeminiAdapter(LLMProvider):
 
         usage = response.usage_metadata
         input_tokens = getattr(usage, "prompt_token_count", None) or 0
-        # Gemini 2.5 models reason before answering, and those "thinking"
-        # tokens are billed as output even though they never appear in the
-        # reply. Counting only the visible answer would quietly
-        # under-report what this call actually costs.
+        # Gemini's reasoning models think before answering, and those
+        # "thinking" tokens are billed as output even though they never
+        # appear in the reply. Counting only the visible answer would
+        # quietly under-report what this call actually costs. Read
+        # defensively because a model that doesn't think omits the field
+        # entirely rather than reporting zero.
         visible_output = getattr(usage, "candidates_token_count", None) or 0
         thinking_output = getattr(usage, "thoughts_token_count", None) or 0
 

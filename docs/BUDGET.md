@@ -13,8 +13,8 @@ running total in `audit_log`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `PRICE_GEMINI_INPUT_USD_PER_1M` | `0.00` | Gemini free tier |
-| `PRICE_GEMINI_OUTPUT_USD_PER_1M` | `0.00` | Gemini free tier |
+| `PRICE_GEMINI_INPUT_USD_PER_1M` | `0.00` | Gemini free tier — assumed, see below |
+| `PRICE_GEMINI_OUTPUT_USD_PER_1M` | `0.00` | Gemini free tier — assumed, see below |
 | `PRICE_CLAUDE_INPUT_USD_PER_1M` | `2.00` | Claude Sonnet 5 |
 | `PRICE_CLAUDE_OUTPUT_USD_PER_1M` | `10.00` | Claude Sonnet 5 |
 | `USD_TO_INR_RATE` | `90` | Estimate, not a live rate |
@@ -35,9 +35,20 @@ it:
 - This paragraph, so the ₹0 on your dashboard is never mistaken for
   verified proof that nothing is being spent.
 
-If you enable billing, set the real rates (Gemini 2.5 Pro was $1.25 in /
-$10 out per million tokens as of August 2026 — check
-[ai.google.dev/pricing](https://ai.google.dev/pricing)).
+If you enable billing, set the real rates — check
+[ai.google.dev/pricing](https://ai.google.dev/pricing) for current
+figures rather than trusting any number written down here.
+
+**One thing I can't verify for you.** Google retired `gemini-2.5-flash`
+for new keys and its own error pointed at `gemini-3.6-flash`, so that is
+what JARVIS now uses. I have no way to check that model's free-tier
+allowance or its per-token price from here — I hold no key of yours, and
+shouldn't. So the ₹0 default is an *assumption* for this model, not a
+verified fact. If the free tier doesn't cover it, `/v1/budget` will report
+₹0 while real charges accrue. Check
+[ai.google.dev/pricing](https://ai.google.dev/pricing) once, and if it
+isn't free, set `PRICE_GEMINI_INPUT_USD_PER_1M` and
+`PRICE_GEMINI_OUTPUT_USD_PER_1M` in Render to the real rates.
 
 ### It's an estimate, not a bill
 
@@ -45,9 +56,10 @@ These are real calculations from real token counts, but neither provider
 exposes live billing through their API, so nothing here comes from an
 actual invoice. Check the provider's own billing page occasionally —
 price changes or a drifted exchange rate are the two ways this can go
-wrong. Also note Gemini 2.5 models charge for internal "thinking" tokens
-that never appear in the reply; JARVIS counts those (many tools forget to),
-so its figure should if anything be slightly *higher* than a naive one.
+wrong. Also note Gemini's reasoning models charge for internal "thinking"
+tokens that never appear in the reply; JARVIS counts those (many tools
+forget to), so its figure should if anything be slightly *higher* than a
+naive one.
 
 ## What free actually costs you
 

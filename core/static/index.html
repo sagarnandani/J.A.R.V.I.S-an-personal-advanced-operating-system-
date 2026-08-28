@@ -329,10 +329,34 @@
                "is refusing all requests until it's turned off.";
       }
       if (res.status === 502) {
+        // The provider's own words are always shown. What follows is an
+        // attempt to say which of the handful of real causes it is,
+        // because "most often this is an API key" -- what this used to
+        // say unconditionally -- is actively wrong for a retired model,
+        // and a confident wrong answer costs more than no answer.
+        let advice =
+          "That is the model service's own message, passed through unchanged.";
+
+        const retired = detail.match(/use\s+models\/([A-Za-z0-9._-]+)/);
+        if (retired) {
+          advice =
+            `Google has retired the model JARVIS is set to use, and says to ` +
+            `use ${retired[1]} instead.\n\n` +
+            `Fix: Render -> your service -> Environment -> set GEMINI_MODEL ` +
+            `to ${retired[1]} -> Save. Nothing else changes.`;
+        } else if (/RESOURCE_EXHAUSTED|quota|429/i.test(detail)) {
+          advice =
+            "The free daily quota for your Gemini key is used up. It resets " +
+            "every 24 hours, so this fixes itself -- or add a Claude key as " +
+            "an automatic fallback (DEPLOYMENT.md step 3b).";
+        } else if (/API_KEY_INVALID|PERMISSION_DENIED|UNAUTHENTICATED|401|403/i.test(detail)) {
+          advice =
+            "The API key is missing, wrong, or not enabled for this API. " +
+            "Check GEMINI_API_KEY in Render -> Environment.";
+        }
+
         return "JARVIS could not get an answer from the model.\n\n" +
-               `What the model service said:\n${detail}\n\n` +
-               "Most often this is an API key that is missing, wrong, or out " +
-               "of free quota for the day.";
+               `What the model service said:\n${detail}\n\n${advice}`;
       }
       if (res.status === 401) {
         return "You are not signed in yet.\n\nTap the Google button at the " +

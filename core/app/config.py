@@ -80,7 +80,12 @@ class Settings(BaseSettings):
     llm_fallback_enabled: bool = True
 
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.5-flash"
+    # Google retires model names. When it does, the API answers 404 and
+    # names the replacement in the error, which JARVIS shows you verbatim
+    # -- so the fix is always a one-line env var change, never a code
+    # change. gemini-2.5-flash was retired for new keys; this is what
+    # Google's own error pointed to.
+    gemini_model: str = "gemini-3.6-flash"
 
     anthropic_api_key: str | None = None
     claude_model: str = "claude-sonnet-5"

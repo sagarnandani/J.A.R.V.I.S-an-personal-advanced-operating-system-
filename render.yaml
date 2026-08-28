@@ -63,8 +63,11 @@ services:
       # --- Model provider ---
       - key: LLM_PROVIDER
         value: gemini
+      # Google retires model names periodically. If a message ever comes
+      # back saying the model "is no longer available", the error names
+      # the replacement -- change it here, or in Render's Environment tab.
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.6-flash
       - key: CLAUDE_MODEL
         value: claude-sonnet-5
 
