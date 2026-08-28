@@ -17,6 +17,11 @@ class MessageResponse(BaseModel):
     audit_log_id: UUID
     provider: str
     model: str
+    # How many past turns JARVIS was given for this answer. Reported so
+    # memory is something you can see working rather than infer from the
+    # answer sounding right -- an assistant that has silently stopped
+    # remembering still produces plausible replies.
+    recalled_turns: int
 
 
 class MemoryOut(BaseModel):

@@ -90,6 +90,23 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     claude_model: str = "claude-sonnet-5"
 
+    # --- Memory recall ---
+    # Whether past conversation is fed back to the model. Off means JARVIS
+    # answers each message in isolation, the way Stage 0 did. Kept as a
+    # switch because recall is the one feature here that costs money on
+    # every single message, so being able to turn it off without a deploy
+    # is worth one boolean.
+    memory_recall_enabled: bool = True
+    # How many past turns to consider. A "turn" is one thing said by one
+    # side, so 20 is roughly 10 exchanges.
+    memory_recall_turns: int = 20
+    # And how much text those turns may total. This is the limit that
+    # actually protects the budget: the whole history is re-sent with
+    # every message, so without a ceiling each message in a long
+    # conversation costs more than the last, forever. Roughly 8000
+    # characters is about 2000 tokens -- see /docs/BUDGET.md.
+    memory_recall_max_chars: int = 8000
+
     # --- Budget guardrail ---
     # A concrete ceiling was requested by the architecture doc (section P)
     # but not fixed by the owner; the Stage 0 brief gives a range

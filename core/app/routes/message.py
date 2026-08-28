@@ -40,8 +40,18 @@ async def send_message(
 
     provider = get_provider(settings)
 
+    # What JARVIS remembers of the conversation so far. Read BEFORE this
+    # message is stored, so the model is not handed the very thing it is
+    # being asked to answer.
+    history = []
+    if settings.memory_recall_enabled:
+        history = await memory.recall_turns(
+            limit=settings.memory_recall_turns,
+            max_chars=settings.memory_recall_max_chars,
+        )
+
     try:
-        result = await provider.complete(body.text)
+        result = await provider.complete(body.text, history)
         outcome = "success"
     except Exception as exc:
         # Graceful degradation (architecture doc, section L): say plainly
@@ -93,4 +103,5 @@ async def send_message(
         audit_log_id=audit_log_id,
         provider=result.provider,
         model=result.model,
+        recalled_turns=len(history),
     )

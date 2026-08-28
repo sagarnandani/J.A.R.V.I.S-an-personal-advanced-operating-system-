@@ -13,6 +13,7 @@ layer in a later stage.
 from uuid import UUID
 
 from app.db import fetchrow
+from app.llm.base import ASSISTANT, USER, Turn, normalise_history
 
 VALID_CATEGORIES = {
     "working", "episodic", "semantic", "project",
@@ -73,3 +74,84 @@ async def list_recent(limit: int = 20) -> list:
     return await fetch(
         "SELECT * FROM memories ORDER BY created_at DESC LIMIT $1", limit
     )
+
+
+# Which origins can be replayed as conversation, and as whose words.
+#
+# Only these two. 'inferred' and 'predicted' are JARVIS's own guesses
+# about the owner, and feeding a guess back in as though it were part of
+# the conversation is how a guess quietly becomes a fact -- the exact
+# blurring the provenance rule exists to prevent. When a later stage
+# starts producing them, they will need their own path in, clearly marked
+# as guesses. They must not silently arrive through this one.
+_ORIGIN_ROLES = {"stated": USER, "retrieved": ASSISTANT}
+
+
+async def recall_turns(limit: int, max_chars: int) -> list[Turn]:
+    """The recent conversation, oldest first, ready to hand to a model.
+
+    This is what makes JARVIS remember. Stage 0 stored every exchange and
+    then never looked at it again; this reads it back so a conversation
+    can continue across messages, and across days.
+
+    Two limits, and both matter. `limit` caps how many turns are
+    considered. `max_chars` caps how much text actually goes, because
+    history is re-sent on every single message -- so a long conversation
+    silently makes every future message more expensive. Trimming drops
+    the oldest first, which is both the cheapest thing to forget and the
+    least likely to be missed.
+    """
+    from app.db import fetch
+
+    if limit <= 0 or max_chars <= 0:
+        return []
+
+    rows = await fetch(
+        """
+        SELECT content, origin FROM memories
+        WHERE origin = ANY($1::text[])
+        ORDER BY created_at DESC
+        LIMIT $2
+        """,
+        list(_ORIGIN_ROLES),
+        limit,
+    )
+
+    # Newest first out of the database, so the budget is spent on the most
+    # recent turns; reversed at the end back into reading order.
+    kept: list[Turn] = []
+    remaining = max_chars
+    for row in rows:
+        text = row["content"]
+        if len(text) > remaining:
+            break
+        remaining -= len(text)
+        kept.append(Turn(role=_ORIGIN_ROLES[row["origin"]], text=text))
+
+    kept.reverse()
+    history = normalise_history(kept)
+    if history:
+        return history
+
+    # Nothing survived. Two ways that happens, and both are real: one
+    # message longer than the whole budget, or a budget so small that the
+    # only turn that fit was a reply, which normalising then dropped for
+    # starting mid-exchange.
+    #
+    # Returning nothing here would look like total amnesia when it is
+    # really a size limit doing its job. So fall back to the single most
+    # valuable thing: the last thing the OWNER said, trimmed to fit. Their
+    # words matter more than JARVIS's own, and a user turn is the one
+    # shape every provider accepts on its own.
+    return _last_user_turn_trimmed(rows, max_chars)
+
+
+def _last_user_turn_trimmed(rows: list, max_chars: int) -> list[Turn]:
+    for row in rows:  # newest first
+        if _ORIGIN_ROLES[row["origin"]] != USER:
+            continue
+        text = row["content"]
+        if len(text) > max_chars:
+            text = text[:max_chars] + "... [trimmed to stay within the memory budget]"
+        return [Turn(role=USER, text=text)]
+    return []

@@ -8,7 +8,7 @@ import pytest
 
 from app.config import Settings
 from app.llm import get_provider
-from app.llm.base import LLMProvider, LLMResult
+from app.llm.base import LLMProvider, LLMResult, Turn
 from app.llm.fallback import FallbackProvider
 from app.llm.mock_adapter import MockAdapter
 
@@ -17,9 +17,15 @@ class FakeProvider(LLMProvider):
     def __init__(self, name: str) -> None:
         self.name = name
         self.calls = 0
+        # Recorded so tests can check that recalled history actually
+        # reaches the provider, rather than only that nothing crashed.
+        self.last_history: list[Turn] | None = None
 
-    async def complete(self, message: str) -> LLMResult:
+    async def complete(
+        self, message: str, history: list[Turn] | None = None
+    ) -> LLMResult:
         self.calls += 1
+        self.last_history = history
         return LLMResult(
             text=f"{self.name} says hi",
             input_tokens=1,
@@ -34,7 +40,9 @@ class BrokenProvider(LLMProvider):
         self.error = error
         self.calls = 0
 
-    async def complete(self, message: str) -> LLMResult:
+    async def complete(
+        self, message: str, history: list[Turn] | None = None
+    ) -> LLMResult:
         self.calls += 1
         raise RuntimeError(self.error)
 

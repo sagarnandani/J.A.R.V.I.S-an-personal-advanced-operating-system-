@@ -11,7 +11,7 @@ response and in the audit log rather than being hidden.
 """
 import logging
 
-from app.llm.base import LLMProvider, LLMResult
+from app.llm.base import LLMProvider, LLMResult, Turn
 
 logger = logging.getLogger("jarvis.llm.fallback")
 
@@ -21,16 +21,18 @@ class FallbackProvider(LLMProvider):
         self._primary = primary
         self._secondary = secondary
 
-    async def complete(self, message: str) -> LLMResult:
+    async def complete(
+        self, message: str, history: list[Turn] | None = None
+    ) -> LLMResult:
         try:
-            return await self._primary.complete(message)
+            return await self._primary.complete(message, history)
         except Exception as primary_error:
             logger.warning(
                 "Primary model provider failed (%s); trying the fallback provider.",
                 primary_error,
             )
             try:
-                result = await self._secondary.complete(message)
+                result = await self._secondary.complete(message, history)
             except Exception as secondary_error:
                 # Both are down. Report both causes -- knowing only about
                 # the second failure would send you debugging the wrong

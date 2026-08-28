@@ -71,6 +71,17 @@ services:
       - key: CLAUDE_MODEL
         value: claude-sonnet-5
 
+      # --- Memory: how much of the conversation JARVIS gets to see ---
+      # Set here rather than left to code defaults because this is the one
+      # dial that changes what each message costs. MAX_CHARS is the real
+      # limit; see docs/BUDGET.md before raising it.
+      - key: MEMORY_RECALL_ENABLED
+        value: "true"
+      - key: MEMORY_RECALL_TURNS
+        value: "20"
+      - key: MEMORY_RECALL_MAX_CHARS
+        value: "8000"
+
       # --- Budget guardrail (see docs/BUDGET.md) ---
       - key: MONTHLY_BUDGET_INR
         value: "3500"

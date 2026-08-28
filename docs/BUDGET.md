@@ -50,6 +50,36 @@ verified fact. If the free tier doesn't cover it, `/v1/budget` will report
 isn't free, set `PRICE_GEMINI_INPUT_USD_PER_1M` and
 `PRICE_GEMINI_OUTPUT_USD_PER_1M` in Render to the real rates.
 
+### Memory recall makes every message cost more
+
+Worth understanding, because it is the one thing here that changes cost
+**per message** rather than per month.
+
+JARVIS remembers your conversation by re-sending it to the model with
+every message. That is how these models work — they have no memory of
+their own, so the past has to be handed over each time. The consequence:
+a longer conversation means a bigger message, and a bigger message costs
+more. Without a ceiling, every message you send would cost slightly more
+than the one before it, forever.
+
+So there is a ceiling, and you can move it:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `MEMORY_RECALL_ENABLED` | `true` | Turn recall off entirely. JARVIS answers each message in isolation. |
+| `MEMORY_RECALL_TURNS` | `20` | How many past turns to consider (a turn is one thing said by one side, so ~10 exchanges). |
+| `MEMORY_RECALL_MAX_CHARS` | `8000` | The real limit. Roughly 2,000 tokens of history per message, whatever the conversation length. |
+
+At the default, the extra cost is capped at about 2,000 input tokens per
+message no matter how long you have been talking. On Gemini's free tier
+that is ₹0 — but it still counts against the **daily request quota**, and
+a longer message is not free of *limits* just because it is free of
+*charge*. On a paid tier, raise `MEMORY_RECALL_MAX_CHARS` deliberately
+rather than by accident.
+
+Every reply tells you how many turns it recalled, so you can see this
+working rather than guess.
+
 ### It's an estimate, not a bill
 
 These are real calculations from real token counts, but neither provider

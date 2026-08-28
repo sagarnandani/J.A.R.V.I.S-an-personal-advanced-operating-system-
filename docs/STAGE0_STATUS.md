@@ -12,18 +12,42 @@ with the right provenance: `stated` for the owner's words, `retrieved` for
 JARVIS's reply, each linked to the other. That is the Stage 0 Definition
 of Done met in full.
 
-### Memory is written, not yet recalled
+### Memory recall — the first piece of Stage 1
 
-Worth stating plainly, because it surprises people and JARVIS says it out
-loud: Stage 0 *stores* every exchange, but does not *feed it back* to the
-model. Ask about your favourite colour in a later message and JARVIS will
-not know it, even though the answer is sitting in the database.
+Stage 0 stored every exchange and then never looked at it again. Ask about
+your favourite colour a message later and JARVIS would not know, even
+though the answer was sitting in the database.
 
-That is deliberate, not a gap in the build. The Stage 0 brief scopes this
-to storage with correct provenance; retrieval into the conversation is
-Stage 1's job. JARVIS's system prompt says as much, which is why its reply
-volunteers that it has no memory recall yet -- an accurate statement about
-what it can currently do, rather than a hedge.
+It now reads that back. Each message is answered with the recent
+conversation in front of it, so JARVIS holds a thread — across messages,
+and across days. Every reply says how many past turns it recalled, so this
+is something you can watch working rather than infer from the answers
+sounding right. An assistant that has quietly stopped remembering still
+produces perfectly plausible replies, which is exactly why it needs to be
+visible.
+
+Three things worth knowing about how it behaves:
+
+- **It costs money per message.** The conversation is re-sent to the model
+  every time — that is how these models work, they have no memory of their
+  own. So there is a hard ceiling on how much history goes (default ~2,000
+  tokens' worth), and it can be lowered, raised, or switched off entirely
+  without a code change. See `BUDGET.md`.
+- **Only what was actually said is replayed.** Memories marked `inferred`
+  or `predicted` — JARVIS's own guesses about you — are deliberately
+  excluded. Feeding a guess back in as conversation is how a guess quietly
+  becomes a fact, which is the precise thing the provenance field exists
+  to prevent. Nothing produces those yet; the rule is in place before
+  anything can.
+- **It forgets the oldest first.** When the ceiling is reached, the oldest
+  turns drop out. If a single message is too big for the whole budget,
+  what *you* said comes back trimmed and labelled rather than vanishing —
+  your words are kept in preference to JARVIS's own.
+
+JARVIS's system prompt was updated to match: it used to be told it had no
+memory recall, which is why it volunteered that in replies. It is now told
+it does remember — and told, just as firmly, not to invent anything that
+is not actually in front of it.
 
 ### Before that
 

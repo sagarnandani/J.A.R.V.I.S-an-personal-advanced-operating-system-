@@ -315,11 +315,20 @@
     // out whether their assistant answered.
     function explainMessageResult(res, data) {
       if (res.ok) {
+        // Say what was remembered, not just what was saved. Memory
+        // failing is invisible otherwise: JARVIS keeps answering, the
+        // answers still read fine, and nothing says it has stopped
+        // recalling anything.
+        const recalled =
+          data.recalled_turns === 0
+            ? "nothing recalled yet -- this is the start of the conversation"
+            : `${data.recalled_turns} earlier turn(s) recalled`;
         const who =
           data.provider === "mock"
             ? "\n\n(No real model answered. The server has no working model key, " +
               "so this is a placeholder reply. Check GEMINI_API_KEY in Render.)"
-            : `\n\n(Answered by ${data.provider}, model ${data.model}. Saved to memory.)`;
+            : `\n\n(Answered by ${data.provider}, model ${data.model}. ` +
+              `Saved to memory; ${recalled}.)`;
         return `JARVIS says:\n\n${data.reply}${who}`;
       }
 

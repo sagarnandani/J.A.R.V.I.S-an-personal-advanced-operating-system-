@@ -4,7 +4,13 @@ import logging
 from google import genai
 from google.genai import types
 
-from app.llm.base import JARVIS_SYSTEM_PROMPT, LLMProvider, LLMResult
+from app.llm.base import (
+    ASSISTANT,
+    JARVIS_SYSTEM_PROMPT,
+    LLMProvider,
+    LLMResult,
+    Turn,
+)
 
 logger = logging.getLogger("jarvis.llm.gemini")
 
@@ -14,10 +20,33 @@ class GeminiAdapter(LLMProvider):
         self._client = genai.Client(api_key=api_key)
         self._model = model
 
-    async def complete(self, message: str) -> LLMResult:
+    @staticmethod
+    def _to_contents(message: str, history: list[Turn] | None) -> list:
+        """The conversation in Gemini's shape.
+
+        Gemini calls the assistant side "model" rather than "assistant",
+        which is the only reason this mapping exists -- the rest of JARVIS
+        should not have to know that.
+        """
+        contents = []
+        for turn in history or []:
+            contents.append(
+                types.Content(
+                    role="model" if turn.role == ASSISTANT else "user",
+                    parts=[types.Part.from_text(text=turn.text)],
+                )
+            )
+        contents.append(
+            types.Content(role="user", parts=[types.Part.from_text(text=message)])
+        )
+        return contents
+
+    async def complete(
+        self, message: str, history: list[Turn] | None = None
+    ) -> LLMResult:
         response = await self._client.aio.models.generate_content(
             model=self._model,
-            contents=message,
+            contents=self._to_contents(message, history),
             config=types.GenerateContentConfig(
                 system_instruction=JARVIS_SYSTEM_PROMPT,
                 max_output_tokens=1024,

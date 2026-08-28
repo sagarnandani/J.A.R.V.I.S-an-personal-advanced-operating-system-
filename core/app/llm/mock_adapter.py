@@ -11,7 +11,7 @@ said `ANTHROPIC_API_KEY`, which stopped being true when Gemini became the
 default provider -- so the one message the owner sees when their key isn't
 working was pointing them at the wrong setting to fix.
 """
-from app.llm.base import LLMProvider, LLMResult
+from app.llm.base import LLMProvider, LLMResult, Turn
 
 # Which environment variable to name, per provider.
 _KEY_NAMES = {
@@ -30,10 +30,17 @@ class MockAdapter(LLMProvider):
             return f"no {key} is configured on this deployment"
         return "no model provider key is configured on this deployment"
 
-    async def complete(self, message: str) -> LLMResult:
+    async def complete(
+        self, message: str, history: list[Turn] | None = None
+    ) -> LLMResult:
+        # Says how much history it was handed, so a recall problem is
+        # visible even with no provider key configured -- otherwise the
+        # only way to check recall works is to spend money on it.
+        recalled = len(history or [])
         reply = (
             f"[JARVIS mock response -- {self._missing_key_hint()}, so no real "
-            f"model was called] You said: {message!r}"
+            f"model was called; {recalled} earlier turn(s) recalled] "
+            f"You said: {message!r}"
         )
         # Fake but proportional token counts, so the budget math downstream
         # is exercised the same way it would be with a real call.

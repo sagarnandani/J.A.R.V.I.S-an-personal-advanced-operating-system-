@@ -11,11 +11,67 @@ from dataclasses import dataclass
 # One definition, shared by every provider -- JARVIS should behave the same
 # whichever model is answering. If this differed per adapter, switching
 # providers would quietly change JARVIS's personality along with it.
+#
+# The instruction not to guess is doing real work now that memory is fed
+# back in. A model handed a partial history will cheerfully invent the
+# rest, and an assistant that fabricates what you told it is worse than
+# one that admits it has lost the thread.
 JARVIS_SYSTEM_PROMPT = (
-    "You are JARVIS, a personal AI operating system. This is Stage 0: a "
-    "plain request/response loop with no tools, no agents, and no memory "
-    "recall yet. Respond helpfully and briefly."
+    "You are JARVIS, a personal AI operating system, talking with your "
+    "owner. Earlier turns of this conversation are provided to you from a "
+    "memory store, so you do remember what was said before, including in "
+    "earlier sessions -- do not claim otherwise. But remember only what is "
+    "actually there: if something is not in what you were given, say you "
+    "do not have it rather than inventing it. You have no tools and take "
+    "no actions yet; you answer questions and hold a conversation. Respond "
+    "helpfully and briefly."
 )
+
+USER = "user"
+ASSISTANT = "assistant"
+
+
+@dataclass(frozen=True)
+class Turn:
+    """One thing that was said, by one side of the conversation.
+
+    Deliberately not the database row: a memory carries provenance,
+    confidence and links that a model has no use for. This is only what a
+    provider needs to reconstruct the conversation, which keeps the
+    memory store's shape from leaking into every adapter.
+    """
+
+    role: str  # USER or ASSISTANT
+    text: str
+
+
+def normalise_history(turns: list[Turn]) -> list[Turn]:
+    """Make a history that every provider will accept.
+
+    Providers expect a conversation to start with the user and to
+    alternate. Real history doesn't always: trimming to a size limit can
+    slice a pair in half and leave a reply with nothing before it, which
+    Claude rejects outright with an error that says nothing about why.
+
+    So two rules, applied here once rather than in each adapter:
+      * drop leading assistant turns -- a reply to a question we no longer
+        have is not worth the tokens;
+      * collapse consecutive turns from the same side into one, which can
+        only happen if something was stored oddly, but costs a request if
+        it ever does.
+    """
+    cleaned: list[Turn] = []
+    for turn in turns:
+        if not turn.text.strip():
+            continue
+        if not cleaned and turn.role != USER:
+            continue
+        if cleaned and cleaned[-1].role == turn.role:
+            merged = Turn(role=turn.role, text=f"{cleaned[-1].text}\n\n{turn.text}")
+            cleaned[-1] = merged
+            continue
+        cleaned.append(turn)
+    return cleaned
 
 
 @dataclass
@@ -29,5 +85,12 @@ class LLMResult:
 
 class LLMProvider(ABC):
     @abstractmethod
-    async def complete(self, message: str) -> LLMResult:
-        """Send a single message, return the reply and token usage."""
+    async def complete(
+        self, message: str, history: list[Turn] | None = None
+    ) -> LLMResult:
+        """Send a message in the context of what came before.
+
+        `history` is oldest-first and excludes `message` itself. Passing
+        none is a conversation with no past, which is what every call was
+        before memory recall existed.
+        """
