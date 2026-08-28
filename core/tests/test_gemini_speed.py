@@ -38,7 +38,15 @@ class _FakeModels:
         if self.fail_with:
             raise RuntimeError(self.fail_with)
         if self.reject_thinking and config.thinking_config is not None:
-            raise RuntimeError("400 INVALID_ARGUMENT: thinking is not supported")
+            # Google's REAL refusal, copied from a live failure. It does not
+            # mention thinking at all -- which is exactly why the first
+            # version of the retry guard never fired and broke every
+            # message. Tested against the true wording, not a plausible one.
+            raise RuntimeError(
+                "400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': "
+                "'Request contains an invalid argument.', 'status': "
+                "'INVALID_ARGUMENT'}}"
+            )
         return _Response()
 
 
@@ -100,3 +108,67 @@ async def test_a_real_failure_is_not_swallowed_by_the_retry():
     with pytest.raises(RuntimeError, match="API_KEY_INVALID"):
         await _adapter(models).complete("hi")
     assert len(models.configs) == 1, "must not retry a real failure"
+
+
+# --- the guard must fail safe, not fail closed ----------------------------
+
+@pytest.mark.asyncio
+async def test_an_unrecognised_error_still_gets_the_retry():
+    """The whole point of the deny-list.
+
+    A refusal worded in some way nobody predicted must cost one extra
+    call, not break every message. This is the case the original
+    allow-list guard got wrong.
+    """
+
+    class _OnlyOnce(_FakeModels):
+        async def generate_content(self, *, model, contents, config):
+            self.configs.append(config)
+            if config.thinking_config is not None:
+                raise RuntimeError("some wording nobody anticipated")
+            return _Response()
+
+    models = _OnlyOnce()
+    result = await _adapter(models).complete("hi")
+
+    assert result.text == "hello"
+    assert models.configs[1].thinking_config is None
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "400 API_KEY_INVALID: API key not valid",
+        "429 RESOURCE_EXHAUSTED: quota exceeded",
+        "403 PERMISSION_DENIED",
+        "404 NOT_FOUND: model no longer available",
+    ],
+)
+@pytest.mark.asyncio
+async def test_auth_and_quota_failures_are_not_retried(error):
+    """These cannot be caused by a thinking budget.
+
+    Retrying them would burn a second call against an already-exhausted
+    quota, and double the failures while something is genuinely wrong.
+    """
+    models = _FakeModels(fail_with=error)
+    with pytest.raises(RuntimeError):
+        await _adapter(models).complete("hi")
+    assert len(models.configs) == 1
+
+
+@pytest.mark.asyncio
+async def test_if_the_retry_also_fails_thinking_is_not_blamed():
+    """A retry that fails proves nothing about the setting.
+
+    Disabling it anyway would mean one unrelated outage permanently
+    turning off a speed feature, with a log line blaming the wrong thing.
+    """
+    models = _FakeModels(fail_with="500 INTERNAL: backend blew up")
+    adapter = _adapter(models)
+
+    with pytest.raises(RuntimeError, match="INTERNAL"):
+        await adapter.complete("hi")
+
+    assert adapter._thinking_supported is True
+    assert len(models.configs) == 2

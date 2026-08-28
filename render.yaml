@@ -70,10 +70,14 @@ services:
         value: gemini-3.6-flash
       # How much Gemini may "think" before answering. That thinking is
       # never shown, is billed as output, and is time you spend waiting.
-      # 0 = off (fastest, cheapest). -1 = let the model decide, which is
-      # worth trying if answers ever seem shallow. See docs/BUDGET.md.
+      #
+      # -1 means "send no setting, let the model decide", and is here
+      # because gemini-3.6-flash rejected 0 with a 400 that broke every
+      # message. Setting 0 is faster and cheaper where a model allows it,
+      # and JARVIS now falls back by itself if refused -- so it is safe to
+      # try on a different model. See docs/SPEED.md.
       - key: GEMINI_THINKING_BUDGET
-        value: "0"
+        value: "-1"
       - key: CLAUDE_MODEL
         value: claude-sonnet-5
 

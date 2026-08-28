@@ -87,15 +87,19 @@ class Settings(BaseSettings):
     # watching a spinner. For a conversational assistant it buys very
     # little: these are chat replies, not maths proofs.
     #
-    #   0  -- off. Fastest and cheapest; the default.
-    #   -1 -- let the model decide how much it needs.
+    #   -1 -- send no setting at all; the model decides. The default.
+    #   0  -- off. Faster and cheaper, on models that allow it.
     #   >0 -- a token budget, for when answers genuinely need working out.
     #
-    # A setting rather than a constant because the right answer changes
-    # once JARVIS is doing harder work than holding a conversation. If the
-    # model in use refuses to have it turned off, the adapter notices and
-    # carries on without it rather than failing the message.
-    gemini_thinking_budget: int = 0
+    # The default is -1 -- meaning "don't ask" -- because gemini-3.6-flash
+    # refused 0 outright, with a 400 that broke every message until it was
+    # reverted. Defaulting to something a known model rejects would waste a
+    # failed call on every restart, forever.
+    #
+    # It is still worth trying on another model: 0 makes replies both
+    # faster and cheaper where it is accepted, and the adapter now falls
+    # back cleanly if it is refused instead of failing the message.
+    gemini_thinking_budget: int = -1
     # Google retires model names. When it does, the API answers 404 and
     # names the replacement in the error, which JARVIS shows you verbatim
     # -- so the fix is always a one-line env var change, never a code

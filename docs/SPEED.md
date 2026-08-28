@@ -44,15 +44,22 @@ before answering. You never see that reasoning, it is billed as output
 tokens, and it is time you spend watching a spinner. For holding a
 conversation it buys very little.
 
-`GEMINI_THINKING_BUDGET` controls it, and it is set to `0` — off:
+`GEMINI_THINKING_BUDGET` controls it:
 
-- `0` — off. Fastest and cheapest. The default.
-- `-1` — the model decides. Try this if answers ever seem shallow.
+- `-1` — send no setting; the model decides. **The default.**
+- `0` — off. Faster and cheaper, on models that allow it.
 - a number — a token allowance, for when answers genuinely need working out.
 
-Not every model permits turning it off. If yours refuses, JARVIS notices,
-logs it, and carries on without the setting rather than failing your
-message — so this is safe to leave alone.
+**Honest note: this lever did not work here.** Setting it to `0` looked
+like the biggest single speed win available, and `gemini-3.6-flash`
+refused it outright — a `400 INVALID_ARGUMENT` that broke every message
+until it was reverted. Hence the `-1` default: a value a known model
+rejects has no business being the default, because it would waste a
+failed call on every restart.
+
+It is still worth trying on a different model, and it is now safe to try:
+if the model refuses, JARVIS retries without the setting and carries on
+instead of failing your message.
 
 The rest of `model_ms` is Google's own speed and the round trip to their
 servers. Nothing on your side changes that.
