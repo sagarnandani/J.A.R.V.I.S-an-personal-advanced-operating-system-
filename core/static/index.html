@@ -12,6 +12,7 @@
   button { font: inherit; padding: 0.5rem 1rem; margin: 0.25rem 0.25rem 0.25rem 0; cursor: pointer; }
   pre { background: #f4f4f4; padding: 0.75rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
   #whoami { font-size: 0.85rem; color: #555; }
+  #whoami.blocked { color: #a11; font-weight: 600; font-size: 0.95rem; }
   section { margin-bottom: 2rem; }
 </style>
 </head>
@@ -113,10 +114,12 @@
 
       if (signedInAs) {
         whoami.textContent = `Signed in as ${signedInAs}. Send a message below.`;
+        whoami.classList.remove("blocked");
         signoutBtn.style.display = "inline-block";
         document.getElementById("gsiButton").style.display = "none";
       } else {
-        whoami.textContent = "Not signed in.";
+        whoami.textContent = "Not signed in -- tap the Google button below first.";
+        whoami.classList.add("blocked");
         signoutBtn.style.display = "none";
         document.getElementById("gsiButton").style.display = "block";
       }
@@ -150,7 +153,21 @@
         return false;
       }
 
-      await refreshAuthState();
+      // The server said yes and sent the cookie. If we still come back as
+      // not signed in, the browser threw the cookie away -- which happens
+      // in private browsing and when cookies are blocked for the site.
+      // Without this check that failure looks identical to never having
+      // tapped the button at all: the page just says "Not signed in."
+      const who = await refreshAuthState();
+      if (!who) {
+        whoami.textContent =
+          "JARVIS accepted your sign-in, but your browser did not keep the " +
+          "login cookie, so it cannot stay signed in. This is usually " +
+          "Private Browsing, or cookies being blocked for this site. Try a " +
+          "normal (non-private) tab, and check Settings -> Safari -> Block " +
+          "All Cookies is off.";
+        return false;
+      }
       return true;
     }
 
@@ -317,8 +334,13 @@
                "Most often this is an API key that is missing, wrong, or out " +
                "of free quota for the day.";
       }
-      if (res.status === 401 || res.status === 403) {
-        return `You are not signed in as the owner.\n\n${detail}`;
+      if (res.status === 401) {
+        return "You are not signed in yet.\n\nTap the Google button at the " +
+               "top of this page first, wait for it to say \"Signed in as...\", " +
+               "then send your message again.";
+      }
+      if (res.status === 403) {
+        return `Signed in, but not as the owner of this JARVIS.\n\n${detail}`;
       }
       if (res.status >= 500) {
         return "Something failed inside JARVIS itself.\n\n" + detail +

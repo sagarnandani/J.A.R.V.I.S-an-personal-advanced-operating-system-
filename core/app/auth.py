@@ -279,8 +279,8 @@ async def get_current_user(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
-            detail="Not signed in. Open the JARVIS page and tap the Google "
-            "sign-in button, or send a Google/Firebase ID token as "
+            detail="Not signed in. Tap the Google sign-in button on the "
+            "JARVIS page, or send a Google/Firebase ID token as "
             "'Authorization: Bearer <token>'.",
         )
 
