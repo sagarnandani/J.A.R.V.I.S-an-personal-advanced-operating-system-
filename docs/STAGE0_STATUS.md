@@ -15,7 +15,7 @@ and locally test the complete Stage 0 codebase:
   `memories` with correct provenance, seeing it logged in `audit_log`,
   reading back the budget estimate, toggling Emergency Stop and confirming
   it actually blocks requests.
-- 42 automated tests, all passing (`core/tests/`).
+- 82 automated tests, all passing (`core/tests/`).
 
 None of that required a cloud account — it ran against a local Postgres,
 with no provider key configured, so a mock adapter answered and labelled
@@ -48,8 +48,8 @@ leaked key.)
 | 1 | Apply the database schema | Supabase SQL Editor | **Done** |
 | 2 | Firebase project + Google sign-in | Firebase Console | **Done** |
 | 3 | Get a Gemini API key (free) | aistudio.google.com | **Done** |
-| 4 | Deploy from the repo | Render (browser only) | Next |
-| 5 | Sign in from your iPad and send a message | Your browser | Not started |
+| 4 | Deploy from the repo | Render (browser only) | **Done** |
+| 5 | Sign in from your iPad and send a message | Your browser | Next |
 
 **Hosting: Render, not Google Cloud Run.** Cloud Run needed a command
 line and a billing account (a card on file) before it would switch its
@@ -81,6 +81,46 @@ placeholders rather than a crash or a fake answer.
 
 Step 5 is the actual Stage 0 sign-off — the point where the Definition of
 Done is met and Stage 1 can begin. `DEPLOYMENT.md` has each step in full.
+
+### Sign-in: what went wrong, and what fixed it
+
+Worth writing down, because it looked like three different faults and was
+really one, and because the last version of it was my mistake.
+
+Signing in on an iPad failed twice for reasons that had nothing to do with
+JARVIS being wrong about who you are:
+
+1. **Pop-up sign-in** — iOS Safari blocks pop-ups, so the window never
+   opened. Nothing appeared to happen at all.
+2. **Redirect sign-in** — Safari blocks the cross-domain storage Firebase
+   uses to carry you back. Fixed by serving Firebase's sign-in helper from
+   your own domain (`core/app/routes/auth_proxy.py`), and then made
+   unnecessary by Google's in-page button, which neither pops up nor
+   navigates.
+3. **The sign-in was forgotten on every reload.** This one is mine. The
+   sign-in was being held in a JavaScript variable — page memory, which
+   the browser wipes on every reload, including the automatic one after
+   each redeploy. You really had signed in; the page had simply forgotten
+   by the time you sent a message, and reported it as "Not signed in yet."
+   I had built the fix for this and then removed it when sign-in appeared
+   to be working. Removing it was the mistake.
+
+The fix is an ordinary login cookie. When you sign in, the server checks
+the token with Google and hands your browser a small signed note saying
+"this is the owner". The browser sends that note back on every request,
+including after a reload. The note is readable but can't be altered — it's
+signed with a secret only the server knows — and it's marked `HttpOnly`,
+so no script on the page can read it either.
+
+Two consequences worth knowing:
+
+- **`SESSION_SECRET` must be set and kept** (`DEPLOYMENT.md` step 4g).
+  Left unset, the server invents a new one on each start, and every
+  redeploy signs you out — the same symptom, moved. It warns loudly at
+  startup when that's the case, so it is never silent.
+- **Being signed in is re-checked on every request**, not trusted for the
+  cookie's whole month. So changing `OWNER_EMAIL` locks out the previous
+  owner immediately rather than whenever their session happened to lapse.
 
 ## What isn't built (on purpose)
 

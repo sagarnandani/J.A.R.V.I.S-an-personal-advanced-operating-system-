@@ -117,3 +117,38 @@ async def test_both_providers_down_reports_both_causes():
         await provider.complete("hi")
     assert "gemini exploded" in str(exc.value)
     assert "claude exploded" in str(exc.value)
+
+
+# --- what the placeholder reply tells the owner to do ---------------------
+#
+# When no key works, this text is the entire explanation the owner gets. It
+# has to name the setting they actually need to change. It once always said
+# ANTHROPIC_API_KEY, which became wrong the day Gemini became the default --
+# a wrong instruction is worse than a vague one, because it gets followed.
+
+@pytest.mark.asyncio
+async def test_mock_names_the_gemini_key_when_gemini_was_wanted():
+    s = Settings(llm_provider="gemini", gemini_api_key=None, anthropic_api_key=None)
+    result = await get_provider(s).complete("hello")
+    assert "GEMINI_API_KEY" in result.text
+    assert "ANTHROPIC_API_KEY" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_mock_names_the_claude_key_when_claude_was_wanted():
+    s = Settings(llm_provider="claude", gemini_api_key=None, anthropic_api_key=None)
+    result = await get_provider(s).complete("hello")
+    assert "ANTHROPIC_API_KEY" in result.text
+    assert "GEMINI_API_KEY" not in result.text
+
+
+@pytest.mark.asyncio
+async def test_mock_chosen_deliberately_does_not_nag_about_a_missing_key():
+    """LLM_PROVIDER=mock is a choice, not a misconfiguration.
+
+    Naming a key to set would be telling the owner to fix something that
+    isn't broken.
+    """
+    s = Settings(llm_provider="mock")
+    result = await get_provider(s).complete("hello")
+    assert "API_KEY" not in result.text

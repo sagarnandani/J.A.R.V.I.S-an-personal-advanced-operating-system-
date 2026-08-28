@@ -76,31 +76,43 @@
     const verifyOut = document.getElementById("verifyOut");
 
     let auth = null;
-    // Set when Google's in-page button signs us in. Firebase, when it
-    // works, supplies its own token instead -- the server accepts either.
-    let googleToken = null;
 
-    // Reads the email out of a sign-in token purely to show who you are.
-    // Nothing is trusted from this -- the server checks the signature
-    // properly before letting anything through.
-    function emailFromToken(token) {
-      try {
-        const body = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-        return JSON.parse(atob(body)).email || null;
-      } catch (e) {
-        return null;
-      }
+    // Every request carries the login cookie the server set when you
+    // signed in. Nothing about the sign-in is kept in this page any more:
+    // page memory is wiped by every reload, which is precisely why the
+    // old version kept appearing to forget a sign-in that had actually
+    // worked. `same-origin` is the browser default here, but it is
+    // written out because the cookie is now the whole mechanism.
+    async function authedFetch(path, options = {}) {
+      return fetch(path, {
+        ...options,
+        credentials: "same-origin",
+        headers: {
+          ...(options.headers || {}),
+          "Content-Type": "application/json",
+        },
+      });
     }
 
-    function showAuthState() {
-      const firebaseUser = auth && auth.currentUser;
-      if (googleToken) {
-        const email = emailFromToken(googleToken);
-        whoami.textContent = `Signed in as ${email || "your Google account"}. Send a message below.`;
-        signoutBtn.style.display = "inline-block";
-        document.getElementById("gsiButton").style.display = "none";
-      } else if (firebaseUser) {
-        whoami.textContent = `Signed in as ${firebaseUser.email || firebaseUser.uid}`;
+    // Asks the server who we are rather than assuming. The server holds
+    // the truth -- it is the one that issued the cookie and the one that
+    // checks it -- so what is shown on screen is its answer, not this
+    // page's hopeful guess.
+    async function refreshAuthState() {
+      let signedInAs = null;
+      try {
+        const res = await authedFetch("/v1/me");
+        if (res.ok) {
+          const me = await res.json();
+          signedInAs = me.email || me.uid;
+        }
+      } catch (e) {
+        whoami.textContent = `Could not reach JARVIS to check your sign-in: ${e.message}`;
+        return null;
+      }
+
+      if (signedInAs) {
+        whoami.textContent = `Signed in as ${signedInAs}. Send a message below.`;
         signoutBtn.style.display = "inline-block";
         document.getElementById("gsiButton").style.display = "none";
       } else {
@@ -108,29 +120,47 @@
         signoutBtn.style.display = "none";
         document.getElementById("gsiButton").style.display = "block";
       }
+      return signedInAs;
     }
 
-    async function currentIdToken() {
-      if (googleToken) return googleToken;
-      if (!auth || !auth.currentUser) {
-        throw new Error("Not signed in yet.");
+    // Hands a sign-in token to the server, which checks it and replies
+    // with a login cookie. This is the step that makes a sign-in last:
+    // after it, being signed in is something the server remembers, not
+    // something this page is holding on to.
+    async function exchangeForSession(credential) {
+      whoami.textContent = "Signing in...";
+      let res;
+      try {
+        res = await authedFetch("/auth/session", {
+          method: "POST",
+          body: JSON.stringify({ credential }),
+        });
+      } catch (e) {
+        whoami.textContent = `Could not reach JARVIS to complete sign-in: ${e.message}`;
+        return false;
       }
-      return auth.currentUser.getIdToken();
-    }
 
-    async function authedFetch(path, options = {}) {
-      const token = await currentIdToken();
-      return fetch(path, {
-        ...options,
-        headers: {
-          ...(options.headers || {}),
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
+      if (!res.ok) {
+        let body = {};
+        try { body = await res.json(); } catch (e) { /* not JSON */ }
+        whoami.textContent =
+          `Google signed you in, but JARVIS refused it (HTTP ${res.status}). ` +
+          (body.detail || "");
+        document.getElementById("gsiButton").style.display = "block";
+        return false;
+      }
+
+      await refreshAuthState();
+      return true;
     }
 
     (async () => {
+      // First thing, before anything about sign-in providers: are we
+      // already signed in from last time? This is the whole point of the
+      // cookie, and asking first means a returning visit shows the right
+      // thing immediately instead of flashing "Not signed in."
+      await refreshAuthState();
+
       let config;
       try {
         config = await fetch("/public/firebase-config").then((r) => r.json());
@@ -138,9 +168,9 @@
         whoami.textContent = "Could not load Firebase config from the server.";
         return;
       }
-      if (!config.apiKey) {
+      if (!config.apiKey && !config.googleClientId) {
         whoami.textContent =
-          "Firebase is not configured on this deployment yet (no apiKey). " +
+          "No sign-in method is configured on this deployment yet. " +
           "See /docs/DEPLOYMENT.md.";
         return;
       }
@@ -154,26 +184,12 @@
           }
           window.google.accounts.id.initialize({
             client_id: config.googleClientId,
-            callback: async (response) => {
-              googleToken = response.credential;
-              showAuthState();
-              // Confirm the server actually accepts this sign-in, rather
-              // than looking signed in and only finding out on the first
-              // real request.
-              try {
-                const res = await authedFetch("/v1/budget");
-                if (!res.ok) {
-                  const body = await res.json().catch(() => ({}));
-                  googleToken = null;
-                  showAuthState();
-                  whoami.textContent =
-                    `Google signed you in, but JARVIS refused it (HTTP ${res.status}). ` +
-                    (body.detail || "");
-                }
-              } catch (e) {
-                whoami.textContent = `Signed in, but could not reach JARVIS: ${e.message}`;
-              }
-            },
+            // The token goes straight to the server, which checks it and
+            // sets the login cookie. Sent as an ordinary background
+            // request, so nothing navigates and nothing pops up -- no
+            // extra redirect address has to be registered with Google,
+            // and Safari has nothing to block.
+            callback: (response) => exchangeForSession(response.credential),
           });
           window.google.accounts.id.renderButton(
             document.getElementById("gsiButton"),
@@ -187,14 +203,30 @@
           "sign-in button can't be shown. See /docs/DEPLOYMENT.md step 4f.";
       }
 
+      // Firebase is optional now: the in-page Google button is the path
+      // that actually works on an iPad, and it does not need Firebase at
+      // all. If Firebase is not configured, the alternative sign-in
+      // buttons simply are not wired up -- which is not an error.
+      if (!config.apiKey) {
+        signinBtn.disabled = true;
+        signinBtn.title = "Firebase is not configured on this server.";
+        return;
+      }
+
       const app = initializeApp(config);
       auth = getAuth(app);
 
-      // Firebase has no session of its own when the in-page Google button
-      // is what signed us in, so its listener reports "not signed in" and
-      // would wipe out a perfectly good sign-in message. One function owns
-      // this display, and it checks both sources before deciding.
-      onAuthStateChanged(auth, () => showAuthState());
+      // Firebase signing in is one more way to get a token; it is not
+      // what decides whether JARVIS considers you signed in. So this hands
+      // the token over to the server and then asks the server, rather than
+      // reporting Firebase's own opinion -- which, when the in-page Google
+      // button is what signed us in, is "nobody is signed in", and used to
+      // wipe out a perfectly good sign-in message.
+      onAuthStateChanged(auth, async (user) => {
+        if (user && !(await refreshAuthState())) {
+          await exchangeForSession(await user.getIdToken());
+        }
+      });
 
       // Redirect rather than a pop-up: iOS Safari blocks pop-ups, so the
       // pop-up version never opened at all. This sends the whole page to
@@ -242,9 +274,14 @@
       };
 
       signoutBtn.onclick = async () => {
-        googleToken = null;
+        // The cookie lives on the server's side of the conversation, so
+        // signing out means telling the server -- clearing anything here
+        // would leave the session perfectly usable.
+        try {
+          await authedFetch("/auth/logout", { method: "POST" });
+        } catch (e) { /* the state refresh below will show what happened */ }
         try { await signOut(auth); } catch (e) { /* nothing to sign out of */ }
-        showAuthState();
+        await refreshAuthState();
       };
 
       // Coming back from Google.
@@ -361,6 +398,24 @@
         }
       } catch (e) {
         lines.push(`PROBLEM: could not reach the sign-in helper -- ${e.message}`);
+      }
+
+      // Whether the server currently considers us signed in. This is the
+      // check that would have named the real fault last time: the sign-in
+      // had genuinely worked, and then the page reloaded and forgot it.
+      try {
+        const res = await authedFetch("/v1/me");
+        if (res.ok) {
+          const me = await res.json();
+          lines.push(`OK: signed in as ${me.email || me.uid}, and it survived the reload.`);
+        } else if (res.status === 401) {
+          lines.push("PROBLEM: not signed in -- tap the Google button above first.");
+        } else {
+          const body = await res.json().catch(() => ({}));
+          lines.push(`PROBLEM: sign-in rejected (HTTP ${res.status}): ${body.detail || ""}`);
+        }
+      } catch (e) {
+        lines.push(`PROBLEM: could not ask the server who is signed in -- ${e.message}`);
       }
 
       // Whether JARVIS can actually get an answer out of the model -- the

@@ -22,9 +22,10 @@ import time
 from dataclasses import dataclass
 
 import requests
-from fastapi import Header, HTTPException
+from fastapi import Cookie, Header, HTTPException
 from google.auth import jwt as google_jwt
 
+from app import session
 from app.config import Settings, get_settings
 
 # Google publishes the public keys for both kinds of sign-in token it
@@ -220,23 +221,7 @@ def is_owner(decoded_token: dict, settings) -> bool:
     return False
 
 
-async def get_current_user(
-    authorization: str | None = Header(default=None),
-) -> CurrentUser:
-    settings = get_settings()
-
-    if settings.dev_mode:
-        return CurrentUser(uid=settings.owner_uid or "dev-owner", email="dev@localhost")
-
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail="Missing bearer token. Sign in and send your Firebase ID token "
-            "as 'Authorization: Bearer <token>'.",
-        )
-
-    claims = verify_token(authorization.removeprefix("Bearer ").strip(), settings)
-
+def _require_owner_configured(settings: Settings) -> None:
     if not settings.owner_uid and not settings.owner_email:
         raise HTTPException(
             status_code=500,
@@ -245,11 +230,61 @@ async def get_current_user(
             "/docs/DEPLOYMENT.md step 2.",
         )
 
-    if not is_owner(claims, settings):
+
+def _refuse_if_not_owner(identity: dict, settings: Settings) -> None:
+    _require_owner_configured(settings)
+    if not is_owner(identity, settings):
         raise HTTPException(
             status_code=403,
             detail="This JARVIS instance is configured for a single owner "
             "and this account is not it.",
         )
+
+
+async def get_current_user(
+    authorization: str | None = Header(default=None),
+    jarvis_session: str | None = Cookie(default=None),
+) -> CurrentUser:
+    """Who is making this request.
+
+    Two ways in, checked in this order:
+
+      1. The login cookie, set when the owner signed in. This is the one
+         the test console uses, and the reason a sign-in now survives
+         reloading the page. It is checked first because it is the common
+         case and costs nothing -- no network call to Google.
+      2. An `Authorization: Bearer <id token>` header, for anything
+         calling the API directly rather than through a browser.
+
+    Both end at the same place: a verified identity that must be the
+    owner's. The cookie's identity is re-checked against the owner rule on
+    every request rather than trusted for its whole lifetime, so changing
+    OWNER_EMAIL takes effect immediately instead of whenever old sessions
+    happen to expire.
+    """
+    settings = get_settings()
+
+    if settings.dev_mode:
+        return CurrentUser(uid=settings.owner_uid or "dev-owner", email="dev@localhost")
+
+    if jarvis_session:
+        payload = session.read_session(jarvis_session, settings.session_secret)
+        if payload:
+            _refuse_if_not_owner(payload, settings)
+            return CurrentUser(uid=payload["uid"], email=payload.get("email"))
+        # A cookie that doesn't check out is treated as no cookie at all,
+        # so a stale one left over from an earlier deployment falls through
+        # to the header below instead of hard-failing the request.
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Not signed in. Open the JARVIS page and tap the Google "
+            "sign-in button, or send a Google/Firebase ID token as "
+            "'Authorization: Bearer <token>'.",
+        )
+
+    claims = verify_token(authorization.removeprefix("Bearer ").strip(), settings)
+    _refuse_if_not_owner(claims, settings)
 
     return CurrentUser(uid=claims["uid"], email=claims.get("email"))

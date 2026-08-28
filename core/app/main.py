@@ -14,7 +14,15 @@ from fastapi.staticfiles import StaticFiles
 from app.auth import init_firebase
 from app.config import get_settings
 from app.db import lifespan_db
-from app.routes import admin, auth_proxy, budget, health, message, records
+from app.routes import (
+    admin,
+    auth_proxy,
+    budget,
+    health,
+    login,
+    message,
+    records,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("jarvis")
@@ -30,11 +38,36 @@ async def lifespan(app: FastAPI):
             "reachable from the internet."
         )
     init_firebase()
+    _ensure_session_secret(settings)
     _warn_if_spend_is_untracked(settings)
     async with lifespan_db(app):
         logger.info("JARVIS Core started.")
         yield
     logger.info("JARVIS Core stopped.")
+
+
+def _ensure_session_secret(settings) -> None:
+    """Make sure login cookies can be signed, and say so if only just.
+
+    Without a configured secret the server invents one at startup. Cookies
+    signed with it are perfectly valid -- but the next restart invents a
+    different one, and every cookie signed with the old one stops being
+    recognised. In plain terms: it works, until the service restarts, and
+    then you are signed out again. Since a redeploy IS a restart, that is
+    the same "it keeps forgetting me" problem this cookie was added to
+    fix, just moved. So it is a loud warning, not a quiet default.
+    """
+    import secrets
+
+    if settings.session_secret:
+        return
+
+    settings.session_secret = secrets.token_urlsafe(32)
+    logger.warning(
+        "SESSION_SECRET is not set, so a temporary one was generated. Sign-ins "
+        "will work, but every restart or redeploy will sign you out again. "
+        "Set SESSION_SECRET in your environment -- see /docs/DEPLOYMENT.md step 4g."
+    )
 
 
 def _warn_if_spend_is_untracked(settings) -> None:
@@ -74,6 +107,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(auth_proxy.router)
+app.include_router(login.router)
 app.include_router(message.router)
 app.include_router(records.router)
 app.include_router(budget.router)

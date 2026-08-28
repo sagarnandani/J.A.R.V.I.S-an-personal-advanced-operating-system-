@@ -71,7 +71,11 @@ def get_provider(settings: Settings) -> LLMProvider:
             "clearly-labelled placeholder replies instead of calling a real "
             "model. Set GEMINI_API_KEY or ANTHROPIC_API_KEY to fix this."
         )
-        return MockAdapter()
+        # Told which provider was wanted, so the placeholder reply names the
+        # key that is actually missing rather than a generic one. This is
+        # the message the owner reads when their key isn't working, so it
+        # should point at the setting they need to change.
+        return MockAdapter(intended_provider=preferred)
 
     if primary is None:
         logger.warning(

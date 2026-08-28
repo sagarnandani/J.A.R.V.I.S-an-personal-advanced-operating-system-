@@ -363,6 +363,44 @@ same way -- against Google's published keys, checking the signature, that
 the token was minted for *this* app specifically, and that it hasn't
 expired.
 
+### 4g. Make the sign-in stick
+
+Without this, signing in works — and then the page forgets it the moment
+it reloads, which includes every time Render redeploys. You tap the button,
+it says you're signed in, and a minute later JARVIS says you aren't.
+
+`render.yaml` handles this automatically: it asks Render to generate a
+`SESSION_SECRET` and keep it. **If your service was created from the
+blueprint after this change, there is nothing to do here.**
+
+If your service already existed, Render won't add it on its own. Check:
+
+1. Render -> your service -> **Environment**
+2. Look for `SESSION_SECRET` in the list.
+
+If it isn't there, add it:
+
+3. **Add Environment Variable**, key `SESSION_SECRET`
+4. For the value, tap **Generate** if Render offers it. Otherwise type a
+   long random string — 30+ characters, anything nobody could guess. It
+   doesn't have to mean anything and you never need to remember it.
+5. **Save**. The service restarts.
+
+**What it is.** JARVIS gives your browser a small signed note saying "this
+is the owner". The note is readable but can't be altered, because it's
+signed with this secret. Every later request just hands the note back —
+which is why the sign-in survives reloads.
+
+**Why it has to be kept, not regenerated.** Change this value and every
+note signed with the old one stops being recognised, so you're signed out.
+Left unset entirely, the server invents a new one on every start, which
+means every redeploy signs you out — the exact problem this fixes. The
+server logs a warning when that's happening, so it's never silent.
+
+**Treat it as a real secret.** Anyone who knows it can sign a note claiming
+to be you. It belongs in Render's environment settings only — never in the
+repo, never in a chat message.
+
 ### What the free tier costs you
 
 Not money — responsiveness. A free Render service **sleeps after 15
@@ -400,12 +438,15 @@ run `bash infra/deploy.sh` from Cloud Shell after cloning the repo.
 
 1. Open the deployed URL in a browser (iPad included).
 2. Sign in with Google.
-3. Send a message, confirm you get a reply.
-4. Click "Load recent memories" and "Load recent audit log" — confirm the
+3. **Reload the page.** It should still say you're signed in. If it goes
+   back to showing the sign-in button, `SESSION_SECRET` isn't set — see
+   step 4g.
+4. Send a message, confirm you get a reply.
+5. Click "Load recent memories" and "Load recent audit log" — confirm the
    exchange shows up with `origin: stated` for your message and
    `origin: retrieved` for JARVIS's reply.
-5. Click "Load budget status" — confirm it shows a small non-zero spend
-   after step 3.
+6. Click "Load budget status" — confirm it shows a small non-zero spend
+   after step 4.
 
 That's the Stage 0 Definition of Done's "one real request/response
 round-trip works end-to-end and is visible in memories and audit_log with

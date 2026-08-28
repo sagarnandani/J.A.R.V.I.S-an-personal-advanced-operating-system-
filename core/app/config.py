@@ -54,6 +54,20 @@ class Settings(BaseSettings):
     owner_uid: str | None = None
     owner_email: str | None = None
 
+    # --- Staying signed in ---
+    # The key used to sign login cookies. Anyone who knows it can mint a
+    # cookie claiming to be the owner, so it is a real secret: set it in
+    # Render's environment, never in the repo.
+    #
+    # If it is left empty the server generates a random one at startup.
+    # That is safe, but it is different every time the service restarts,
+    # so every restart signs you out again. A restart happens on every
+    # redeploy -- which is exactly the "it keeps forgetting me" symptom
+    # this whole mechanism exists to fix. Set it.
+    session_secret: str = ""
+    # How long a sign-in lasts before you have to tap the button again.
+    session_days: int = 30
+
     # --- LLM provider ---
     # Which provider answers by default: "gemini", "claude", or "mock".
     # Changing this is a config change, not a code change -- that's what

@@ -45,6 +45,21 @@ services:
       - key: GOOGLE_CLIENT_ID
         sync: false
 
+      # --- Staying signed in ---
+      # The key used to sign login cookies. `generateValue` has Render
+      # invent a strong random one and keep it, so it is never in this
+      # file, never in git, and never something you have to think of.
+      #
+      # Keeping it is the important part: it is generated once and then
+      # reused on every deploy. If it changed on each deploy, every
+      # redeploy would sign you out -- which is the exact problem the
+      # cookie was added to solve.
+      - key: SESSION_SECRET
+        generateValue: true
+      # How long a sign-in lasts before you tap the button again.
+      - key: SESSION_DAYS
+        value: "30"
+
       # --- Model provider ---
       - key: LLM_PROVIDER
         value: gemini
