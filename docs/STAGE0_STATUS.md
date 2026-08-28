@@ -5,8 +5,29 @@ I check on it, how do I stop it.
 
 ## What's live
 
-**Nothing is deployed to the internet yet.** What I *have* done is write
-and locally test the complete Stage 0 codebase:
+**Stage 0 is complete and verified from the owner's own device**
+(2026-08-28). Deployed on Render, signed in with Google from an iPad, one
+real message answered by Gemini, and the exchange visible in the database
+with the right provenance: `stated` for the owner's words, `retrieved` for
+JARVIS's reply, each linked to the other. That is the Stage 0 Definition
+of Done met in full.
+
+### Memory is written, not yet recalled
+
+Worth stating plainly, because it surprises people and JARVIS says it out
+loud: Stage 0 *stores* every exchange, but does not *feed it back* to the
+model. Ask about your favourite colour in a later message and JARVIS will
+not know it, even though the answer is sitting in the database.
+
+That is deliberate, not a gap in the build. The Stage 0 brief scopes this
+to storage with correct provenance; retrieval into the conversation is
+Stage 1's job. JARVIS's system prompt says as much, which is why its reply
+volunteers that it has no memory recall yet -- an accurate statement about
+what it can currently do, rather than a hedge.
+
+### Before that
+
+The complete Stage 0 codebase, written and locally tested:
 
 - A real Postgres database schema, applied and verified against an actual
   Postgres instance.
@@ -49,7 +70,7 @@ leaked key.)
 | 2 | Firebase project + Google sign-in | Firebase Console | **Done** |
 | 3 | Get a Gemini API key (free) | aistudio.google.com | **Done** |
 | 4 | Deploy from the repo | Render (browser only) | **Done** |
-| 5 | Sign in from your iPad and send a message | Your browser | Next |
+| 5 | Sign in from your iPad and send a message | Your browser | **Done** |
 
 **Hosting: Render, not Google Cloud Run.** Cloud Run needed a command
 line and a billing account (a card on file) before it would switch its
@@ -79,8 +100,8 @@ Gemini fails, and the reply says which one answered. Neither key
 configured is still a working system — replies are clearly-labelled
 placeholders rather than a crash or a fake answer.
 
-Step 5 is the actual Stage 0 sign-off — the point where the Definition of
-Done is met and Stage 1 can begin. `DEPLOYMENT.md` has each step in full.
+All five steps are done. Stage 1 can begin. `DEPLOYMENT.md` has each step
+in full, should any of it ever need redoing.
 
 ### Sign-in: what went wrong, and what fixed it
 
@@ -142,8 +163,11 @@ beyond what's listed in this brief"):
 
 ## What it costs so far
 
-**₹0.** A Supabase project exists on the free tier; nothing else is
-provisioned, and nothing has called a paid API yet.
+**₹0**, as far as anything measures. Supabase, Render and Firebase are all
+on free tiers. Gemini is expected to be free too — but see the caveat in
+`BUDGET.md`: I could not verify `gemini-3.6-flash`'s free-tier status, so
+`/v1/budget` reporting ₹0 is an assumption for that model, not a
+measurement. Worth one look at Google's pricing page.
 
 Once deployed on the free/scale-to-zero tiers named in
 `DEPLOYMENT.md`, expected cost at solo, low-volume usage is
@@ -154,10 +178,8 @@ include.
 
 ## How to check if it's running
 
-Once deployed:
-
 ```bash
-curl https://<your-cloud-run-url>/health
+curl https://<your-render-url>/health
 ```
 
 `{"status": "ok", "emergency_stop": false, "dev_mode": false}` means
@@ -178,18 +200,18 @@ Two levels, cheapest first:
 1. **Emergency Stop** (reversible, instant, keeps everything running and
    billed as normal — it just refuses to process messages):
    ```bash
-   curl -X POST https://<your-cloud-run-url>/v1/admin/emergency-stop \
-     -H "Authorization: Bearer <your Firebase ID token>" \
+   curl -X POST https://<your-render-url>/v1/admin/emergency-stop \
+     -H "Authorization: Bearer <your Google ID token>" \
      -H "Content-Type: application/json" \
      -d '{"stop": true}'
    ```
    (The test console has buttons for this too, once wired up in a later
    pass — for now it's a plain API call. `GET /health` confirms the state.)
 
-2. **Full shutdown** (stops billing entirely): stop or delete the Cloud
-   Run service from the Google Cloud Console. Your data isn't touched —
-   it lives in Postgres, separately. Redeploying later (from this same
-   repo, same Docker image) brings JARVIS back exactly as it was.
+2. **Full shutdown**: suspend or delete the service in the Render
+   dashboard (your service → Settings). Your data isn't touched — it lives
+   in Supabase, separately. Redeploying later from this same repo brings
+   JARVIS back exactly as it was.
 
 There is deliberately no "delete the database" step in either of these —
 Stage 0 never destroys data as part of stopping the service.
