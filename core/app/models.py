@@ -68,3 +68,22 @@ class EmergencyStopRequest(BaseModel):
 
 class EmergencyStopStatus(BaseModel):
     emergency_stop: bool
+
+
+# --- forgetting ---
+#
+# The irreversible operations require the owner to type a confirmation
+# phrase. A button alone is one mis-tap away from erasing everything
+# JARVIS knows, and the Stage 0 brief's ground rule is explicit: nothing
+# destructive without flagging it clearly first.
+
+
+class ConfirmDestructive(BaseModel):
+    confirm: str
+
+
+class MemoryActionResult(BaseModel):
+    ok: bool
+    affected: int
+    reversible: bool
+    message: str

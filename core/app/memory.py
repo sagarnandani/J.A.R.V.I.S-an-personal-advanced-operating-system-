@@ -116,12 +116,128 @@ async def link_memories(a: UUID, b: UUID) -> None:
     )
 
 
-async def list_recent(limit: int = 20) -> list:
+async def list_recent(limit: int = 20, include_forgotten: bool = False) -> list:
     from app.db import fetch
 
+    if include_forgotten:
+        return await fetch(
+            "SELECT * FROM memories ORDER BY created_at DESC LIMIT $1", limit
+        )
     return await fetch(
-        "SELECT * FROM memories ORDER BY created_at DESC LIMIT $1", limit
+        """
+        SELECT * FROM memories
+        WHERE expires_at IS NULL OR expires_at > now()
+        ORDER BY created_at DESC LIMIT $1
+        """,
+        limit,
     )
+
+
+# --- forgetting ------------------------------------------------------------
+#
+# The architecture doc specifies the memory system as "store / recall /
+# correct / forget". Forgetting is not an afterthought on that list: an
+# assistant you cannot take something back from is one you learn to be
+# careful around, and a personal system nobody speaks freely to is worth
+# very little.
+#
+# There are deliberately two different things here, because "forget that"
+# and "erase that" are different requests:
+#
+#   forget  -- JARVIS stops recalling it, immediately. The row is still
+#              there, so it can be undone. This is the everyday one.
+#   delete  -- the row is destroyed. For things that should never have
+#              been written down: a password, something private, a
+#              mistake. There is no undo, and the API says so.
+#
+# Forgetting sets `expires_at`, which has been in the schema since Stage 0
+# as the memory-lifecycle field. That means no migration -- nothing to run
+# by hand against the live database, which matters when the owner does
+# this from an iPad.
+
+
+# Forgetting acts on the whole exchange, not one row.
+#
+# This was found by testing it for real, and it matters more than it
+# sounds. Say something private and JARVIS answers by quoting it back --
+# "Noted, your bank PIN is 1234" -- and now the same words exist twice.
+# Forgetting only the half you tapped leaves the secret sitting in the
+# other half. The owner would be told it was forgotten, and be wrong.
+#
+# So the message and its reply travel together. They are one thing that
+# happened; treating them as two is a privacy hole with a reassuring
+# message printed over it.
+#
+# `$1 = ANY(related_memory_ids)` reaches the partner because the links are
+# written in both directions when the exchange is stored.
+_WHOLE_EXCHANGE = "(id = $1 OR $1 = ANY(related_memory_ids))"
+
+
+def _rows_affected(result: str) -> int:
+    """asyncpg returns e.g. 'UPDATE 2' / 'DELETE 1'."""
+    return int(result.rsplit(" ", 1)[-1])
+
+
+async def forget_memory(memory_id: UUID) -> int:
+    """Stop recalling this exchange. Reversible.
+
+    Returns how many memories were affected -- 0 if there was no such
+    memory, so the caller can say "that doesn't exist" rather than
+    reporting a success that did nothing.
+    """
+    result = await execute(
+        f"UPDATE memories SET expires_at = now() WHERE {_WHOLE_EXCHANGE}", memory_id
+    )
+    return _rows_affected(result)
+
+
+async def restore_memory(memory_id: UUID) -> int:
+    """Undo a forget, for the whole exchange."""
+    result = await execute(
+        f"UPDATE memories SET expires_at = NULL WHERE {_WHOLE_EXCHANGE}", memory_id
+    )
+    return _rows_affected(result)
+
+
+async def delete_memory(memory_id: UUID) -> int:
+    """Destroy this exchange. Not reversible.
+
+    Also strips the IDs out of any other memory's `related_memory_ids`.
+    Leaving them behind would scatter references to rows that no longer
+    exist -- which is how "deleted" quietly becomes "deleted except for
+    the parts pointing at it".
+    """
+    result = await execute(f"DELETE FROM memories WHERE {_WHOLE_EXCHANGE}", memory_id)
+    deleted = _rows_affected(result)
+    if deleted:
+        await execute(
+            """
+            UPDATE memories
+            SET related_memory_ids = ARRAY(
+                SELECT id FROM unnest(related_memory_ids) AS id
+                WHERE id IN (SELECT id FROM memories)
+            )
+            WHERE related_memory_ids <> '{}'
+            """
+        )
+    return deleted
+
+
+async def forget_all() -> int:
+    """Stop recalling everything. Reversible, one memory at a time."""
+    result = await execute(
+        "UPDATE memories SET expires_at = now() "
+        "WHERE expires_at IS NULL OR expires_at > now()"
+    )
+    return int(result.rsplit(" ", 1)[-1])
+
+
+async def purge_forgotten() -> int:
+    """Destroy everything already forgotten. Not reversible."""
+    result = await execute(
+        "DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at <= now()"
+    )
+    return int(result.rsplit(" ", 1)[-1])
 
 
 # Which origins can be replayed as conversation, and as whose words.
@@ -158,6 +274,7 @@ async def recall_turns(limit: int, max_chars: int) -> list[Turn]:
         """
         SELECT content, origin FROM memories
         WHERE origin = ANY($1::text[])
+          AND (expires_at IS NULL OR expires_at > now())
         ORDER BY created_at DESC
         LIMIT $2
         """,

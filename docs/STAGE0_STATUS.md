@@ -12,6 +12,47 @@ with the right provenance: `stated` for the owner's words, `retrieved` for
 JARVIS's reply, each linked to the other. That is the Stage 0 Definition
 of Done met in full.
 
+### Forgetting — taking things back
+
+The architecture doc specifies the memory system as *store / recall /
+correct / forget*. Three of those four now exist.
+
+There are deliberately **two** different operations, because "forget that"
+and "erase that" are different requests:
+
+- **Forget** — JARVIS stops recalling it immediately. The row is still
+  there, so it can be restored. This is the everyday one.
+- **Delete** — the row is destroyed. For things that should never have
+  been written down: a password, something private, a mistake. No undo,
+  and the API says so plainly.
+
+Plus, in bulk: **Forget everything** (reversible, one at a time) and
+**Erase forgotten memories** (permanent, and it makes you type
+`DELETE EVERYTHING` in full — a button on a small screen is one mis-tap
+away from destroying the lot).
+
+Every one of these is written to the audit log with who did it and when.
+Deletion is recorded as `high_risk` — not because a single memory is
+grave, but because destroying data should always leave a trace, including
+when it was the owner doing it deliberately.
+
+**Forgetting takes the whole exchange, not one row**, and that turned out
+to matter more than it sounds. Say something private and JARVIS answers by
+repeating it back — so the same words are now stored twice. Forgetting
+only the half you tapped leaves the secret sitting in the other half,
+while telling you it was forgotten. This was found by running it for real
+against a live server: the sensitive text survived a purge inside JARVIS's
+own reply. The message and its reply now travel together.
+
+No database migration was needed: `expires_at` has been in the schema
+since Stage 0 as the memory-lifecycle field, which is exactly what
+forgetting is. Nothing to run by hand against the live database.
+
+**Still missing from the doc's list: correct.** Telling JARVIS "no, my
+colour is blue" and having it amend what it knows, rather than storing a
+contradiction next to the original. That is the last quarter of the memory
+system.
+
 ### Memory recall — the first piece of Stage 1
 
 Stage 0 stored every exchange and then never looked at it again. Ask about
