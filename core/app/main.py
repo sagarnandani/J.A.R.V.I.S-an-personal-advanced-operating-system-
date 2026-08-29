@@ -18,6 +18,7 @@ from app.routes import (
     admin,
     auth_proxy,
     budget,
+    dashboard,
     health,
     login,
     message,
@@ -111,6 +112,7 @@ app.include_router(login.router)
 app.include_router(message.router)
 app.include_router(records.router)
 app.include_router(budget.router)
+app.include_router(dashboard.router)
 app.include_router(admin.router)
 
 # The Stage 0 test console (plain HTML/JS) -- see /core/static/README for

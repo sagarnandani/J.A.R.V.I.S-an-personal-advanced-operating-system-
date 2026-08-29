@@ -2,710 +2,500 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>JARVIS -- Stage 0 test console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#040a12" />
+<title>J.A.R.V.I.S</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23040a12'/%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%2348c8ff' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%23ffab3d' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23bfefff'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet" />
 <style>
-  body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  h1 { font-size: 1.25rem; }
-  .banner { background: #fff3cd; border: 1px solid #e0c36a; padding: 0.75rem 1rem; border-radius: 6px; font-size: 0.9rem; margin-bottom: 1.5rem; }
-  textarea { width: 100%; box-sizing: border-box; min-height: 4rem; font: inherit; padding: 0.5rem; }
-  button { font: inherit; padding: 0.5rem 1rem; margin: 0.25rem 0.25rem 0.25rem 0; cursor: pointer; }
-  pre { background: #f4f4f4; padding: 0.75rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-  #whoami { font-size: 0.85rem; color: #555; }
-  #whoami.blocked { color: #a11; font-weight: 600; font-size: 0.95rem; }
-  .muted { font-size: 0.85rem; color: #555; }
-  .memory { border: 1px solid #ddd; border-radius: 6px; padding: .6rem .75rem; margin: .5rem 0; }
-  .memory.forgotten { opacity: .55; border-style: dashed; }
-  .memory .meta { font-size: .75rem; color: #666; margin-bottom: .25rem; }
-  .memory .text { white-space: pre-wrap; word-break: break-word; }
-  .memory button { font-size: .8rem; padding: .25rem .6rem; }
-  .danger { color: #a11; }
-  section { margin-bottom: 2rem; }
+/* ---------------------------------------------------------------------
+   A heads-up display, not a web page.
+
+   One rule runs through all of it: every number here is measured. Where
+   JARVIS cannot yet know something -- scheduled tasks, calendar events --
+   the panel says so instead of showing a plausible figure. A dashboard
+   you cannot trust is worse than no dashboard.
+   --------------------------------------------------------------------- */
+:root {
+  --bg: #040a12;
+  --bg-2: #071320;
+  --panel: rgba(10, 28, 45, 0.55);
+  --edge: #1d5c82;
+  --edge-soft: rgba(45, 140, 200, 0.28);
+  --cyan: #48c8ff;
+  --cyan-dim: #7fa8c4;
+  --gold: #ffab3d;
+  --text: #d8ecfa;
+  --muted: #6f93ad;
+  --danger: #ff5f6d;
+  --ok: #3ddc97;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+body {
+  font-family: Rajdhani, "SF Pro Text", system-ui, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+/* Faint circuit-board wash + vignette, so the black is never flat. */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(30,110,170,.18), transparent 60%),
+    radial-gradient(ellipse at 8% 92%, rgba(255,171,61,.07), transparent 45%),
+    linear-gradient(var(--bg-2), var(--bg));
+}
+body::after {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background-image:
+    linear-gradient(rgba(72,200,255,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(72,200,255,.035) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(ellipse at 50% 45%, #000 20%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 45%, #000 20%, transparent 78%);
+}
+#app { position: relative; z-index: 2; padding: 0 clamp(.6rem, 2vw, 1.4rem) 5.5rem; }
+
+h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, system-ui, sans-serif; }
+
+/* --- top bar --- */
+.topbar {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  gap: 1rem; padding: clamp(.7rem, 2vw, 1.1rem) .2rem .4rem;
+}
+.brand {
+  font-size: clamp(1.05rem, 3.4vw, 2rem); font-weight: 800;
+  letter-spacing: clamp(.12em, .8vw, .34em); text-align: center;
+  color: #eaf6ff; text-shadow: 0 0 18px rgba(72,200,255,.55); white-space: nowrap;
+}
+.topbar .side { font-size: .78rem; letter-spacing: .1em; color: var(--cyan-dim); }
+.topbar .right { text-align: right; }
+.clock { font-size: clamp(1rem, 3vw, 1.6rem); color: #eaf6ff; letter-spacing: .08em; }
+.clock small { font-size: .55em; color: var(--cyan); margin-left: .25rem; }
+.date-big { font-size: clamp(.95rem, 2.6vw, 1.25rem); color: #eaf6ff; letter-spacing: .06em; }
+.rule { height: 1px; background: linear-gradient(90deg, transparent, var(--edge), var(--gold), var(--edge), transparent); opacity: .7; }
+
+/* --- panels: clipped corners, the HUD signature --- */
+.panel {
+  position: relative; background: var(--panel); border: 1px solid var(--edge-soft);
+  padding: .85rem 1rem 1rem;
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+  backdrop-filter: blur(3px);
+}
+.panel::before {
+  content: ""; position: absolute; left: 0; top: 16px; bottom: 0; width: 2px;
+  background: linear-gradient(var(--cyan), transparent); opacity: .55;
+}
+.panel h2 {
+  margin: 0 0 .7rem; font-size: .78rem; font-weight: 600; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--cyan);
+  display: flex; align-items: center; gap: .5rem;
+}
+.panel h2 .ico { width: 15px; height: 15px; flex: none; opacity: .9; }
+.panel h2::after { content: ""; flex: 1; height: 1px; background: var(--edge-soft); }
+
+.grid { display: grid; gap: clamp(.6rem, 1.6vw, 1rem); grid-template-columns: 1fr; }
+/* On a phone or held-portrait iPad the reactor must not push the message
+   box below the fold -- you should never have to scroll past decoration to
+   talk. So the core column comes first and the reactor shrinks. */
+.col { display: flex; flex-direction: column; gap: clamp(.6rem, 1.6vw, 1rem); }
+.core-col { order: -1; }
+
+@media (min-width: 900px) {
+  /* Fill the screen rather than leaving half of it empty: the columns
+     stretch to the viewport and the conversation takes up the slack. */
+  .grid {
+    grid-template-columns: minmax(250px, 1fr) minmax(340px, 1.35fr) minmax(250px, 1fr);
+    align-items: stretch;
+    min-height: calc(100vh - 8.5rem);
+  }
+  .core-col { order: 0; }
+  .core-col > .panel { flex: 1; display: flex; flex-direction: column; }
+  .core-col .convo { flex: 1; max-height: none; min-height: 140px; }
+  .col > .panel:last-child { flex: 1; display: flex; flex-direction: column; }
+  .col > .panel:last-child .feed,
+  .col > .panel:last-child .facts { flex: 1; max-height: none; }
+}
+
+/* --- stat rows --- */
+.stat { display: flex; align-items: center; gap: .65rem; padding: .42rem 0; border-bottom: 1px solid rgba(45,140,200,.13); }
+.stat:last-child { border-bottom: 0; }
+.stat .ico { width: 17px; height: 17px; flex: none; color: var(--cyan); opacity: .85; }
+.stat .label { flex: 1; font-size: .95rem; color: var(--text); }
+.stat-value { font-size: 1.05rem; color: #eaf6ff; letter-spacing: .04em; }
+.stat-value.gold { color: var(--gold); }
+.stat .sub { display: block; font-size: .72rem; color: var(--muted); letter-spacing: .04em; }
+
+/* --- meters --- */
+.meter { margin: .55rem 0 .75rem; }
+.meter .top { display: flex; justify-content: space-between; font-size: .88rem; margin-bottom: .3rem; }
+.meter .top b { font-weight: 600; color: var(--cyan); font-family: Orbitron, sans-serif; font-size: .8rem; }
+.bar { height: 5px; background: rgba(72,200,255,.12); overflow: hidden; }
+.bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--cyan), #a9e6ff); box-shadow: 0 0 10px var(--cyan); transition: width .6s ease; }
+.bar.warn i { background: linear-gradient(90deg, var(--gold), #ffd79a); box-shadow: 0 0 10px var(--gold); }
+.bar.bad i { background: linear-gradient(90deg, var(--danger), #ff9aa2); box-shadow: 0 0 10px var(--danger); }
+
+/* --- the arc reactor --- */
+.core-wrap { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+.core-status { text-align: center; }
+.core-status .k { font-size: .68rem; letter-spacing: .3em; color: var(--muted); text-transform: uppercase; }
+.core-status .v { font-family: Orbitron, sans-serif; font-size: clamp(1.1rem, 3vw, 1.5rem); letter-spacing: .18em; color: var(--cyan); text-shadow: 0 0 20px rgba(72,200,255,.6); }
+.core-status .v.stopped { color: var(--danger); text-shadow: 0 0 20px rgba(255,95,109,.6); }
+
+.reactor { position: relative; width: min(62vw, 300px); aspect-ratio: 1; }
+.reactor svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+/* Each ring turns on its own axis at its own speed, some against the
+   others. Counter-rotation is what stops it reading as one spinning
+   image and makes it feel like a mechanism. */
+.spin-a { animation: spin 18s linear infinite; transform-origin: 50% 50%; }
+.spin-b { animation: spin 26s linear infinite reverse; transform-origin: 50% 50%; }
+.spin-c { animation: spin 9s linear infinite; transform-origin: 50% 50%; }
+.spin-d { animation: spin 40s linear infinite reverse; transform-origin: 50% 50%; }
+.spin-e { animation: spin 6s linear infinite; transform-origin: 50% 50%; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Thinking: everything speeds up and the glow lifts. */
+.reactor.busy .spin-a { animation-duration: 3.5s; }
+.reactor.busy .spin-b { animation-duration: 5s; }
+.reactor.busy .spin-c { animation-duration: 1.6s; }
+.reactor.busy .spin-d { animation-duration: 8s; }
+.reactor.busy .spin-e { animation-duration: 1.1s; }
+.reactor.busy .glow { opacity: 1; }
+.reactor.stopped { filter: grayscale(.75) brightness(.7); }
+.reactor.stopped .spin-a, .reactor.stopped .spin-b, .reactor.stopped .spin-c,
+.reactor.stopped .spin-d, .reactor.stopped .spin-e { animation-play-state: paused; }
+.glow { opacity: .62; transition: opacity .5s; }
+.pulse { animation: pulse 3.4s ease-in-out infinite; transform-origin: 50% 50%; }
+.reactor.busy .pulse { animation-duration: 1.1s; }
+@keyframes pulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .spin-a,.spin-b,.spin-c,.spin-d,.spin-e,.pulse { animation: none; }
+}
+
+/* --- conversation --- */
+.convo { max-height: 30vh; overflow-y: auto; padding-right: .3rem; }
+.msg { margin: .5rem 0; font-size: .96rem; line-height: 1.45; }
+.msg .from { font-family: Orbitron, sans-serif; font-size: .62rem; letter-spacing: .22em; color: var(--muted); text-transform: uppercase; }
+.msg.you .body { color: #eaf6ff; border-left: 2px solid var(--gold); padding-left: .6rem; }
+.msg.jarvis .body { color: var(--text); border-left: 2px solid var(--cyan); padding-left: .6rem; }
+.msg .body { white-space: pre-wrap; word-break: break-word; }
+.msg .tail { font-size: .7rem; color: var(--muted); margin-top: .2rem; letter-spacing: .04em; }
+.msg.err .body { border-left-color: var(--danger); color: #ffc9cd; }
+
+/* --- input bar --- */
+.inputbar {
+  display: flex; align-items: center; gap: .7rem; margin-top: .6rem;
+  border: 1px solid var(--edge-soft); background: rgba(6,20,34,.75); padding: .5rem .7rem;
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+.inputbar input {
+  flex: 1; background: transparent; border: 0; outline: none; color: #eaf6ff;
+  font: inherit; font-size: 1rem; letter-spacing: .02em; min-width: 0;
+}
+.inputbar input::placeholder { color: var(--muted); }
+.iconbtn {
+  background: transparent; border: 1px solid var(--edge-soft); color: var(--cyan);
+  width: 38px; height: 38px; flex: none; display: grid; place-items: center;
+  cursor: pointer; border-radius: 50%; transition: .2s;
+}
+.iconbtn:hover, .iconbtn:focus-visible { border-color: var(--cyan); box-shadow: 0 0 14px rgba(72,200,255,.35); }
+.iconbtn.on { background: rgba(72,200,255,.16); border-color: var(--cyan); }
+.iconbtn.rec { border-color: var(--danger); color: var(--danger); animation: pulse 1.1s infinite; }
+.iconbtn svg { width: 18px; height: 18px; }
+.iconbtn[disabled] { opacity: .35; cursor: not-allowed; }
+
+/* Waveform: shows JARVIS is doing something, and stays still when it isn't. */
+.wave { display: flex; align-items: center; gap: 2px; height: 26px; flex: none; }
+.wave i { width: 2px; height: 4px; background: var(--cyan); opacity: .35; transition: height .18s ease, opacity .18s; }
+.wave.active i { opacity: .95; box-shadow: 0 0 6px var(--cyan); }
+
+/* --- activity feed --- */
+.feed { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.feed li { display: flex; gap: .55rem; align-items: flex-start; padding: .34rem 0; border-bottom: 1px solid rgba(45,140,200,.1); font-size: .88rem; }
+.feed li:last-child { border-bottom: 0; }
+.feed .t { font-family: Orbitron, sans-serif; font-size: .68rem; color: var(--cyan); letter-spacing: .04em; white-space: nowrap; padding-top: .12rem; }
+.feed .d { flex: 1; color: var(--text); }
+.feed .d small { display: block; color: var(--muted); font-size: .74rem; }
+.dot { width: 7px; height: 7px; margin-top: .38rem; flex: none; transform: rotate(45deg); background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.dot.med { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+.dot.high { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+/* --- facts --- */
+.facts { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+.facts li { padding: .42rem 0; border-bottom: 1px solid rgba(45,140,200,.1); font-size: .9rem; display: flex; gap: .5rem; align-items: flex-start; }
+.facts li:last-child { border-bottom: 0; }
+.facts .cat { font-family: Orbitron, sans-serif; font-size: .58rem; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; border: 1px solid rgba(255,171,61,.35); padding: .1rem .3rem; white-space: nowrap; margin-top: .1rem; }
+.facts .txt { flex: 1; }
+.facts .x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: .1rem .25rem; }
+.facts .x:hover { color: var(--danger); }
+
+.empty { color: var(--muted); font-size: .86rem; font-style: italic; padding: .4rem 0; }
+.note { color: var(--muted); font-size: .74rem; letter-spacing: .03em; margin-top: .5rem; }
+
+/* --- bottom nav --- */
+.nav {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 5;
+  bottom: calc(.7rem + env(safe-area-inset-bottom));
+  display: flex; gap: .5rem; padding: .45rem .6rem;
+  background: rgba(6,20,34,.9); border: 1px solid var(--edge-soft); backdrop-filter: blur(8px);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+}
+.nav button {
+  background: transparent; border: 1px solid transparent; color: var(--cyan-dim);
+  width: 44px; height: 40px; display: grid; place-items: center; cursor: pointer; transition: .2s;
+}
+.nav button svg { width: 19px; height: 19px; }
+.nav button.active { color: var(--cyan); border-color: var(--edge-soft); background: rgba(72,200,255,.12); box-shadow: 0 0 14px rgba(72,200,255,.25) inset; }
+
+/* --- sign-in gate --- */
+#gate { min-height: 100vh; display: grid; place-items: center; padding: 2rem 1rem; position: relative; z-index: 2; }
+#gate .box { text-align: center; max-width: 420px; }
+#gate .box p { color: var(--muted); font-size: .92rem; line-height: 1.55; }
+#gsi { display: flex; justify-content: center; margin-top: 1.1rem; min-height: 44px; }
+.err { color: var(--danger); font-size: .9rem; }
+
+.hidden { display: none !important; }
+.btn {
+  background: transparent; border: 1px solid var(--edge-soft); color: var(--cyan);
+  font: inherit; font-size: .82rem; letter-spacing: .12em; text-transform: uppercase;
+  padding: .45rem .9rem; cursor: pointer; transition: .2s;
+  font-family: Orbitron, sans-serif;
+}
+.btn:hover { border-color: var(--cyan); box-shadow: 0 0 14px rgba(72,200,255,.3); }
+.btn.danger { color: var(--danger); border-color: rgba(255,95,109,.4); }
+.btn.danger:hover { box-shadow: 0 0 14px rgba(255,95,109,.3); }
+.row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+/* Declared last so it wins over the base .reactor width above -- same
+   specificity, so source order decides. */
+@media (min-width: 900px) { .reactor { width: min(30vw, 460px); } }
+label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--text); cursor: pointer; padding: .3rem 0; }
 </style>
 </head>
 <body>
-  <h1>JARVIS -- Stage 0 test console</h1>
-  <div class="banner">
-    This is a bare-bones verification page, not the JARVIS app. It exists so
-    Stage 0 can be tested end-to-end from a browser. See <code>core/static/README.md</code>.
+
+<!-- Sign-in comes before anything else, so the HUD never renders empty
+     frames that look like JARVIS is broken rather than locked. -->
+<div id="gate">
+  <div class="box">
+    <div class="brand" style="font-size:1.6rem">J.A.R.V.I.S</div>
+    <p id="gateMsg">Connecting…</p>
+    <div id="gsi"></div>
+    <p class="note" id="gateHint"></p>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="side">
+      <div class="date-big" id="dateBig">—</div>
+      <div id="dayName">—</div>
+    </div>
+    <div class="brand">J.A.R.V.I.S</div>
+    <div class="side right">
+      <div class="clock" id="clock">--:--<small id="secs">00</small></div>
+      <div id="ownerLine">—</div>
+    </div>
+  </div>
+  <div class="rule"></div>
+
+  <div class="grid" style="margin-top:clamp(.6rem,1.6vw,1rem)">
+
+    <!-- LEFT -->
+    <div class="col">
+      <section class="panel">
+        <h2>Today <span style="font-size:.6rem;letter-spacing:.1em;color:var(--muted)">UTC</span></h2>
+        <div class="stat"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span class="label">Messages</span><span class="stat-value" id="sMessages">0</span></div>
+        <div class="stat"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2a7 7 0 0 0-4 12.7V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 2z"/><path d="M9 22h6"/></svg>
+          <span class="label">Things learned</span><span class="stat-value" id="sLearned">0</span></div>
+        <div class="stat"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          <span class="label">Spend today<span class="sub" id="sSpendNote"></span></span><span class="stat-value gold" id="sSpend">₹0.00</span></div>
+        <div class="stat"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span class="label">Last reply<span class="sub">time to answer</span></span><span class="stat-value" id="sLast">—</span></div>
+      </section>
+
+      <section class="panel">
+        <h2>Memory</h2>
+        <div class="meter">
+          <div class="top"><span>Long-term facts</span><b id="mFacts">0</b></div>
+          <div class="bar"><i id="mFactsBar" style="width:0%"></i></div>
+        </div>
+        <div class="meter">
+          <div class="top"><span>Conversation stored</span><b id="mTurns">0</b></div>
+          <div class="bar"><i id="mTurnsBar" style="width:0%"></i></div>
+        </div>
+        <div class="meter">
+          <div class="top"><span>Budget this month</span><b id="mBudget">0%</b></div>
+          <div class="bar" id="mBudgetWrap"><i id="mBudgetBar" style="width:0%"></i></div>
+        </div>
+        <p class="note" id="memNote"></p>
+      </section>
+    </div>
+
+    <!-- CENTRE -->
+    <div class="col core-col">
+      <div class="core-wrap">
+        <div class="core-status">
+          <div class="k">System status</div>
+          <div class="v" id="statusText">CONNECTING</div>
+        </div>
+        <div class="reactor" id="reactor">
+          <svg viewBox="0 0 400 400" aria-hidden="true">
+            <defs>
+              <radialGradient id="coreGlow"><stop offset="0%" stop-color="#bfefff" stop-opacity=".95"/><stop offset="45%" stop-color="#48c8ff" stop-opacity=".5"/><stop offset="100%" stop-color="#48c8ff" stop-opacity="0"/></radialGradient>
+              <linearGradient id="gGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffab3d"/><stop offset="100%" stop-color="#ffd79a"/></linearGradient>
+              <linearGradient id="gCyan" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#48c8ff"/><stop offset="100%" stop-color="#bfefff"/></linearGradient>
+              <filter id="blur8"><feGaussianBlur stdDeviation="8"/></filter>
+            </defs>
+
+            <circle class="glow" cx="200" cy="200" r="150" fill="url(#coreGlow)"/>
+
+            <!-- outer housing, slow, counter-clockwise -->
+            <g class="spin-d">
+              <circle cx="200" cy="200" r="185" fill="none" stroke="#1d5c82" stroke-width="1" opacity=".8"/>
+              <circle cx="200" cy="200" r="178" fill="none" stroke="#1d5c82" stroke-width="6"
+                      stroke-dasharray="2 16" opacity=".55"/>
+              <g stroke="url(#gGold)" stroke-width="3" opacity=".85">
+                <path d="M200 15 A185 185 0 0 1 330 70" fill="none"/>
+                <path d="M200 385 A185 185 0 0 1 70 330" fill="none"/>
+              </g>
+            </g>
+
+            <!-- segmented ring -->
+            <g class="spin-a">
+              <circle cx="200" cy="200" r="155" fill="none" stroke="url(#gCyan)" stroke-width="2"
+                      stroke-dasharray="46 14" opacity=".75"/>
+              <circle cx="200" cy="200" r="146" fill="none" stroke="#1d5c82" stroke-width="1" opacity=".7"/>
+            </g>
+
+            <!-- gold accent arcs, opposite direction -->
+            <g class="spin-b">
+              <circle cx="200" cy="200" r="132" fill="none" stroke="url(#gGold)" stroke-width="4"
+                      stroke-dasharray="70 250" stroke-linecap="round" opacity=".9"/>
+              <circle cx="200" cy="200" r="132" fill="none" stroke="url(#gGold)" stroke-width="4"
+                      stroke-dasharray="70 250" stroke-dashoffset="-160" stroke-linecap="round" opacity=".9"/>
+              <circle cx="200" cy="200" r="120" fill="none" stroke="#1d5c82" stroke-width="10"
+                      stroke-dasharray="1 11" opacity=".6"/>
+            </g>
+
+            <!-- fine tick ring, fast -->
+            <g class="spin-c">
+              <circle cx="200" cy="200" r="104" fill="none" stroke="#48c8ff" stroke-width="8"
+                      stroke-dasharray="1 9" opacity=".5"/>
+              <circle cx="200" cy="200" r="96" fill="none" stroke="url(#gCyan)" stroke-width="2"
+                      stroke-dasharray="120 60" opacity=".85"/>
+            </g>
+
+            <!-- inner coil -->
+            <g class="spin-e">
+              <circle cx="200" cy="200" r="76" fill="none" stroke="url(#gCyan)" stroke-width="3"
+                      stroke-dasharray="30 12" opacity=".9"/>
+            </g>
+            <g class="spin-b">
+              <circle cx="200" cy="200" r="62" fill="none" stroke="#48c8ff" stroke-width="6"
+                      stroke-dasharray="2 8" opacity=".7"/>
+            </g>
+
+            <!-- the four cardinal light bars, as in the reference -->
+            <g class="pulse" stroke="url(#gCyan)" stroke-width="5" stroke-linecap="round" opacity=".9">
+              <path d="M200 34 v34"/><path d="M200 332 v34"/>
+              <path d="M34 200 h34"/><path d="M332 200 h34"/>
+            </g>
+
+            <!-- still centre: the reactor itself -->
+            <circle cx="200" cy="200" r="46" fill="#031018" stroke="#48c8ff" stroke-width="1.5" opacity=".95"/>
+            <circle class="pulse" cx="200" cy="200" r="38" fill="none" stroke="#48c8ff" stroke-width="2"/>
+            <g class="pulse" filter="url(#blur8)"><circle cx="200" cy="200" r="26" fill="#48c8ff" opacity=".55"/></g>
+            <path d="M200 178 l22 38 h-44 z" fill="none" stroke="#bfefff" stroke-width="3" stroke-linejoin="round"/>
+          </svg>
+        </div>
+      </div>
+
+      <section class="panel" style="margin-top:.4rem">
+        <h2>Conversation</h2>
+        <div class="convo" id="convo">
+          <p class="empty">Say something. JARVIS remembers what matters, across sessions.</p>
+        </div>
+        <div class="inputbar">
+          <button class="iconbtn" id="micBtn" title="Speak" aria-label="Speak">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+          </button>
+          <input id="msg" placeholder="Message JARVIS…" autocomplete="off" enterkeyhint="send" />
+          <div class="wave" id="wave"></div>
+          <button class="iconbtn" id="sendBtn" title="Send" aria-label="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        <p class="note" id="convoNote"></p>
+      </section>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="col">
+      <section class="panel">
+        <h2>What JARVIS knows</h2>
+        <ul class="facts" id="factsList"></ul>
+        <p class="note">Facts JARVIS wrote down itself. Tap × to make it forget one.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Activity</h2>
+        <ul class="feed" id="feed"></ul>
+      </section>
+    </div>
   </div>
 
-  <section>
-    <div id="whoami">Not signed in.</div>
+  <!-- SETTINGS (hidden until its tab is chosen) -->
+  <div class="grid hidden" id="settingsView" style="margin-top:clamp(.6rem,1.6vw,1rem)">
+    <div class="col">
+      <section class="panel">
+        <h2>Controls</h2>
+        <label class="toggle"><input type="checkbox" id="speakToggle" /> Speak replies out loud</label>
+        <p class="note" id="voiceNote"></p>
+        <div class="row" style="margin-top:.8rem">
+          <button class="btn danger" id="stopBtn">Emergency stop</button>
+        </div>
+        <p class="note">Emergency stop makes JARVIS refuse every request until you turn it off. Nothing is deleted.</p>
+      </section>
+    </div>
+    <div class="col">
+      <section class="panel">
+        <h2>System</h2>
+        <div class="stat"><span class="label">Model</span><span class="stat-value" id="cfgModel" style="font-size:.85rem">—</span></div>
+        <div class="stat"><span class="label">Conversation recall</span><span class="stat-value" id="cfgRecall" style="font-size:.85rem">—</span></div>
+        <div class="stat"><span class="label">Long-term memory</span><span class="stat-value" id="cfgFacts" style="font-size:.85rem">—</span></div>
+        <div class="stat"><span class="label">Signed in as</span><span class="stat-value" id="cfgOwner" style="font-size:.85rem">—</span></div>
+        <div class="row" style="margin-top:.8rem">
+          <a class="btn" href="/console.html">Diagnostics console</a>
+          <button class="btn" id="signOutBtn">Sign out</button>
+        </div>
+      </section>
+    </div>
+    <div class="col">
+      <section class="panel">
+        <h2>Not built yet</h2>
+        <p class="note" style="font-size:.85rem;line-height:1.6">
+          Deliberately absent rather than faked: scheduled tasks, calendar
+          events, project tracking and agents that act on their own. The
+          database has room for them; nothing fills it yet. Every number on
+          this dashboard is measured — if JARVIS cannot know something, it
+          does not appear.
+        </p>
+      </section>
+    </div>
+  </div>
+</div>
 
-    <!-- Google's own in-page sign-in button. Nothing navigates and
-         nothing pops up, so neither of Safari's restrictions applies.
-         This is the path that works on an iPad. -->
-    <div id="gsiButton"></div>
+<nav class="nav" id="nav">
+  <button data-view="home" class="active" title="Home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg></button>
+  <button data-view="memory" title="Memory" aria-label="Memory"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3a7 7 0 0 0-4 12.7V18a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.3A7 7 0 0 0 12 3z"/></svg></button>
+  <button data-view="activity" title="Activity" aria-label="Activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></button>
+  <button data-view="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.2A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6h.1A1.6 1.6 0 0 0 8.2 1.1V1a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H23a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1.4z" transform="scale(.86) translate(2 2)"/></svg></button>
+</nav>
 
-    <details style="margin-top:.75rem">
-      <summary style="font-size:.85rem;color:#555">Other ways to sign in</summary>
-      <button id="signin">Sign in with Google (redirect)</button>
-    <button id="popup" style="display:none">Try pop-up sign-in instead</button>
-    </details>
-
-    <button id="signout" style="display:none">Sign out</button>
-    <button id="diagnose">Why isn't sign-in working?</button>
-    <pre id="diagOut" style="display:none"></pre>
-  </section>
-
-  <section>
-    <h2>Send a message</h2>
-    <textarea id="messageInput" placeholder="Say something to JARVIS..."></textarea><br/>
-    <button id="send">Send</button>
-    <pre id="messageOut">(response will appear here)</pre>
-  </section>
-
-  <section>
-    <h2>What JARVIS remembers</h2>
-    <button id="loadFacts">Long-term facts</button>
-    <button id="loadMemories">Recent conversation</button>
-    <label style="font-size:.85rem;color:#555;margin-left:.5rem">
-      <input type="checkbox" id="showForgotten" /> include forgotten
-    </label>
-    <div id="memoryList"><p class="muted">(not loaded yet)</p></div>
-
-    <details style="margin-top:1rem">
-      <summary style="font-size:.9rem;color:#a11">Forget everything</summary>
-      <p class="muted">
-        <strong>Forget everything</strong> makes JARVIS start fresh. The
-        memories still exist and can be restored one at a time.<br/>
-        <strong>Erase forgotten memories</strong> destroys them for good.
-        There is no undo, so it asks you to type the words.
-      </p>
-      <button id="forgetAll">Forget everything</button>
-      <button id="purge">Erase forgotten memories permanently</button>
-      <pre id="bulkOut" style="display:none"></pre>
-    </details>
-  </section>
-
-  <section>
-    <h2>Verify it's being recorded</h2>
-    <button id="loadAudit">Load recent audit log</button>
-    <button id="loadBudget">Load budget status</button>
-    <pre id="verifyOut">(nothing loaded yet)</pre>
-  </section>
-
-  <!-- Google Identity Services: renders the in-page sign-in button. -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-
-  <!-- Firebase JS SDK, loaded from Google's own CDN. -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-    import {
-      getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
-      signInWithPopup, signOut, onAuthStateChanged,
-    } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-
-    const whoami = document.getElementById("whoami");
-    const signinBtn = document.getElementById("signin");
-    const popupBtn = document.getElementById("popup");
-    const signoutBtn = document.getElementById("signout");
-    const diagOut = document.getElementById("diagOut");
-    const messageOut = document.getElementById("messageOut");
-    const verifyOut = document.getElementById("verifyOut");
-
-    let auth = null;
-
-    // Every request carries the login cookie the server set when you
-    // signed in. Nothing about the sign-in is kept in this page any more:
-    // page memory is wiped by every reload, which is precisely why the
-    // old version kept appearing to forget a sign-in that had actually
-    // worked. `same-origin` is the browser default here, but it is
-    // written out because the cookie is now the whole mechanism.
-    async function authedFetch(path, options = {}) {
-      return fetch(path, {
-        ...options,
-        credentials: "same-origin",
-        headers: {
-          ...(options.headers || {}),
-          "Content-Type": "application/json",
-        },
-      });
-    }
-
-    // Asks the server who we are rather than assuming. The server holds
-    // the truth -- it is the one that issued the cookie and the one that
-    // checks it -- so what is shown on screen is its answer, not this
-    // page's hopeful guess.
-    async function refreshAuthState() {
-      let signedInAs = null;
-      try {
-        const res = await authedFetch("/v1/me");
-        if (res.ok) {
-          const me = await res.json();
-          signedInAs = me.email || me.uid;
-        }
-      } catch (e) {
-        whoami.textContent = `Could not reach JARVIS to check your sign-in: ${e.message}`;
-        return null;
-      }
-
-      if (signedInAs) {
-        whoami.textContent = `Signed in as ${signedInAs}. Send a message below.`;
-        whoami.classList.remove("blocked");
-        signoutBtn.style.display = "inline-block";
-        document.getElementById("gsiButton").style.display = "none";
-      } else {
-        whoami.textContent = "Not signed in -- tap the Google button below first.";
-        whoami.classList.add("blocked");
-        signoutBtn.style.display = "none";
-        document.getElementById("gsiButton").style.display = "block";
-      }
-      return signedInAs;
-    }
-
-    // Hands a sign-in token to the server, which checks it and replies
-    // with a login cookie. This is the step that makes a sign-in last:
-    // after it, being signed in is something the server remembers, not
-    // something this page is holding on to.
-    async function exchangeForSession(credential) {
-      whoami.textContent = "Signing in...";
-      let res;
-      try {
-        res = await authedFetch("/auth/session", {
-          method: "POST",
-          body: JSON.stringify({ credential }),
-        });
-      } catch (e) {
-        whoami.textContent = `Could not reach JARVIS to complete sign-in: ${e.message}`;
-        return false;
-      }
-
-      if (!res.ok) {
-        let body = {};
-        try { body = await res.json(); } catch (e) { /* not JSON */ }
-        whoami.textContent =
-          `Google signed you in, but JARVIS refused it (HTTP ${res.status}). ` +
-          (body.detail || "");
-        document.getElementById("gsiButton").style.display = "block";
-        return false;
-      }
-
-      // The server said yes and sent the cookie. If we still come back as
-      // not signed in, the browser threw the cookie away -- which happens
-      // in private browsing and when cookies are blocked for the site.
-      // Without this check that failure looks identical to never having
-      // tapped the button at all: the page just says "Not signed in."
-      const who = await refreshAuthState();
-      if (!who) {
-        whoami.textContent =
-          "JARVIS accepted your sign-in, but your browser did not keep the " +
-          "login cookie, so it cannot stay signed in. This is usually " +
-          "Private Browsing, or cookies being blocked for this site. Try a " +
-          "normal (non-private) tab, and check Settings -> Safari -> Block " +
-          "All Cookies is off.";
-        return false;
-      }
-      return true;
-    }
-
-    (async () => {
-      // First thing, before anything about sign-in providers: are we
-      // already signed in from last time? This is the whole point of the
-      // cookie, and asking first means a returning visit shows the right
-      // thing immediately instead of flashing "Not signed in."
-      await refreshAuthState();
-
-      let config;
-      try {
-        config = await fetch("/public/firebase-config").then((r) => r.json());
-      } catch (e) {
-        whoami.textContent = "Could not load Firebase config from the server.";
-        return;
-      }
-      if (!config.apiKey && !config.googleClientId) {
-        whoami.textContent =
-          "No sign-in method is configured on this deployment yet. " +
-          "See /docs/DEPLOYMENT.md.";
-        return;
-      }
-
-      // Google's in-page button. Rendered first, because it is the one
-      // that works on an iPad.
-      if (config.googleClientId) {
-        const renderGoogleButton = () => {
-          if (!(window.google && window.google.accounts)) {
-            return setTimeout(renderGoogleButton, 200);
-          }
-          window.google.accounts.id.initialize({
-            client_id: config.googleClientId,
-            // The token goes straight to the server, which checks it and
-            // sets the login cookie. Sent as an ordinary background
-            // request, so nothing navigates and nothing pops up -- no
-            // extra redirect address has to be registered with Google,
-            // and Safari has nothing to block.
-            callback: (response) => exchangeForSession(response.credential),
-          });
-          window.google.accounts.id.renderButton(
-            document.getElementById("gsiButton"),
-            { theme: "outline", size: "large", text: "signin_with" }
-          );
-        };
-        renderGoogleButton();
-      } else {
-        document.getElementById("gsiButton").textContent =
-          "GOOGLE_CLIENT_ID is not set on this server, so the in-page " +
-          "sign-in button can't be shown. See /docs/DEPLOYMENT.md step 4f.";
-      }
-
-      // Firebase is optional now: the in-page Google button is the path
-      // that actually works on an iPad, and it does not need Firebase at
-      // all. If Firebase is not configured, the alternative sign-in
-      // buttons simply are not wired up -- which is not an error.
-      if (!config.apiKey) {
-        signinBtn.disabled = true;
-        signinBtn.title = "Firebase is not configured on this server.";
-        return;
-      }
-
-      const app = initializeApp(config);
-      auth = getAuth(app);
-
-      // Firebase signing in is one more way to get a token; it is not
-      // what decides whether JARVIS considers you signed in. So this hands
-      // the token over to the server and then asks the server, rather than
-      // reporting Firebase's own opinion -- which, when the in-page Google
-      // button is what signed us in, is "nobody is signed in", and used to
-      // wipe out a perfectly good sign-in message.
-      onAuthStateChanged(auth, async (user) => {
-        if (user && !(await refreshAuthState())) {
-          await exchangeForSession(await user.getIdToken());
-        }
-      });
-
-      // Redirect rather than a pop-up: iOS Safari blocks pop-ups, so the
-      // pop-up version never opened at all. This sends the whole page to
-      // Google and back, which works because the server serves Firebase's
-      // sign-in helper from this same domain (core/app/routes/auth_proxy.py).
-      //
-      // Every failure below is shown on screen. An earlier version let
-      // these reject silently, which looked exactly like nothing
-      // happening and gave nothing to debug.
-      signinBtn.onclick = async () => {
-        whoami.textContent = "Taking you to Google...";
-
-        // If the browser is going to leave this page, it happens within a
-        // second or two. Still being here after four seconds means the
-        // navigation never started -- a failure that otherwise looks
-        // identical to nothing happening at all, which is exactly what it
-        // looked like the first time round.
-        const stalled = setTimeout(() => {
-          whoami.textContent =
-            "The browser did not navigate to Google. The sign-in request " +
-            "was made but this page never left. Tap 'Why isn't sign-in " +
-            "working?' and send the result.";
-          popupBtn.style.display = "inline-block";
-        }, 4000);
-
-        try {
-          await signInWithRedirect(auth, new GoogleAuthProvider());
-        } catch (e) {
-          clearTimeout(stalled);
-          whoami.textContent = `Redirect sign-in failed: ${e.code || e.message}`;
-          popupBtn.style.display = "inline-block";
-        }
-      };
-
-      // Kept as a manual fallback. It won't work on iOS with pop-ups
-      // blocked, but on any other browser it's a second way in -- and if
-      // it succeeds where redirect fails, that itself narrows the fault.
-      popupBtn.onclick = async () => {
-        whoami.textContent = "Opening Google sign-in window...";
-        try {
-          await signInWithPopup(auth, new GoogleAuthProvider());
-        } catch (e) {
-          whoami.textContent = `Pop-up sign-in failed too: ${e.code || e.message}`;
-        }
-      };
-
-      signoutBtn.onclick = async () => {
-        // The cookie lives on the server's side of the conversation, so
-        // signing out means telling the server -- clearing anything here
-        // would leave the session perfectly usable.
-        try {
-          await authedFetch("/auth/logout", { method: "POST" });
-        } catch (e) { /* the state refresh below will show what happened */ }
-        try { await signOut(auth); } catch (e) { /* nothing to sign out of */ }
-        await refreshAuthState();
-      };
-
-      // Coming back from Google.
-      try {
-        await getRedirectResult(auth);
-      } catch (e) {
-        whoami.textContent = `Sign-in failed on the way back: ${e.code || e.message}`;
-        popupBtn.style.display = "inline-block";
-      }
-    })();
-
-    // Says what happened in words. The raw response is kept underneath for
-    // when the details matter, but nobody should have to read JSON to find
-    // out whether their assistant answered.
-    function explainMessageResult(res, data) {
-      if (res.ok) {
-        // Say what was remembered, not just what was saved. Memory
-        // failing is invisible otherwise: JARVIS keeps answering, the
-        // answers still read fine, and nothing says it has stopped
-        // recalling anything.
-        const bits = [];
-        bits.push(
-          data.recalled_turns === 0
-            ? "no earlier conversation"
-            : `${data.recalled_turns} earlier turn(s)`
-        );
-        // Long-term facts are counted separately from conversation,
-        // because they are a different thing: standing knowledge that can
-        // be months old, not the last few messages.
-        bits.push(
-          data.recalled_facts === 0
-            ? "no long-term facts yet"
-            : `${data.recalled_facts} long-term fact(s)`
-        );
-        const recalled = bits.join(", ");
-        const who =
-          data.provider === "mock"
-            ? "\n\n(No real model answered. The server has no working model key, " +
-              "so this is a placeholder reply. Check GEMINI_API_KEY in Render.)"
-            : `\n\n(Answered by ${data.provider}, model ${data.model}. ` +
-              `Saved to memory; ${recalled}.)` +
-              // Where the time actually went. Without this, "slow" is one
-              // number covering two completely different problems with
-              // two completely different fixes.
-              `\n(Took ${(data.total_ms / 1000).toFixed(1)}s -- ` +
-              `${(data.model_ms / 1000).toFixed(1)}s waiting for the model, ` +
-              `${(data.our_ms / 1000).toFixed(1)}s for JARVIS's own work.)`;
-        return `JARVIS says:\n\n${data.reply}${who}`;
-      }
-
-      const detail = (data && data.detail) || "";
-      if (res.status === 503 && detail.includes("Emergency Stop")) {
-        return "JARVIS is stopped. The emergency stop is switched on, so it " +
-               "is refusing all requests until it's turned off.";
-      }
-      if (res.status === 502) {
-        // The provider's own words are always shown. What follows is an
-        // attempt to say which of the handful of real causes it is,
-        // because "most often this is an API key" -- what this used to
-        // say unconditionally -- is actively wrong for a retired model,
-        // and a confident wrong answer costs more than no answer.
-        let advice =
-          "That is the model service's own message, passed through unchanged.";
-
-        const retired = detail.match(/use\s+models\/([A-Za-z0-9._-]+)/);
-        if (retired) {
-          advice =
-            `Google has retired the model JARVIS is set to use, and says to ` +
-            `use ${retired[1]} instead.\n\n` +
-            `Fix: Render -> your service -> Environment -> set GEMINI_MODEL ` +
-            `to ${retired[1]} -> Save. Nothing else changes.`;
-        } else if (/RESOURCE_EXHAUSTED|quota|429/i.test(detail)) {
-          advice =
-            "The free daily quota for your Gemini key is used up. It resets " +
-            "every 24 hours, so this fixes itself -- or add a Claude key as " +
-            "an automatic fallback (DEPLOYMENT.md step 3b).";
-        } else if (/API_KEY_INVALID|PERMISSION_DENIED|UNAUTHENTICATED|401|403/i.test(detail)) {
-          advice =
-            "The API key is missing, wrong, or not enabled for this API. " +
-            "Check GEMINI_API_KEY in Render -> Environment.";
-        }
-
-        return "JARVIS could not get an answer from the model.\n\n" +
-               `What the model service said:\n${detail}\n\n${advice}`;
-      }
-      if (res.status === 401) {
-        return "You are not signed in yet.\n\nTap the Google button at the " +
-               "top of this page first, wait for it to say \"Signed in as...\", " +
-               "then send your message again.";
-      }
-      if (res.status === 403) {
-        return `Signed in, but not as the owner of this JARVIS.\n\n${detail}`;
-      }
-      if (res.status >= 500) {
-        return "Something failed inside JARVIS itself.\n\n" + detail +
-               "\n\nIf this mentions the database, the Supabase project may " +
-               "have paused -- open its dashboard and restore it.";
-      }
-      return `Unexpected response (HTTP ${res.status}).\n\n${detail}`;
-    }
-
-    document.getElementById("send").onclick = async () => {
-      const text = document.getElementById("messageInput").value;
-      messageOut.textContent =
-        "Sending... the first message after a break can take a minute while " +
-        "the server wakes up.";
-      try {
-        const res = await authedFetch("/v1/message", {
-          method: "POST",
-          body: JSON.stringify({ text }),
-        });
-        let data = {};
-        try { data = await res.json(); } catch (e) { /* not JSON */ }
-        messageOut.textContent = explainMessageResult(res, data);
-      } catch (e) {
-        messageOut.textContent =
-          `Could not reach JARVIS at all: ${e.message}\n\n` +
-          "The server may still be waking up. Wait a minute and try again.";
-      }
-    };
-
-    async function loadJson(path) {
-      verifyOut.textContent = "Loading...";
-      try {
-        const res = await authedFetch(path);
-        verifyOut.textContent = JSON.stringify(await res.json(), null, 2);
-      } catch (e) {
-        verifyOut.textContent = `Error: ${e.message}`;
-      }
-    }
-
-    // Checks the two things that actually stop sign-in working, so a
-    // failure can be reported precisely instead of as "nothing happened".
-    document.getElementById("diagnose").onclick = async () => {
-      diagOut.style.display = "block";
-      diagOut.textContent = "Checking...";
-      const lines = [];
-
-      lines.push(`This page is served from: ${location.host}`);
-
-      try {
-        const cfg = await fetch("/public/firebase-config").then((r) => r.json());
-        lines.push(`Server reports sign-in domain: ${cfg.authDomain || "(not set)"}`);
-        lines.push(`Firebase project: ${cfg.projectId || "(not set)"}`);
-        if (cfg.authDomain !== location.host) {
-          lines.push("PROBLEM: those two must match, and don't.");
-        } else {
-          lines.push("OK: sign-in domain matches this page's domain.");
-        }
-        if (!cfg.apiKey) lines.push("PROBLEM: no Firebase apiKey configured on the server.");
-        lines.push(
-          cfg.googleClientId
-            ? "OK: in-page Google sign-in button is configured."
-            : "PROBLEM: GOOGLE_CLIENT_ID is not set -- the in-page sign-in button cannot appear."
-        );
-      } catch (e) {
-        lines.push(`PROBLEM: could not read server config -- ${e.message}`);
-      }
-
-      try {
-        const res = await fetch("/__/auth/iframe.js", { method: "GET" });
-        lines.push(`Sign-in helper (/__/auth/iframe.js): HTTP ${res.status}`);
-        if (res.status === 502) {
-          lines.push("PROBLEM: this server cannot reach Google to fetch it.");
-        } else if (res.status === 404) {
-          lines.push("PROBLEM: the relay route is missing -- server needs redeploying.");
-        } else if (res.ok) {
-          lines.push("OK: the sign-in helper is being served from this domain.");
-        }
-      } catch (e) {
-        lines.push(`PROBLEM: could not reach the sign-in helper -- ${e.message}`);
-      }
-
-      // Whether the server currently considers us signed in. This is the
-      // check that would have named the real fault last time: the sign-in
-      // had genuinely worked, and then the page reloaded and forgot it.
-      try {
-        const res = await authedFetch("/v1/me");
-        if (res.ok) {
-          const me = await res.json();
-          lines.push(`OK: signed in as ${me.email || me.uid}, and it survived the reload.`);
-        } else if (res.status === 401) {
-          lines.push("PROBLEM: not signed in -- tap the Google button above first.");
-        } else {
-          const body = await res.json().catch(() => ({}));
-          lines.push(`PROBLEM: sign-in rejected (HTTP ${res.status}): ${body.detail || ""}`);
-        }
-      } catch (e) {
-        lines.push(`PROBLEM: could not ask the server who is signed in -- ${e.message}`);
-      }
-
-      // Whether JARVIS can actually get an answer out of the model -- the
-      // one thing the other checks do not cover.
-      try {
-        const res = await authedFetch("/v1/message", {
-          method: "POST",
-          body: JSON.stringify({ text: "Reply with the single word: ready" }),
-        });
-        let data = {};
-        try { data = await res.json(); } catch (e) { /* not JSON */ }
-        if (res.ok && data.provider && data.provider !== "mock") {
-          lines.push(`OK: the model answered (${data.provider}, ${data.model}).`);
-        } else if (res.ok) {
-          lines.push(
-            "PROBLEM: no real model key on the server -- replies are placeholders. " +
-            "Set GEMINI_API_KEY in Render."
-          );
-        } else {
-          lines.push(`PROBLEM: model call failed (HTTP ${res.status}): ${data.detail || ""}`);
-        }
-      } catch (e) {
-        lines.push(`PROBLEM: could not complete a test message -- ${e.message}`);
-      }
-
-      lines.push("");
-      lines.push("Send this whole block to Claude.");
-      diagOut.textContent = lines.join("\n");
-    };
-
-    // --- what JARVIS remembers, and taking it back -----------------------
-    //
-    // The memories used to be shown as raw JSON. That is fine for proving
-    // they exist and useless for deciding whether you want JARVIS to keep
-    // knowing something -- which is the actual question, and the one you
-    // have to be able to act on.
-
-    const memoryList = document.getElementById("memoryList");
-    const bulkOut = document.getElementById("bulkOut");
-
-    function escapeHtml(text) {
-      const div = document.createElement("div");
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    function whenAndWhat(m) {
-      const when = new Date(m.created_at).toLocaleString();
-      // 'stated' is your own words; 'retrieved' is what JARVIS answered.
-      // Naming them in plain language rather than showing the database
-      // value, which means nothing to anyone who has not read the schema.
-      // 'inferred' is JARVIS's own note summarising something you said,
-      // not your words. Naming it differently keeps that visible, which
-      // is the whole point of storing provenance in the first place.
-      const who =
-        m.origin === "stated"
-          ? "You said"
-          : m.origin === "inferred"
-          ? "JARVIS remembers"
-          : "JARVIS replied";
-      const forgotten = m.expires_at && new Date(m.expires_at) <= new Date();
-      return { when, who, forgotten };
-    }
-
-    async function loadMemories() {
-      const includeForgotten = document.getElementById("showForgotten").checked;
-      memoryList.innerHTML = "<p class='muted'>Loading...</p>";
-      let rows;
-      try {
-        const res = await authedFetch(
-          `/v1/memories?limit=${factsOnly ? 200 : 50}` +
-            `&include_forgotten=${includeForgotten}`
-        );
-        if (!res.ok) {
-          memoryList.innerHTML =
-            `<p class='muted'>Could not load memories (HTTP ${res.status}).</p>`;
-          return;
-        }
-        rows = await res.json();
-      } catch (e) {
-        memoryList.innerHTML = `<p class='muted'>Could not reach JARVIS: ${e.message}</p>`;
-        return;
-      }
-
-      if (factsOnly) rows = rows.filter((m) => m.origin === "inferred");
-
-      if (!rows.length) {
-        memoryList.innerHTML = factsOnly
-          ? "<p class='muted'>No long-term facts yet. JARVIS writes these down " +
-            "by itself when you tell it something worth keeping.</p>"
-          : "<p class='muted'>Nothing remembered yet. Send a message above.</p>";
-        return;
-      }
-
-      memoryList.innerHTML = "";
-      for (const m of rows) {
-        const { when, who, forgotten } = whenAndWhat(m);
-        const div = document.createElement("div");
-        div.className = forgotten ? "memory forgotten" : "memory";
-        div.innerHTML =
-          `<div class="meta">${who} &middot; ${when}` +
-          (forgotten ? " &middot; <strong>forgotten</strong>" : "") +
-          `</div><div class="text">${escapeHtml(m.content)}</div>`;
-
-        const actions = document.createElement("div");
-        if (forgotten) {
-          actions.appendChild(button("Restore", () => act(`/v1/memories/${m.id}/restore`)));
-        } else {
-          actions.appendChild(button("Forget", () => act(`/v1/memories/${m.id}/forget`)));
-        }
-        // Deleting is the only thing here with no undo, so it is marked as
-        // such and asks before doing it.
-        const del = button("Delete for good", () => {
-          if (!confirm("Erase this permanently? This cannot be undone.")) return;
-          return act(`/v1/memories/${m.id}`, "DELETE");
-        });
-        del.className = "danger";
-        actions.appendChild(del);
-
-        div.appendChild(actions);
-        memoryList.appendChild(div);
-      }
-    }
-
-    function button(label, onClick) {
-      const b = document.createElement("button");
-      b.textContent = label;
-      b.onclick = onClick;
-      return b;
-    }
-
-    async function act(path, method = "POST", body = null) {
-      try {
-        const res = await authedFetch(path, {
-          method,
-          ...(body ? { body: JSON.stringify(body) } : {}),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          alert(data.detail || `That did not work (HTTP ${res.status}).`);
-          return null;
-        }
-        await loadMemories();
-        return data;
-      } catch (e) {
-        alert(`Could not reach JARVIS: ${e.message}`);
-        return null;
-      }
-    }
-
-    // Two different things, deliberately shown separately. Facts are what
-    // JARVIS keeps for good; the conversation is the last few exchanges.
-    // Mixing them made it impossible to tell what would still be known
-    // next week.
-    let factsOnly = false;
-    document.getElementById("loadMemories").onclick = () => {
-      factsOnly = false;
-      loadMemories();
-    };
-    document.getElementById("loadFacts").onclick = () => {
-      factsOnly = true;
-      loadMemories();
-    };
-    document.getElementById("showForgotten").onchange = loadMemories;
-
-    document.getElementById("forgetAll").onclick = async () => {
-      if (!confirm("Make JARVIS forget everything? You can restore memories one at a time afterwards.")) return;
-      bulkOut.style.display = "block";
-      bulkOut.textContent = "Working...";
-      const data = await act("/v1/memories/forget-all", "POST", { confirm: "" });
-      if (data) bulkOut.textContent = data.message;
-    };
-
-    document.getElementById("purge").onclick = async () => {
-      // Typed in full, not tapped. This is the one action that destroys
-      // data in bulk with no undo, and a button on a small screen is one
-      // mis-tap away from it.
-      const typed = prompt(
-        "This erases every forgotten memory permanently. There is no undo.\n\n" +
-        "Type DELETE EVERYTHING to confirm:"
-      );
-      if (typed === null) return;
-      bulkOut.style.display = "block";
-      bulkOut.textContent = "Working...";
-      const data = await act("/v1/memories/purge", "POST", { confirm: typed });
-      if (data) bulkOut.textContent = data.message;
-    };
-    document.getElementById("loadAudit").onclick = () => loadJson("/v1/audit");
-    document.getElementById("loadBudget").onclick = () => loadJson("/v1/budget");
-  </script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="/app.js" type="module"></script>
 </body>
 </html>

@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>JARVIS -- Stage 0 test console</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  h1 { font-size: 1.25rem; }
+  .banner { background: #fff3cd; border: 1px solid #e0c36a; padding: 0.75rem 1rem; border-radius: 6px; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 4rem; font: inherit; padding: 0.5rem; }
+  button { font: inherit; padding: 0.5rem 1rem; margin: 0.25rem 0.25rem 0.25rem 0; cursor: pointer; }
+  pre { background: #f4f4f4; padding: 0.75rem; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  #whoami { font-size: 0.85rem; color: #555; }
+  #whoami.blocked { color: #a11; font-weight: 600; font-size: 0.95rem; }
+  .muted { font-size: 0.85rem; color: #555; }
+  .memory { border: 1px solid #ddd; border-radius: 6px; padding: .6rem .75rem; margin: .5rem 0; }
+  .memory.forgotten { opacity: .55; border-style: dashed; }
+  .memory .meta { font-size: .75rem; color: #666; margin-bottom: .25rem; }
+  .memory .text { white-space: pre-wrap; word-break: break-word; }
+  .memory button { font-size: .8rem; padding: .25rem .6rem; }
+  .danger { color: #a11; }
+  section { margin-bottom: 2rem; }
+</style>
+</head>
+<body>
+  <h1>JARVIS -- Stage 0 test console</h1>
+  <div class="banner">
+    This is a bare-bones verification page, not the JARVIS app. It exists so
+    Stage 0 can be tested end-to-end from a browser. See <code>core/static/README.md</code>.
+  </div>
+
+  <section>
+    <div id="whoami">Not signed in.</div>
+
+    <!-- Google's own in-page sign-in button. Nothing navigates and
+         nothing pops up, so neither of Safari's restrictions applies.
+         This is the path that works on an iPad. -->
+    <div id="gsiButton"></div>
+
+    <details style="margin-top:.75rem">
+      <summary style="font-size:.85rem;color:#555">Other ways to sign in</summary>
+      <button id="signin">Sign in with Google (redirect)</button>
+    <button id="popup" style="display:none">Try pop-up sign-in instead</button>
+    </details>
+
+    <button id="signout" style="display:none">Sign out</button>
+    <button id="diagnose">Why isn't sign-in working?</button>
+    <pre id="diagOut" style="display:none"></pre>
+  </section>
+
+  <section>
+    <h2>Send a message</h2>
+    <textarea id="messageInput" placeholder="Say something to JARVIS..."></textarea><br/>
+    <button id="send">Send</button>
+    <pre id="messageOut">(response will appear here)</pre>
+  </section>
+
+  <section>
+    <h2>What JARVIS remembers</h2>
+    <button id="loadFacts">Long-term facts</button>
+    <button id="loadMemories">Recent conversation</button>
+    <label style="font-size:.85rem;color:#555;margin-left:.5rem">
+      <input type="checkbox" id="showForgotten" /> include forgotten
+    </label>
+    <div id="memoryList"><p class="muted">(not loaded yet)</p></div>
+
+    <details style="margin-top:1rem">
+      <summary style="font-size:.9rem;color:#a11">Forget everything</summary>
+      <p class="muted">
+        <strong>Forget everything</strong> makes JARVIS start fresh. The
+        memories still exist and can be restored one at a time.<br/>
+        <strong>Erase forgotten memories</strong> destroys them for good.
+        There is no undo, so it asks you to type the words.
+      </p>
+      <button id="forgetAll">Forget everything</button>
+      <button id="purge">Erase forgotten memories permanently</button>
+      <pre id="bulkOut" style="display:none"></pre>
+    </details>
+  </section>
+
+  <section>
+    <h2>Verify it's being recorded</h2>
+    <button id="loadAudit">Load recent audit log</button>
+    <button id="loadBudget">Load budget status</button>
+    <pre id="verifyOut">(nothing loaded yet)</pre>
+  </section>
+
+  <!-- Google Identity Services: renders the in-page sign-in button. -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <!-- Firebase JS SDK, loaded from Google's own CDN. -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+    import {
+      getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult,
+      signInWithPopup, signOut, onAuthStateChanged,
+    } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+
+    const whoami = document.getElementById("whoami");
+    const signinBtn = document.getElementById("signin");
+    const popupBtn = document.getElementById("popup");
+    const signoutBtn = document.getElementById("signout");
+    const diagOut = document.getElementById("diagOut");
+    const messageOut = document.getElementById("messageOut");
+    const verifyOut = document.getElementById("verifyOut");
+
+    let auth = null;
+
+    // Every request carries the login cookie the server set when you
+    // signed in. Nothing about the sign-in is kept in this page any more:
+    // page memory is wiped by every reload, which is precisely why the
+    // old version kept appearing to forget a sign-in that had actually
+    // worked. `same-origin` is the browser default here, but it is
+    // written out because the cookie is now the whole mechanism.
+    async function authedFetch(path, options = {}) {
+      return fetch(path, {
+        ...options,
+        credentials: "same-origin",
+        headers: {
+          ...(options.headers || {}),
+          "Content-Type": "application/json",
+        },
+      });
+    }
+
+    // Asks the server who we are rather than assuming. The server holds
+    // the truth -- it is the one that issued the cookie and the one that
+    // checks it -- so what is shown on screen is its answer, not this
+    // page's hopeful guess.
+    async function refreshAuthState() {
+      let signedInAs = null;
+      try {
+        const res = await authedFetch("/v1/me");
+        if (res.ok) {
+          const me = await res.json();
+          signedInAs = me.email || me.uid;
+        }
+      } catch (e) {
+        whoami.textContent = `Could not reach JARVIS to check your sign-in: ${e.message}`;
+        return null;
+      }
+
+      if (signedInAs) {
+        whoami.textContent = `Signed in as ${signedInAs}. Send a message below.`;
+        whoami.classList.remove("blocked");
+        signoutBtn.style.display = "inline-block";
+        document.getElementById("gsiButton").style.display = "none";
+      } else {
+        whoami.textContent = "Not signed in -- tap the Google button below first.";
+        whoami.classList.add("blocked");
+        signoutBtn.style.display = "none";
+        document.getElementById("gsiButton").style.display = "block";
+      }
+      return signedInAs;
+    }
+
+    // Hands a sign-in token to the server, which checks it and replies
+    // with a login cookie. This is the step that makes a sign-in last:
+    // after it, being signed in is something the server remembers, not
+    // something this page is holding on to.
+    async function exchangeForSession(credential) {
+      whoami.textContent = "Signing in...";
+      let res;
+      try {
+        res = await authedFetch("/auth/session", {
+          method: "POST",
+          body: JSON.stringify({ credential }),
+        });
+      } catch (e) {
+        whoami.textContent = `Could not reach JARVIS to complete sign-in: ${e.message}`;
+        return false;
+      }
+
+      if (!res.ok) {
+        let body = {};
+        try { body = await res.json(); } catch (e) { /* not JSON */ }
+        whoami.textContent =
+          `Google signed you in, but JARVIS refused it (HTTP ${res.status}). ` +
+          (body.detail || "");
+        document.getElementById("gsiButton").style.display = "block";
+        return false;
+      }
+
+      // The server said yes and sent the cookie. If we still come back as
+      // not signed in, the browser threw the cookie away -- which happens
+      // in private browsing and when cookies are blocked for the site.
+      // Without this check that failure looks identical to never having
+      // tapped the button at all: the page just says "Not signed in."
+      const who = await refreshAuthState();
+      if (!who) {
+        whoami.textContent =
+          "JARVIS accepted your sign-in, but your browser did not keep the " +
+          "login cookie, so it cannot stay signed in. This is usually " +
+          "Private Browsing, or cookies being blocked for this site. Try a " +
+          "normal (non-private) tab, and check Settings -> Safari -> Block " +
+          "All Cookies is off.";
+        return false;
+      }
+      return true;
+    }
+
+    (async () => {
+      // First thing, before anything about sign-in providers: are we
+      // already signed in from last time? This is the whole point of the
+      // cookie, and asking first means a returning visit shows the right
+      // thing immediately instead of flashing "Not signed in."
+      await refreshAuthState();
+
+      let config;
+      try {
+        config = await fetch("/public/firebase-config").then((r) => r.json());
+      } catch (e) {
+        whoami.textContent = "Could not load Firebase config from the server.";
+        return;
+      }
+      if (!config.apiKey && !config.googleClientId) {
+        whoami.textContent =
+          "No sign-in method is configured on this deployment yet. " +
+          "See /docs/DEPLOYMENT.md.";
+        return;
+      }
+
+      // Google's in-page button. Rendered first, because it is the one
+      // that works on an iPad.
+      if (config.googleClientId) {
+        const renderGoogleButton = () => {
+          if (!(window.google && window.google.accounts)) {
+            return setTimeout(renderGoogleButton, 200);
+          }
+          window.google.accounts.id.initialize({
+            client_id: config.googleClientId,
+            // The token goes straight to the server, which checks it and
+            // sets the login cookie. Sent as an ordinary background
+            // request, so nothing navigates and nothing pops up -- no
+            // extra redirect address has to be registered with Google,
+            // and Safari has nothing to block.
+            callback: (response) => exchangeForSession(response.credential),
+          });
+          window.google.accounts.id.renderButton(
+            document.getElementById("gsiButton"),
+            { theme: "outline", size: "large", text: "signin_with" }
+          );
+        };
+        renderGoogleButton();
+      } else {
+        document.getElementById("gsiButton").textContent =
+          "GOOGLE_CLIENT_ID is not set on this server, so the in-page " +
+          "sign-in button can't be shown. See /docs/DEPLOYMENT.md step 4f.";
+      }
+
+      // Firebase is optional now: the in-page Google button is the path
+      // that actually works on an iPad, and it does not need Firebase at
+      // all. If Firebase is not configured, the alternative sign-in
+      // buttons simply are not wired up -- which is not an error.
+      if (!config.apiKey) {
+        signinBtn.disabled = true;
+        signinBtn.title = "Firebase is not configured on this server.";
+        return;
+      }
+
+      const app = initializeApp(config);
+      auth = getAuth(app);
+
+      // Firebase signing in is one more way to get a token; it is not
+      // what decides whether JARVIS considers you signed in. So this hands
+      // the token over to the server and then asks the server, rather than
+      // reporting Firebase's own opinion -- which, when the in-page Google
+      // button is what signed us in, is "nobody is signed in", and used to
+      // wipe out a perfectly good sign-in message.
+      onAuthStateChanged(auth, async (user) => {
+        if (user && !(await refreshAuthState())) {
+          await exchangeForSession(await user.getIdToken());
+        }
+      });
+
+      // Redirect rather than a pop-up: iOS Safari blocks pop-ups, so the
+      // pop-up version never opened at all. This sends the whole page to
+      // Google and back, which works because the server serves Firebase's
+      // sign-in helper from this same domain (core/app/routes/auth_proxy.py).
+      //
+      // Every failure below is shown on screen. An earlier version let
+      // these reject silently, which looked exactly like nothing
+      // happening and gave nothing to debug.
+      signinBtn.onclick = async () => {
+        whoami.textContent = "Taking you to Google...";
+
+        // If the browser is going to leave this page, it happens within a
+        // second or two. Still being here after four seconds means the
+        // navigation never started -- a failure that otherwise looks
+        // identical to nothing happening at all, which is exactly what it
+        // looked like the first time round.
+        const stalled = setTimeout(() => {
+          whoami.textContent =
+            "The browser did not navigate to Google. The sign-in request " +
+            "was made but this page never left. Tap 'Why isn't sign-in " +
+            "working?' and send the result.";
+          popupBtn.style.display = "inline-block";
+        }, 4000);
+
+        try {
+          await signInWithRedirect(auth, new GoogleAuthProvider());
+        } catch (e) {
+          clearTimeout(stalled);
+          whoami.textContent = `Redirect sign-in failed: ${e.code || e.message}`;
+          popupBtn.style.display = "inline-block";
+        }
+      };
+
+      // Kept as a manual fallback. It won't work on iOS with pop-ups
+      // blocked, but on any other browser it's a second way in -- and if
+      // it succeeds where redirect fails, that itself narrows the fault.
+      popupBtn.onclick = async () => {
+        whoami.textContent = "Opening Google sign-in window...";
+        try {
+          await signInWithPopup(auth, new GoogleAuthProvider());
+        } catch (e) {
+          whoami.textContent = `Pop-up sign-in failed too: ${e.code || e.message}`;
+        }
+      };
+
+      signoutBtn.onclick = async () => {
+        // The cookie lives on the server's side of the conversation, so
+        // signing out means telling the server -- clearing anything here
+        // would leave the session perfectly usable.
+        try {
+          await authedFetch("/auth/logout", { method: "POST" });
+        } catch (e) { /* the state refresh below will show what happened */ }
+        try { await signOut(auth); } catch (e) { /* nothing to sign out of */ }
+        await refreshAuthState();
+      };
+
+      // Coming back from Google.
+      try {
+        await getRedirectResult(auth);
+      } catch (e) {
+        whoami.textContent = `Sign-in failed on the way back: ${e.code || e.message}`;
+        popupBtn.style.display = "inline-block";
+      }
+    })();
+
+    // Says what happened in words. The raw response is kept underneath for
+    // when the details matter, but nobody should have to read JSON to find
+    // out whether their assistant answered.
+    function explainMessageResult(res, data) {
+      if (res.ok) {
+        // Say what was remembered, not just what was saved. Memory
+        // failing is invisible otherwise: JARVIS keeps answering, the
+        // answers still read fine, and nothing says it has stopped
+        // recalling anything.
+        const bits = [];
+        bits.push(
+          data.recalled_turns === 0
+            ? "no earlier conversation"
+            : `${data.recalled_turns} earlier turn(s)`
+        );
+        // Long-term facts are counted separately from conversation,
+        // because they are a different thing: standing knowledge that can
+        // be months old, not the last few messages.
+        bits.push(
+          data.recalled_facts === 0
+            ? "no long-term facts yet"
+            : `${data.recalled_facts} long-term fact(s)`
+        );
+        const recalled = bits.join(", ");
+        const who =
+          data.provider === "mock"
+            ? "\n\n(No real model answered. The server has no working model key, " +
+              "so this is a placeholder reply. Check GEMINI_API_KEY in Render.)"
+            : `\n\n(Answered by ${data.provider}, model ${data.model}. ` +
+              `Saved to memory; ${recalled}.)` +
+              // Where the time actually went. Without this, "slow" is one
+              // number covering two completely different problems with
+              // two completely different fixes.
+              `\n(Took ${(data.total_ms / 1000).toFixed(1)}s -- ` +
+              `${(data.model_ms / 1000).toFixed(1)}s waiting for the model, ` +
+              `${(data.our_ms / 1000).toFixed(1)}s for JARVIS's own work.)`;
+        return `JARVIS says:\n\n${data.reply}${who}`;
+      }
+
+      const detail = (data && data.detail) || "";
+      if (res.status === 503 && detail.includes("Emergency Stop")) {
+        return "JARVIS is stopped. The emergency stop is switched on, so it " +
+               "is refusing all requests until it's turned off.";
+      }
+      if (res.status === 502) {
+        // The provider's own words are always shown. What follows is an
+        // attempt to say which of the handful of real causes it is,
+        // because "most often this is an API key" -- what this used to
+        // say unconditionally -- is actively wrong for a retired model,
+        // and a confident wrong answer costs more than no answer.
+        let advice =
+          "That is the model service's own message, passed through unchanged.";
+
+        const retired = detail.match(/use\s+models\/([A-Za-z0-9._-]+)/);
+        if (retired) {
+          advice =
+            `Google has retired the model JARVIS is set to use, and says to ` +
+            `use ${retired[1]} instead.\n\n` +
+            `Fix: Render -> your service -> Environment -> set GEMINI_MODEL ` +
+            `to ${retired[1]} -> Save. Nothing else changes.`;
+        } else if (/RESOURCE_EXHAUSTED|quota|429/i.test(detail)) {
+          advice =
+            "The free daily quota for your Gemini key is used up. It resets " +
+            "every 24 hours, so this fixes itself -- or add a Claude key as " +
+            "an automatic fallback (DEPLOYMENT.md step 3b).";
+        } else if (/API_KEY_INVALID|PERMISSION_DENIED|UNAUTHENTICATED|401|403/i.test(detail)) {
+          advice =
+            "The API key is missing, wrong, or not enabled for this API. " +
+            "Check GEMINI_API_KEY in Render -> Environment.";
+        }
+
+        return "JARVIS could not get an answer from the model.\n\n" +
+               `What the model service said:\n${detail}\n\n${advice}`;
+      }
+      if (res.status === 401) {
+        return "You are not signed in yet.\n\nTap the Google button at the " +
+               "top of this page first, wait for it to say \"Signed in as...\", " +
+               "then send your message again.";
+      }
+      if (res.status === 403) {
+        return `Signed in, but not as the owner of this JARVIS.\n\n${detail}`;
+      }
+      if (res.status >= 500) {
+        return "Something failed inside JARVIS itself.\n\n" + detail +
+               "\n\nIf this mentions the database, the Supabase project may " +
+               "have paused -- open its dashboard and restore it.";
+      }
+      return `Unexpected response (HTTP ${res.status}).\n\n${detail}`;
+    }
+
+    document.getElementById("send").onclick = async () => {
+      const text = document.getElementById("messageInput").value;
+      messageOut.textContent =
+        "Sending... the first message after a break can take a minute while " +
+        "the server wakes up.";
+      try {
+        const res = await authedFetch("/v1/message", {
+          method: "POST",
+          body: JSON.stringify({ text }),
+        });
+        let data = {};
+        try { data = await res.json(); } catch (e) { /* not JSON */ }
+        messageOut.textContent = explainMessageResult(res, data);
+      } catch (e) {
+        messageOut.textContent =
+          `Could not reach JARVIS at all: ${e.message}\n\n` +
+          "The server may still be waking up. Wait a minute and try again.";
+      }
+    };
+
+    async function loadJson(path) {
+      verifyOut.textContent = "Loading...";
+      try {
+        const res = await authedFetch(path);
+        verifyOut.textContent = JSON.stringify(await res.json(), null, 2);
+      } catch (e) {
+        verifyOut.textContent = `Error: ${e.message}`;
+      }
+    }
+
+    // Checks the two things that actually stop sign-in working, so a
+    // failure can be reported precisely instead of as "nothing happened".
+    document.getElementById("diagnose").onclick = async () => {
+      diagOut.style.display = "block";
+      diagOut.textContent = "Checking...";
+      const lines = [];
+
+      lines.push(`This page is served from: ${location.host}`);
+
+      try {
+        const cfg = await fetch("/public/firebase-config").then((r) => r.json());
+        lines.push(`Server reports sign-in domain: ${cfg.authDomain || "(not set)"}`);
+        lines.push(`Firebase project: ${cfg.projectId || "(not set)"}`);
+        if (cfg.authDomain !== location.host) {
+          lines.push("PROBLEM: those two must match, and don't.");
+        } else {
+          lines.push("OK: sign-in domain matches this page's domain.");
+        }
+        if (!cfg.apiKey) lines.push("PROBLEM: no Firebase apiKey configured on the server.");
+        lines.push(
+          cfg.googleClientId
+            ? "OK: in-page Google sign-in button is configured."
+            : "PROBLEM: GOOGLE_CLIENT_ID is not set -- the in-page sign-in button cannot appear."
+        );
+      } catch (e) {
+        lines.push(`PROBLEM: could not read server config -- ${e.message}`);
+      }
+
+      try {
+        const res = await fetch("/__/auth/iframe.js", { method: "GET" });
+        lines.push(`Sign-in helper (/__/auth/iframe.js): HTTP ${res.status}`);
+        if (res.status === 502) {
+          lines.push("PROBLEM: this server cannot reach Google to fetch it.");
+        } else if (res.status === 404) {
+          lines.push("PROBLEM: the relay route is missing -- server needs redeploying.");
+        } else if (res.ok) {
+          lines.push("OK: the sign-in helper is being served from this domain.");
+        }
+      } catch (e) {
+        lines.push(`PROBLEM: could not reach the sign-in helper -- ${e.message}`);
+      }
+
+      // Whether the server currently considers us signed in. This is the
+      // check that would have named the real fault last time: the sign-in
+      // had genuinely worked, and then the page reloaded and forgot it.
+      try {
+        const res = await authedFetch("/v1/me");
+        if (res.ok) {
+          const me = await res.json();
+          lines.push(`OK: signed in as ${me.email || me.uid}, and it survived the reload.`);
+        } else if (res.status === 401) {
+          lines.push("PROBLEM: not signed in -- tap the Google button above first.");
+        } else {
+          const body = await res.json().catch(() => ({}));
+          lines.push(`PROBLEM: sign-in rejected (HTTP ${res.status}): ${body.detail || ""}`);
+        }
+      } catch (e) {
+        lines.push(`PROBLEM: could not ask the server who is signed in -- ${e.message}`);
+      }
+
+      // Whether JARVIS can actually get an answer out of the model -- the
+      // one thing the other checks do not cover.
+      try {
+        const res = await authedFetch("/v1/message", {
+          method: "POST",
+          body: JSON.stringify({ text: "Reply with the single word: ready" }),
+        });
+        let data = {};
+        try { data = await res.json(); } catch (e) { /* not JSON */ }
+        if (res.ok && data.provider && data.provider !== "mock") {
+          lines.push(`OK: the model answered (${data.provider}, ${data.model}).`);
+        } else if (res.ok) {
+          lines.push(
+            "PROBLEM: no real model key on the server -- replies are placeholders. " +
+            "Set GEMINI_API_KEY in Render."
+          );
+        } else {
+          lines.push(`PROBLEM: model call failed (HTTP ${res.status}): ${data.detail || ""}`);
+        }
+      } catch (e) {
+        lines.push(`PROBLEM: could not complete a test message -- ${e.message}`);
+      }
+
+      lines.push("");
+      lines.push("Send this whole block to Claude.");
+      diagOut.textContent = lines.join("\n");
+    };
+
+    // --- what JARVIS remembers, and taking it back -----------------------
+    //
+    // The memories used to be shown as raw JSON. That is fine for proving
+    // they exist and useless for deciding whether you want JARVIS to keep
+    // knowing something -- which is the actual question, and the one you
+    // have to be able to act on.
+
+    const memoryList = document.getElementById("memoryList");
+    const bulkOut = document.getElementById("bulkOut");
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function whenAndWhat(m) {
+      const when = new Date(m.created_at).toLocaleString();
+      // 'stated' is your own words; 'retrieved' is what JARVIS answered.
+      // Naming them in plain language rather than showing the database
+      // value, which means nothing to anyone who has not read the schema.
+      // 'inferred' is JARVIS's own note summarising something you said,
+      // not your words. Naming it differently keeps that visible, which
+      // is the whole point of storing provenance in the first place.
+      const who =
+        m.origin === "stated"
+          ? "You said"
+          : m.origin === "inferred"
+          ? "JARVIS remembers"
+          : "JARVIS replied";
+      const forgotten = m.expires_at && new Date(m.expires_at) <= new Date();
+      return { when, who, forgotten };
+    }
+
+    async function loadMemories() {
+      const includeForgotten = document.getElementById("showForgotten").checked;
+      memoryList.innerHTML = "<p class='muted'>Loading...</p>";
+      let rows;
+      try {
+        const res = await authedFetch(
+          `/v1/memories?limit=${factsOnly ? 200 : 50}` +
+            `&include_forgotten=${includeForgotten}`
+        );
+        if (!res.ok) {
+          memoryList.innerHTML =
+            `<p class='muted'>Could not load memories (HTTP ${res.status}).</p>`;
+          return;
+        }
+        rows = await res.json();
+      } catch (e) {
+        memoryList.innerHTML = `<p class='muted'>Could not reach JARVIS: ${e.message}</p>`;
+        return;
+      }
+
+      if (factsOnly) rows = rows.filter((m) => m.origin === "inferred");
+
+      if (!rows.length) {
+        memoryList.innerHTML = factsOnly
+          ? "<p class='muted'>No long-term facts yet. JARVIS writes these down " +
+            "by itself when you tell it something worth keeping.</p>"
+          : "<p class='muted'>Nothing remembered yet. Send a message above.</p>";
+        return;
+      }
+
+      memoryList.innerHTML = "";
+      for (const m of rows) {
+        const { when, who, forgotten } = whenAndWhat(m);
+        const div = document.createElement("div");
+        div.className = forgotten ? "memory forgotten" : "memory";
+        div.innerHTML =
+          `<div class="meta">${who} &middot; ${when}` +
+          (forgotten ? " &middot; <strong>forgotten</strong>" : "") +
+          `</div><div class="text">${escapeHtml(m.content)}</div>`;
+
+        const actions = document.createElement("div");
+        if (forgotten) {
+          actions.appendChild(button("Restore", () => act(`/v1/memories/${m.id}/restore`)));
+        } else {
+          actions.appendChild(button("Forget", () => act(`/v1/memories/${m.id}/forget`)));
+        }
+        // Deleting is the only thing here with no undo, so it is marked as
+        // such and asks before doing it.
+        const del = button("Delete for good", () => {
+          if (!confirm("Erase this permanently? This cannot be undone.")) return;
+          return act(`/v1/memories/${m.id}`, "DELETE");
+        });
+        del.className = "danger";
+        actions.appendChild(del);
+
+        div.appendChild(actions);
+        memoryList.appendChild(div);
+      }
+    }
+
+    function button(label, onClick) {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.onclick = onClick;
+      return b;
+    }
+
+    async function act(path, method = "POST", body = null) {
+      try {
+        const res = await authedFetch(path, {
+          method,
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.detail || `That did not work (HTTP ${res.status}).`);
+          return null;
+        }
+        await loadMemories();
+        return data;
+      } catch (e) {
+        alert(`Could not reach JARVIS: ${e.message}`);
+        return null;
+      }
+    }
+
+    // Two different things, deliberately shown separately. Facts are what
+    // JARVIS keeps for good; the conversation is the last few exchanges.
+    // Mixing them made it impossible to tell what would still be known
+    // next week.
+    let factsOnly = false;
+    document.getElementById("loadMemories").onclick = () => {
+      factsOnly = false;
+      loadMemories();
+    };
+    document.getElementById("loadFacts").onclick = () => {
+      factsOnly = true;
+      loadMemories();
+    };
+    document.getElementById("showForgotten").onchange = loadMemories;
+
+    document.getElementById("forgetAll").onclick = async () => {
+      if (!confirm("Make JARVIS forget everything? You can restore memories one at a time afterwards.")) return;
+      bulkOut.style.display = "block";
+      bulkOut.textContent = "Working...";
+      const data = await act("/v1/memories/forget-all", "POST", { confirm: "" });
+      if (data) bulkOut.textContent = data.message;
+    };
+
+    document.getElementById("purge").onclick = async () => {
+      // Typed in full, not tapped. This is the one action that destroys
+      // data in bulk with no undo, and a button on a small screen is one
+      // mis-tap away from it.
+      const typed = prompt(
+        "This erases every forgotten memory permanently. There is no undo.\n\n" +
+        "Type DELETE EVERYTHING to confirm:"
+      );
+      if (typed === null) return;
+      bulkOut.style.display = "block";
+      bulkOut.textContent = "Working...";
+      const data = await act("/v1/memories/purge", "POST", { confirm: typed });
+      if (data) bulkOut.textContent = data.message;
+    };
+    document.getElementById("loadAudit").onclick = () => loadJson("/v1/audit");
+    document.getElementById("loadBudget").onclick = () => loadJson("/v1/budget");
+  </script>
+</body>
+</html>

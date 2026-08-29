@@ -1,17 +1,34 @@
-# Stage 0 test console
+# The JARVIS front end
 
-`index.html` is **not** the JARVIS client app. The architecture doc is
-explicit that clients are their own future workstream ("voice/UI is the
-owner's domain, not built here" -- Stage 0 Build Brief, section 4).
+Two pages, both plain HTML/JS served by the API itself. No build step, no
+framework, no npm — open the file and read it.
 
-It exists only to satisfy two Stage 0 Definition-of-Done items that
-otherwise have no way to be checked from an iPad browser:
+## `index.html` + `app.js` — the dashboard
 
-- "Firebase Auth wired -- owner can log in from a browser"
-- "reachable via HTTPS" / testable end-to-end from the owner's own device
+What you actually use. A heads-up display: conversation, what JARVIS
+remembers, today's activity, spend, and the emergency stop.
 
-It's a single static HTML file: a sign-in button (Firebase), a text box
-that calls `POST /v1/message`, and buttons to view recent memories, the
-audit log, and budget status. No framework, no build step, so there's
-nothing here to break or to maintain as its own project. Once a real
-client exists (later stage), this file can simply be deleted.
+**Every number on it is measured.** They all come from one request to
+`GET /v1/dashboard`, which counts real rows. Where JARVIS cannot yet know
+something — scheduled tasks, calendar events, project progress — the
+panel says so rather than showing a plausible figure. A dashboard you
+cannot trust is worse than no dashboard, and a fake number is worse than
+a blank space.
+
+One request rather than one per panel: against a hosted database, six
+panels would mean six round trips before anything appeared.
+
+The reactor turns while JARVIS is idle and speeds up while it is
+thinking, so waiting looks like waiting. It greys out and stops when the
+emergency stop is on. The waveform only moves when something is actually
+happening — a waveform that dances at rest is decoration pretending to be
+information.
+
+Voice uses the browser's own speech engine: no API, no key, no cost. It
+is off by default (Settings → Speak replies out loud).
+
+## `console.html` — diagnostics
+
+The original test console, kept because it does things the dashboard
+deliberately does not: raw JSON, the sign-in fault-finder, restoring
+forgotten memories, and bulk erase. Linked from Settings → Diagnostics.
