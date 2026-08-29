@@ -287,7 +287,7 @@ JARVIS is up, accepting requests, and not in dev mode (dev mode must never
 be true on a real deployment — it disables login).
 
 Locally, the same check is `http://localhost:8080/health` after
-`docker compose -f infra/docker-compose.yml up`.
+`docker compose up -d --build`.
 
 The test console at the root URL (`/`) also gives you a sign-in button and
 a message box — the fastest way to eyeball that the whole loop works from

@@ -2,7 +2,7 @@
 Postgres, then read them back -- the same path /v1/message exercises.
 
 Requires a database with the Stage 0 schema applied (see
-infra/docker-compose.yml + db/migrate.py). Skips itself cleanly if no
+docker-compose.yml, or db/migrate.py). Skips itself cleanly if no
 database is reachable at DATABASE_URL.
 """
 from decimal import Decimal

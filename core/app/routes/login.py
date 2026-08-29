@@ -110,9 +110,9 @@ async def start_session(body: SignInRequest) -> JSONResponse:
         # httponly: unreadable to JavaScript, so a scripting flaw on the
         # page cannot walk off with the session.
         httponly=True,
-        # secure: only ever sent over HTTPS. Relaxed in dev_mode purely so
-        # a plain-http localhost run still works.
-        secure=not settings.dev_mode,
+        # secure: only ever sent over HTTPS. Off only for a plain-http run
+        # on your own machine -- see COOKIE_SECURE in config.py.
+        secure=settings.cookie_secure,
         samesite="lax",
         path="/",
     )

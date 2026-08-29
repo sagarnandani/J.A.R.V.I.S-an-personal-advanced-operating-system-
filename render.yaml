@@ -59,6 +59,11 @@ services:
       # How long a sign-in lasts before you tap the button again.
       - key: SESSION_DAYS
         value: "30"
+      # Render serves over HTTPS, so the login cookie is marked Secure and
+      # never travels in clear text. Only a plain-http run on your own
+      # machine should ever set this false -- see docs/SELF_HOSTING.md.
+      - key: COOKIE_SECURE
+        value: "true"
 
       # --- Model provider ---
       - key: LLM_PROVIDER

@@ -40,6 +40,7 @@ async def lifespan(app: FastAPI):
         )
     init_firebase()
     _ensure_session_secret(settings)
+    _warn_if_cookies_are_unprotected(settings)
     _warn_if_spend_is_untracked(settings)
     async with lifespan_db(app):
         logger.info("JARVIS Core started.")
@@ -69,6 +70,24 @@ def _ensure_session_secret(settings) -> None:
         "will work, but every restart or redeploy will sign you out again. "
         "Set SESSION_SECRET in your environment -- see /docs/DEPLOYMENT.md step 4g."
     )
+
+
+def _warn_if_cookies_are_unprotected(settings) -> None:
+    """COOKIE_SECURE=false is correct on localhost and dangerous anywhere else.
+
+    Without the Secure flag a browser will send the login cookie over
+    plain http -- which is fine when "the network" is a loopback on your
+    own machine, and means anyone on the path can lift your session
+    anywhere else. It is a legitimate local setting and a serious mistake
+    in the open, so it never passes silently.
+    """
+    if not settings.cookie_secure:
+        logger.warning(
+            "COOKIE_SECURE is false: the login cookie will be sent over plain "
+            "HTTP. That is correct for http://localhost on your own machine "
+            "and UNSAFE on anything reachable from another computer. Put "
+            "JARVIS behind HTTPS and set COOKIE_SECURE=true before exposing it."
+        )
 
 
 def _warn_if_spend_is_untracked(settings) -> None:

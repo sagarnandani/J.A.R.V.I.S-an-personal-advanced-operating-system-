@@ -67,6 +67,19 @@ class Settings(BaseSettings):
     session_secret: str = ""
     # How long a sign-in lasts before you have to tap the button again.
     session_days: int = 30
+    # Whether the login cookie is marked "Secure" -- meaning the browser
+    # will only ever send it over HTTPS.
+    #
+    # True is right for anything with a real address, and is the default
+    # precisely because getting this wrong the safe way costs a local
+    # inconvenience, while getting it wrong the unsafe way sends your
+    # session over the open network in clear text.
+    #
+    # Set it to false ONLY for a plain-http run on your own machine
+    # (http://localhost). Otherwise the browser silently declines to send
+    # the cookie back, and sign-in appears to succeed and then instantly
+    # fail -- with nothing on screen explaining why.
+    cookie_secure: bool = True
 
     # --- LLM provider ---
     # Which provider answers by default: "gemini", "claude", or "mock".

@@ -53,18 +53,23 @@ deploy itself, which is done from a browser on Render — connect the repo,
 fill in two secrets, press a button. `docs/DEPLOYMENT.md` is the exact
 checklist, in order. Once deployed, `GET /health` tells you it's alive.
 
-## How to try it locally (no cloud account needed)
+## Run it on your own machine
+
+JARVIS and its database, entirely on your own disk — no Supabase, no
+Render, no account anywhere.
 
 ```bash
-docker compose -f infra/docker-compose.yml up --build
-# in another terminal, once postgres is healthy:
-DATABASE_URL=postgres://jarvis:jarvis@localhost:5432/jarvis python3 db/migrate.py
+cp .env.example .env          # fill in four values
+docker compose up -d --build
 ```
 
-Then open `http://localhost:8080` in a browser. Firebase login won't work
-locally (no project configured), but with `DEV_MODE=true` (already set in
-`infra/docker-compose.yml`) every request is treated as the owner, so you
-can type a message straight into the test console and see it round-trip.
+Then open `http://localhost:8080`. The database schema applies itself on
+first start; there is no migration step to remember.
+
+Full walkthrough, including how to bring existing memories across from
+Supabase and how to reach JARVIS from your phone safely:
+[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
+
 With no model provider key set, JARVIS replies with an honest "no real
 model was called" placeholder instead of pretending — see
 `core/app/llm/mock_adapter.py`.
@@ -90,3 +95,13 @@ automatically as a fallback when the first fails.
 - `docs/STAGE0_STATUS.md` — what's live, what it costs, how to check, how to stop it
 - `docs/DEPLOYMENT.md` — step-by-step cloud provisioning checklist
 - `docs/BUDGET.md` — exactly what counts toward the monthly spend estimate
+
+## Run it on your own machine
+
+```bash
+cp .env.example .env   # fill in four values
+docker compose up -d --build
+```
+
+JARVIS and its database, entirely on your own disk. See
+[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).

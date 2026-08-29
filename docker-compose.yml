@@ -1,0 +1,75 @@
+# Run JARVIS on your own machine.
+#
+#   cp .env.example .env      # then fill in .env
+#   docker compose up -d --build
+#   open http://localhost:8080
+#
+# That is the whole thing. This file brings up JARVIS *and* its database,
+# so nothing external is needed -- no Supabase, no Render, no account
+# anywhere. Your data lives in a Docker volume on your own disk.
+#
+# The schema is applied automatically the first time the database starts.
+# There is no migration command to remember.
+#
+# See docs/SELF_HOSTING.md, including how to bring your existing memories
+# across from Supabase.
+name: jarvis
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jarvis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jarvis}
+      POSTGRES_DB: jarvis
+    volumes:
+      # Your memories. A named volume, so `docker compose down` does NOT
+      # delete them -- only `docker compose down -v` does, and that is the
+      # only command here that destroys anything.
+      - jarvis_data:/var/lib/postgresql/data
+      # Postgres runs anything in here once, on an empty database. This is
+      # the same single file the Supabase setup used, so both paths apply
+      # exactly the same schema.
+      - ./db/manual_setup.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    # Not published to the network by default: the app reaches it over
+    # Docker's internal network, and nothing else needs to. Uncomment to
+    # connect with a database tool from your own machine.
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jarvis -d jarvis"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  jarvis:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile
+    restart: unless-stopped
+    ports:
+      # 127.0.0.1 means only this machine can reach it. Change to
+      # "8080:8080" to open it to your home network -- but read the HTTPS
+      # section of docs/SELF_HOSTING.md first, because the login cookie
+      # travels in clear text over plain http.
+      - "127.0.0.1:8080:8080"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://jarvis:${POSTGRES_PASSWORD:-jarvis}@postgres:5432/jarvis
+      PORT: "8080"
+      # Real sign-in, exactly as in the cloud. DEV_MODE would switch
+      # authentication off entirely and is deliberately not set here: a
+      # port that is loopback-only today is one edited line from being
+      # open to the house.
+      DEV_MODE: "false"
+      # Off because http://localhost is not HTTPS and the browser would
+      # otherwise refuse to send the login cookie back. Set to "true" the
+      # moment JARVIS sits behind a real certificate.
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  jarvis_data:
