@@ -31,6 +31,26 @@ USER = "user"
 ASSISTANT = "assistant"
 
 
+def system_prompt_with(memory_context: str | None) -> str:
+    """The system prompt, plus what JARVIS knows about its owner.
+
+    Labelled as JARVIS's own notes rather than presented as fact. They are
+    summaries it wrote of things the owner said, and the instruction to
+    trust the owner over its own notes is what stops a stale note winning
+    an argument with the person it is about.
+    """
+    if not memory_context:
+        return JARVIS_SYSTEM_PROMPT
+    return (
+        f"{JARVIS_SYSTEM_PROMPT}\n\n"
+        "These are your own notes about your owner, from earlier "
+        "conversations. Use them when relevant, and do not announce them "
+        "unprompted. If the owner says something that contradicts a note, "
+        "the owner is right:\n"
+        f"{memory_context}"
+    )
+
+
 @dataclass(frozen=True)
 class Turn:
     """One thing that was said, by one side of the conversation.
@@ -86,11 +106,17 @@ class LLMResult:
 class LLMProvider(ABC):
     @abstractmethod
     async def complete(
-        self, message: str, history: list[Turn] | None = None
+        self,
+        message: str,
+        history: list[Turn] | None = None,
+        memory_context: str | None = None,
     ) -> LLMResult:
         """Send a message in the context of what came before.
 
-        `history` is oldest-first and excludes `message` itself. Passing
-        none is a conversation with no past, which is what every call was
-        before memory recall existed.
+        `history` is oldest-first and excludes `message` itself.
+
+        `memory_context` is long-term memory -- durable facts, which may
+        come from months ago. It goes into the system instruction rather
+        than being faked as conversation, because that is what it is:
+        standing knowledge, not something anybody said just now.
         """

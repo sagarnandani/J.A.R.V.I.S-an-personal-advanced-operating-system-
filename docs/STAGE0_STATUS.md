@@ -12,6 +12,41 @@ with the right provenance: `stated` for the owner's words, `retrieved` for
 JARVIS's reply, each linked to the other. That is the Stage 0 Definition
 of Done met in full.
 
+### Long-term memory — keeping what matters
+
+Conversation recall reaches back about ten exchanges. That is a chat
+window, not a memory: tell JARVIS a birthday, talk about something else
+for ten minutes, and it was gone. Measured, not assumed — after twelve
+ordinary exchanges the birthday was no longer visible to the model at all.
+
+JARVIS now keeps the parts worth keeping. After each exchange it reads
+what was said and writes down anything durable — a preference, a date, a
+decision, a person — as its own small memory. Later messages pull those
+back **by relevance**, using Postgres' own full-text search, so a fact
+from months ago returns when it is relevant, long after the conversation
+it came from scrolled away.
+
+Three things worth knowing:
+
+- **Facts are labelled as JARVIS's own words, not yours.** A fact is a
+  sentence JARVIS wrote summarising something you said, so it is stored as
+  `inferred`, never `stated`, and each one links back to the verbatim
+  memory it came from. The page shows them as *"JARVIS remembers"* rather
+  than *"You said"*. That distinction is the provenance rule earning its
+  keep: your words and JARVIS's summary of them must never become
+  indistinguishable.
+- **It corrects itself.** The same pass that extracts facts is shown what
+  JARVIS already believes and asked what is now wrong. Saying *"actually
+  it's blue"* retires the old fact instead of leaving two contradictory
+  ones side by side. That is the *correct* operation from the
+  architecture doc's store / recall / correct / forget — the memory system
+  is now complete. Retiring is the same reversible forget used everywhere
+  else, so nothing is destroyed and the old fact stays visible.
+- **It costs a second model call per message.** Made *after* your reply is
+  sent, so it never adds to your wait. On a free tier the cost is quota
+  rather than money — roughly half as many messages per day. Switch it off
+  with `MEMORY_FACTS_ENABLED=false`.
+
 ### Forgetting — taking things back
 
 The architecture doc specifies the memory system as *store / recall /

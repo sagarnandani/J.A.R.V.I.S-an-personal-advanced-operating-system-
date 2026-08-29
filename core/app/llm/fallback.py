@@ -22,17 +22,20 @@ class FallbackProvider(LLMProvider):
         self._secondary = secondary
 
     async def complete(
-        self, message: str, history: list[Turn] | None = None
+        self,
+        message: str,
+        history: list[Turn] | None = None,
+        memory_context: str | None = None,
     ) -> LLMResult:
         try:
-            return await self._primary.complete(message, history)
+            return await self._primary.complete(message, history, memory_context)
         except Exception as primary_error:
             logger.warning(
                 "Primary model provider failed (%s); trying the fallback provider.",
                 primary_error,
             )
             try:
-                result = await self._secondary.complete(message, history)
+                result = await self._secondary.complete(message, history, memory_context)
             except Exception as secondary_error:
                 # Both are down. Report both causes -- knowing only about
                 # the second failure would send you debugging the wrong

@@ -92,6 +92,18 @@ services:
       - key: MEMORY_RECALL_MAX_CHARS
         value: "8000"
 
+      # --- Long-term memory ---
+      # Facts JARVIS keeps for good, looked up by relevance rather than
+      # recency. Costs a second model call per message (made after the
+      # reply, so it adds no waiting) -- on a free tier that is quota, not
+      # money. Set ENABLED to false to turn it off.
+      - key: MEMORY_FACTS_ENABLED
+        value: "true"
+      - key: MEMORY_FACTS_LIMIT
+        value: "25"
+      - key: MEMORY_FACTS_MAX_CHARS
+        value: "2000"
+
       # --- Budget guardrail (see docs/BUDGET.md) ---
       - key: MONTHLY_BUDGET_INR
         value: "3500"

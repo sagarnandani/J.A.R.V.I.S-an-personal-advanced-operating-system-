@@ -9,9 +9,9 @@ import asyncio
 import logging
 import time
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from app import audit, memory, system_control
+from app import audit, facts, memory, system_control
 from app.auth import CurrentUser, get_current_user
 from app.budget import estimate_cost_inr
 from app.config import Settings, get_settings
@@ -26,6 +26,7 @@ router = APIRouter()
 @router.post("/v1/message", response_model=MessageResponse)
 async def send_message(
     body: MessageRequest,
+    background: BackgroundTasks,
     user: CurrentUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> MessageResponse:
@@ -50,7 +51,22 @@ async def send_message(
             max_chars=settings.memory_recall_max_chars,
         )
 
-    stopped, history = await asyncio.gather(system_control.is_stopped(), _recall())
+    # Long-term facts are fetched alongside the rest -- relevance-matched
+    # against this message, so something said months ago comes back when
+    # it is relevant, long after the conversation it came from scrolled
+    # out of the recent window.
+    async def _facts():
+        if not settings.memory_facts_enabled:
+            return []
+        return await facts.recall_facts(
+            body.text,
+            limit=settings.memory_facts_limit,
+            max_chars=settings.memory_facts_max_chars,
+        )
+
+    stopped, history, known_facts = await asyncio.gather(
+        system_control.is_stopped(), _recall(), _facts()
+    )
 
     if stopped:
         raise HTTPException(
@@ -64,7 +80,8 @@ async def send_message(
 
     model_started = time.perf_counter()
     try:
-        result = await provider.complete(body.text, history)
+        memory_context = "\n".join(f"- {f}" for f in known_facts) or None
+        result = await provider.complete(body.text, history, memory_context)
         outcome = "success"
         model_ms = int((time.perf_counter() - model_started) * 1000)
     except Exception as exc:
@@ -110,6 +127,18 @@ async def send_message(
         ),
     )
 
+    # Learning happens after the reply has been handed over, so the second
+    # model call it needs never becomes time the owner spends waiting.
+    if settings.memory_facts_enabled:
+        background.add_task(
+            _learn_quietly,
+            provider,
+            body.text,
+            result.text,
+            user_memory_id,
+            settings.memory_facts_per_exchange,
+        )
+
     total_ms = int((time.perf_counter() - started) * 1000)
     return MessageResponse(
         reply=result.text,
@@ -119,6 +148,7 @@ async def send_message(
         provider=result.provider,
         model=result.model,
         recalled_turns=len(history),
+        recalled_facts=len(known_facts),
         # Reported so "it feels slow" can be answered with a number
         # instead of a guess -- and so it is obvious whether the time went
         # to the model or to JARVIS's own work.
@@ -126,3 +156,29 @@ async def send_message(
         total_ms=total_ms,
         our_ms=total_ms - model_ms,
     )
+
+
+async def _learn_quietly(
+    provider, user_text: str, reply_text: str, source_memory_id, max_facts: int
+) -> None:
+    """Extract long-term facts, and never let failing at it matter.
+
+    The owner already has their answer by the time this runs. If writing
+    down what was learned goes wrong -- a model hiccup, malformed JSON,
+    the database blinking -- the right outcome is a log line, not a lost
+    conversation or an error the owner cannot act on.
+    """
+    try:
+        learned, retired = await facts.learn_from_exchange(
+            provider, user_text, reply_text, source_memory_id, max_facts
+        )
+        if learned or retired:
+            logger.info("Long-term memory: learned %d, retired %d", learned, retired)
+            await audit.log_audit(
+                actor="system",
+                action="memory_learn",
+                category="low_risk",
+                outcome=f"learned {learned}, retired {retired}",
+            )
+    except Exception as exc:  # noqa: BLE001 - never fatal, by design
+        logger.warning("Could not extract long-term facts: %s", exc)

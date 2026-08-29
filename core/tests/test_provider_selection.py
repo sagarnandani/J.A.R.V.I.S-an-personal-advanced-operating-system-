@@ -20,12 +20,17 @@ class FakeProvider(LLMProvider):
         # Recorded so tests can check that recalled history actually
         # reaches the provider, rather than only that nothing crashed.
         self.last_history: list[Turn] | None = None
+        self.last_memory_context: str | None = None
 
     async def complete(
-        self, message: str, history: list[Turn] | None = None
+        self,
+        message: str,
+        history: list[Turn] | None = None,
+        memory_context: str | None = None,
     ) -> LLMResult:
         self.calls += 1
         self.last_history = history
+        self.last_memory_context = memory_context
         return LLMResult(
             text=f"{self.name} says hi",
             input_tokens=1,
@@ -41,7 +46,10 @@ class BrokenProvider(LLMProvider):
         self.calls = 0
 
     async def complete(
-        self, message: str, history: list[Turn] | None = None
+        self,
+        message: str,
+        history: list[Turn] | None = None,
+        memory_context: str | None = None,
     ) -> LLMResult:
         self.calls += 1
         raise RuntimeError(self.error)

@@ -127,6 +127,26 @@ class Settings(BaseSettings):
     # characters is about 2000 tokens -- see /docs/BUDGET.md.
     memory_recall_max_chars: int = 8000
 
+    # --- Long-term memory (facts) ---
+    # Conversation recall only reaches back about ten exchanges. This is
+    # what keeps the things worth keeping -- birthdays, preferences,
+    # decisions -- and looks them up by relevance however long ago they
+    # were said.
+    #
+    # It costs a second model call per message, made AFTER the reply is
+    # sent so it never adds to the wait. On a free tier the cost is quota,
+    # not money: roughly half as many messages per day. Hence the switch.
+    memory_facts_enabled: bool = True
+    # How many facts may go into a message, and how much text they may
+    # total. The same budget logic as conversation recall, for the same
+    # reason: this is re-sent with every message.
+    memory_facts_limit: int = 25
+    memory_facts_max_chars: int = 2000
+    # Most exchanges yield nothing worth keeping, and one that yields ten
+    # "facts" is usually a model padding rather than a genuinely dense
+    # message.
+    memory_facts_per_exchange: int = 5
+
     # --- Budget guardrail ---
     # A concrete ceiling was requested by the architecture doc (section P)
     # but not fixed by the owner; the Stage 0 brief gives a range

@@ -22,6 +22,7 @@ class MessageResponse(BaseModel):
     # answer sounding right -- an assistant that has silently stopped
     # remembering still produces plausible replies.
     recalled_turns: int
+    recalled_facts: int
     # Where the time went, in milliseconds. `model_ms` is waiting on the
     # provider; `our_ms` is everything JARVIS itself did (database reads
     # and writes). Split because they have completely different fixes, and

@@ -58,7 +58,8 @@
 
   <section>
     <h2>What JARVIS remembers</h2>
-    <button id="loadMemories">Show memories</button>
+    <button id="loadFacts">Long-term facts</button>
+    <button id="loadMemories">Recent conversation</button>
     <label style="font-size:.85rem;color:#555;margin-left:.5rem">
       <input type="checkbox" id="showForgotten" /> include forgotten
     </label>
@@ -347,10 +348,21 @@
         // failing is invisible otherwise: JARVIS keeps answering, the
         // answers still read fine, and nothing says it has stopped
         // recalling anything.
-        const recalled =
+        const bits = [];
+        bits.push(
           data.recalled_turns === 0
-            ? "nothing recalled yet -- this is the start of the conversation"
-            : `${data.recalled_turns} earlier turn(s) recalled`;
+            ? "no earlier conversation"
+            : `${data.recalled_turns} earlier turn(s)`
+        );
+        // Long-term facts are counted separately from conversation,
+        // because they are a different thing: standing knowledge that can
+        // be months old, not the last few messages.
+        bits.push(
+          data.recalled_facts === 0
+            ? "no long-term facts yet"
+            : `${data.recalled_facts} long-term fact(s)`
+        );
+        const recalled = bits.join(", ");
         const who =
           data.provider === "mock"
             ? "\n\n(No real model answered. The server has no working model key, " +
@@ -556,7 +568,15 @@
       // 'stated' is your own words; 'retrieved' is what JARVIS answered.
       // Naming them in plain language rather than showing the database
       // value, which means nothing to anyone who has not read the schema.
-      const who = m.origin === "stated" ? "You said" : "JARVIS replied";
+      // 'inferred' is JARVIS's own note summarising something you said,
+      // not your words. Naming it differently keeps that visible, which
+      // is the whole point of storing provenance in the first place.
+      const who =
+        m.origin === "stated"
+          ? "You said"
+          : m.origin === "inferred"
+          ? "JARVIS remembers"
+          : "JARVIS replied";
       const forgotten = m.expires_at && new Date(m.expires_at) <= new Date();
       return { when, who, forgotten };
     }
@@ -567,7 +587,8 @@
       let rows;
       try {
         const res = await authedFetch(
-          `/v1/memories?limit=50&include_forgotten=${includeForgotten}`
+          `/v1/memories?limit=${factsOnly ? 200 : 50}` +
+            `&include_forgotten=${includeForgotten}`
         );
         if (!res.ok) {
           memoryList.innerHTML =
@@ -580,9 +601,13 @@
         return;
       }
 
+      if (factsOnly) rows = rows.filter((m) => m.origin === "inferred");
+
       if (!rows.length) {
-        memoryList.innerHTML =
-          "<p class='muted'>Nothing remembered yet. Send a message above.</p>";
+        memoryList.innerHTML = factsOnly
+          ? "<p class='muted'>No long-term facts yet. JARVIS writes these down " +
+            "by itself when you tell it something worth keeping.</p>"
+          : "<p class='muted'>Nothing remembered yet. Send a message above.</p>";
         return;
       }
 
@@ -642,7 +667,19 @@
       }
     }
 
-    document.getElementById("loadMemories").onclick = loadMemories;
+    // Two different things, deliberately shown separately. Facts are what
+    // JARVIS keeps for good; the conversation is the last few exchanges.
+    // Mixing them made it impossible to tell what would still be known
+    // next week.
+    let factsOnly = false;
+    document.getElementById("loadMemories").onclick = () => {
+      factsOnly = false;
+      loadMemories();
+    };
+    document.getElementById("loadFacts").onclick = () => {
+      factsOnly = true;
+      loadMemories();
+    };
     document.getElementById("showForgotten").onchange = loadMemories;
 
     document.getElementById("forgetAll").onclick = async () => {

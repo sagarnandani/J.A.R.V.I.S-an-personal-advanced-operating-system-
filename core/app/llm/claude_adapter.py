@@ -1,7 +1,7 @@
 """Claude provider adapter -- the only place the `anthropic` SDK is imported."""
 from anthropic import AsyncAnthropic
 
-from app.llm.base import JARVIS_SYSTEM_PROMPT, LLMProvider, LLMResult, Turn
+from app.llm.base import LLMProvider, LLMResult, Turn, system_prompt_with
 
 
 class ClaudeAdapter(LLMProvider):
@@ -10,7 +10,10 @@ class ClaudeAdapter(LLMProvider):
         self._model = model
 
     async def complete(
-        self, message: str, history: list[Turn] | None = None
+        self,
+        message: str,
+        history: list[Turn] | None = None,
+        memory_context: str | None = None,
     ) -> LLMResult:
         # Claude's role names match ours, so the history passes through
         # unchanged. It does require the turns to alternate starting with
@@ -21,7 +24,7 @@ class ClaudeAdapter(LLMProvider):
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=1024,
-            system=JARVIS_SYSTEM_PROMPT,
+            system=system_prompt_with(memory_context),
             messages=messages,
         )
         text = "".join(

@@ -31,15 +31,20 @@ class MockAdapter(LLMProvider):
         return "no model provider key is configured on this deployment"
 
     async def complete(
-        self, message: str, history: list[Turn] | None = None
+        self,
+        message: str,
+        history: list[Turn] | None = None,
+        memory_context: str | None = None,
     ) -> LLMResult:
         # Says how much history it was handed, so a recall problem is
         # visible even with no provider key configured -- otherwise the
         # only way to check recall works is to spend money on it.
         recalled = len(history or [])
+        facts = len((memory_context or "").splitlines()) if memory_context else 0
         reply = (
             f"[JARVIS mock response -- {self._missing_key_hint()}, so no real "
-            f"model was called; {recalled} earlier turn(s) recalled] "
+            f"model was called; {recalled} earlier turn(s) recalled, "
+            f"{facts} long-term fact(s)] "
             f"You said: {message!r}"
         )
         # Fake but proportional token counts, so the budget math downstream

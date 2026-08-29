@@ -6,10 +6,10 @@ from google.genai import types
 
 from app.llm.base import (
     ASSISTANT,
-    JARVIS_SYSTEM_PROMPT,
     LLMProvider,
     LLMResult,
     Turn,
+    system_prompt_with,
 )
 
 logger = logging.getLogger("jarvis.llm.gemini")
@@ -70,25 +70,30 @@ class GeminiAdapter(LLMProvider):
         )
         return contents
 
-    def _config(self, with_thinking_setting: bool) -> types.GenerateContentConfig:
+    def _config(
+        self, with_thinking_setting: bool, memory_context: str | None = None
+    ) -> types.GenerateContentConfig:
         thinking = None
         if with_thinking_setting and self._thinking_budget >= 0:
             thinking = types.ThinkingConfig(thinking_budget=self._thinking_budget)
         return types.GenerateContentConfig(
-            system_instruction=JARVIS_SYSTEM_PROMPT,
+            system_instruction=system_prompt_with(memory_context),
             max_output_tokens=1024,
             thinking_config=thinking,
         )
 
     async def complete(
-        self, message: str, history: list[Turn] | None = None
+        self,
+        message: str,
+        history: list[Turn] | None = None,
+        memory_context: str | None = None,
     ) -> LLMResult:
         contents = self._to_contents(message, history)
         try:
             response = await self._client.aio.models.generate_content(
                 model=self._model,
                 contents=contents,
-                config=self._config(self._thinking_supported),
+                config=self._config(self._thinking_supported, memory_context),
             )
         except Exception as exc:
             if not self._thinking_supported or _is_definitely_not_about_thinking(exc):
@@ -115,7 +120,7 @@ class GeminiAdapter(LLMProvider):
             response = await self._client.aio.models.generate_content(
                 model=self._model,
                 contents=contents,
-                config=self._config(False),
+                config=self._config(False, memory_context),
             )
             # Only now is it proven: the same request worked without the
             # setting, so the setting was the problem. A retry that also
