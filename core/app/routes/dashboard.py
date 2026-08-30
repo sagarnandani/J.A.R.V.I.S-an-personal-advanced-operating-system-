@@ -69,6 +69,36 @@ async def _today() -> dict:
     return dict(row) if row else {}
 
 
+async def _history(days: int) -> list[dict]:
+    """Messages per day, for the sparkline.
+
+    generate_series gives every day in the range, so quiet days come back
+    as zero rather than being missing. A gap-free series is the whole
+    point: a chart that silently omits the days you did not use JARVIS
+    would draw a flattering line rather than a true one.
+    """
+    rows = await fetch(
+        """
+        SELECT d::date AS day,
+               COALESCE(c.n, 0) AS messages
+        FROM generate_series(
+                 date_trunc('day', now()) - ($1::int - 1) * interval '1 day',
+                 date_trunc('day', now()),
+                 interval '1 day'
+             ) AS d
+        LEFT JOIN (
+            SELECT date_trunc('day', created_at) AS day, count(*) AS n
+            FROM audit_log
+            WHERE action = 'llm_message_exchange'
+            GROUP BY 1
+        ) c ON c.day = d
+        ORDER BY d
+        """,
+        days,
+    )
+    return [{"day": r["day"].isoformat(), "messages": int(r["messages"])} for r in rows]
+
+
 async def _activity(limit: int) -> list[dict]:
     rows = await fetch(
         """
@@ -99,13 +129,14 @@ async def dashboard(
     user: CurrentUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    stopped, counts, today, activity, facts, budget = await asyncio.gather(
+    stopped, counts, today, activity, facts, budget, history = await asyncio.gather(
         system_control.is_stopped(),
         _counts(),
         _today(),
-        _activity(12),
-        _recent_facts(8),
+        _activity(40),
+        _recent_facts(40),
         get_budget_snapshot(settings),
+        _history(7),
     )
 
     return {
@@ -114,11 +145,14 @@ async def dashboard(
         "status": {
             "emergency_stop": stopped,
             "provider": settings.llm_provider,
-            "model": (
-                settings.gemini_model
-                if settings.llm_provider == "gemini"
-                else settings.claude_model
-            ),
+            # Name the model that would actually answer. The old version
+            # fell through to the Claude name for any non-Gemini provider,
+            # so a deployment running the mock adapter displayed a real
+            # model it was never going to call.
+            "model": {
+                "gemini": settings.gemini_model,
+                "claude": settings.claude_model,
+            }.get(settings.llm_provider.strip().lower(), "placeholder (no real model)"),
             "recall_enabled": settings.memory_recall_enabled,
             "facts_enabled": settings.memory_facts_enabled,
         },
@@ -144,6 +178,7 @@ async def dashboard(
             "status": budget.status,
             "month": budget.month,
         },
+        "history": history,
         "activity": [
             {
                 "action": a["action"],

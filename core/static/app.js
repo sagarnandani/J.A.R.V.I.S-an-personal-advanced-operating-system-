@@ -124,32 +124,35 @@ function renderDashboard(d) {
   $("reactor").classList.toggle("stopped", stopped);
   $("stopBtn").textContent = stopped ? "Resume JARVIS" : "Emergency stop";
   $("stopBtn").classList.toggle("danger", !stopped);
+  $("stopNote").textContent = stopped
+    ? "JARVIS is refusing every request. Nothing has been deleted."
+    : "Refuses every request until switched back on. Nothing is deleted.";
 
   $("sMessages").textContent = d.today.messages;
   $("sLearned").textContent = d.today.learning_runs;
   $("sSpend").textContent = "₹" + d.today.spend_inr.toFixed(2);
   $("sSpendNote").textContent =
     d.today.spend_inr === 0 ? "free tier — see BUDGET.md" : "estimated";
-  $("sLast").textContent = lastReplyMs === null ? "—" : (lastReplyMs / 1000).toFixed(1) + "s";
 
-  // Bars are shown against what actually reaches the model, so they mean
-  // "how full is the window", not an invented capacity.
-  const f = d.memory.facts, fl = d.memory.facts_limit || 1;
-  $("mFacts").textContent = f;
-  $("mFactsBar").style.width = Math.min(100, (f / fl) * 100) + "%";
-  const t = d.memory.turns, tl = d.memory.recall_turns_limit || 1;
-  $("mTurns").textContent = t;
-  $("mTurnsBar").style.width = Math.min(100, (t / tl) * 100) + "%";
+  // Gauges read against what actually reaches the model, so "full" means
+  // "as much as JARVIS can use", not an invented capacity.
+  const pct = d.budget.percent_used;
+  // "0%" for a real but tiny spend reads as "nothing spent", which is the
+  // wrong direction to be wrong about money.
+  const pctLabel = pct === 0 ? "0%" : pct < 1 ? "<1%" : pct.toFixed(0) + "%";
+  gauge("gBudget", "gBudgetTxt", pct, 100, pctLabel, d.budget.status);
+  gauge("gFacts", "gFactsTxt", d.memory.facts, d.memory.facts_limit, String(d.memory.facts));
+  gauge("gRecall", "gRecallTxt", d.memory.turns, d.memory.recall_turns_limit, String(d.memory.turns));
 
-  const pct = d.budget.percent_used || 0;
-  $("mBudget").textContent = pct.toFixed(1) + "%";
-  $("mBudgetBar").style.width = Math.min(100, pct) + "%";
-  const w = $("mBudgetWrap");
-  w.classList.toggle("warn", d.budget.status === "warn_50" || d.budget.status === "warn_80");
-  w.classList.toggle("bad", d.budget.status === "exceeded");
   $("memNote").textContent =
     `${d.memory.forgotten} forgotten · ₹${d.budget.spend_inr.toFixed(2)} of ` +
     `₹${d.budget.ceiling_inr.toFixed(0)} this month`;
+
+  sparkline(d.history || []);
+
+  $("tModel").textContent = d.status.model;
+  $("tLast").textContent = lastReplyMs === null ? "—" : (lastReplyMs / 1000).toFixed(1) + "s";
+  $("tMem").textContent = `${d.memory.facts}f / ${d.memory.turns}t`;
 
   $("cfgModel").textContent = `${d.status.provider} · ${d.status.model}`;
   $("cfgRecall").textContent = d.status.recall_enabled
@@ -201,6 +204,48 @@ function renderDashboard(d) {
 
 // The audit log stores machine names. Nobody should have to learn them to
 // read their own activity feed.
+// A 270-degree arc starting at the lower left, the way a dial reads.
+// 151 is the arc's length in this 32-radius circle; the rest of the
+// circumference is the gap at the bottom.
+const ARC = 151;
+function gauge(arcId, textId, value, max, label, status) {
+  const frac = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
+  const el = $(arcId);
+  el.style.strokeDashoffset = ARC * (1 - frac);
+  el.classList.toggle("warn", status === "warn_50" || status === "warn_80" || (!status && frac >= 0.8));
+  el.classList.toggle("bad", status === "exceeded" || (!status && frac >= 1));
+  $(textId).textContent = label;
+}
+
+// Messages per day for the past week. Drawn from the series the server
+// sends, which includes quiet days as zero -- a chart that skipped them
+// would draw a flattering line instead of a true one.
+function sparkline(history) {
+  const svg = $("spark");
+  if (!history.length) { svg.innerHTML = ""; return; }
+  const vals = history.map((h) => h.messages);
+  const peak = Math.max(1, ...vals);
+  const W = 300, H = 46, step = W / Math.max(1, history.length - 1);
+  const y = (v) => H - 4 - (v / peak) * (H - 10);
+  const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${y(v).toFixed(1)}`);
+
+  svg.innerHTML =
+    `<defs><linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+       <stop offset="0%" stop-color="#48c8ff" stop-opacity=".35"/>
+       <stop offset="100%" stop-color="#48c8ff" stop-opacity="0"/>
+     </linearGradient></defs>` +
+    `<polygon points="0,${H} ${pts.join(" ")} ${W},${H}" fill="url(#sparkFill)"/>` +
+    `<polyline points="${pts.join(" ")}" fill="none" stroke="url(#gSpark)" stroke-width="2"
+       stroke-linejoin="round" stroke-linecap="round"/>` +
+    vals.map((v, i) =>
+      `<circle cx="${(i * step).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${i === vals.length - 1 ? 3 : 1.8}"
+        fill="${i === vals.length - 1 ? "#bfefff" : "#48c8ff"}"/>`).join("");
+
+  const first = new Date(history[0].day);
+  $("sparkFrom").textContent = first.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  $("sparkPeak").textContent = `peak ${peak}`;
+}
+
 function describe(a) {
   const map = {
     llm_message_exchange: "Message answered",
@@ -299,19 +344,29 @@ function explain(status, detail) {
 }
 
 /* ------------------------------------------------------------------ nav */
+// In the landscape layout every panel is on screen at once, so "go to
+// memory" had nothing to go to. Home and Settings remain; full screen is
+// genuinely useful for leaving this up on a spare monitor.
 const views = {
   home: () => { $("settingsView").classList.add("hidden"); document.querySelector(".grid").classList.remove("hidden"); },
-  memory: () => { views.home(); $("factsList").scrollIntoView({ behavior: "smooth", block: "center" }); },
-  activity: () => { views.home(); $("feed").scrollIntoView({ behavior: "smooth", block: "center" }); },
   settings: () => { document.querySelector(".grid").classList.add("hidden"); $("settingsView").classList.remove("hidden"); },
 };
 $("nav").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-view]");
   if (!btn) return;
-  [...$("nav").children].forEach((b) => b.classList.remove("active"));
+  [...$("nav").querySelectorAll("button[data-view]")].forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
   views[btn.dataset.view]();
 });
+
+$("fsBtn").onclick = async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen();
+  } catch (e) { /* Safari on iOS refuses; nothing useful to say about it */ }
+};
+document.addEventListener("fullscreenchange", () =>
+  $("fsBtn").classList.toggle("active", !!document.fullscreenElement));
 
 /* ------------------------------------------------------------- controls */
 $("sendBtn").onclick = send;

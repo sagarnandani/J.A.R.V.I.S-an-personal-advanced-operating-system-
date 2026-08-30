@@ -21,9 +21,40 @@ def _database_url() -> str:
     )
 
 
+# Tests that touch memory empty the tables. That is fine against a
+# scratch database and catastrophic against a real one -- running the
+# suite with DATABASE_URL pointing at your own JARVIS would delete
+# everything it remembers, with no warning and no undo.
+#
+# So the suite refuses to touch a database that does not look disposable.
+# Getting this wrong the safe way costs a skipped test run and a one-line
+# message saying how to proceed. Getting it wrong the other way costs the
+# owner their memories.
+_DISPOSABLE_HINTS = ("test", "jarvis_test", "localhost", "127.0.0.1")
+
+
+def _looks_disposable(url: str) -> bool:
+    if os.environ.get("JARVIS_ALLOW_DESTRUCTIVE_TESTS") == "yes-i-mean-it":
+        return True
+    # A hosted database is never disposable, whatever it is called.
+    if any(host in url for host in ("supabase", "render.com", "amazonaws", "neon.tech")):
+        return False
+    return any(hint in url for hint in _DISPOSABLE_HINTS)
+
+
 @pytest_asyncio.fixture
 async def db_pool():
     url = _database_url()
+
+    if not _looks_disposable(url):
+        pytest.skip(
+            "Refusing to run against a database that does not look "
+            "disposable: these tests DELETE every memory. Point "
+            "DATABASE_URL at a local or throwaway database, or set "
+            "JARVIS_ALLOW_DESTRUCTIVE_TESTS=yes-i-mean-it if you are sure."
+        )
+        return
+
     try:
         pool = await asyncpg.create_pool(url, min_size=1, max_size=2)
     except (OSError, asyncpg.PostgresError) as exc:
