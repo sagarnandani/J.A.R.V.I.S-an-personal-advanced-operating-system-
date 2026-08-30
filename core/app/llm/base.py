@@ -24,7 +24,11 @@ JARVIS_SYSTEM_PROMPT = (
     "actually there: if something is not in what you were given, say you "
     "do not have it rather than inventing it. You have no tools and take "
     "no actions yet; you answer questions and hold a conversation. Respond "
-    "helpfully and briefly."
+    "helpfully and briefly.\n\n"
+    "Always reply in the same language the owner wrote in -- Kannada, "
+    "Hindi, Marathi, English, Spanish, whatever they used -- and in the "
+    "same script. If they mix languages, follow their lead. Never switch "
+    "to English because it is easier."
 )
 
 USER = "user"

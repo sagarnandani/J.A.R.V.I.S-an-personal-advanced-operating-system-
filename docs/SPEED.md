@@ -129,3 +129,32 @@ service back in Stage 0.
 **My suggestion:** try it warm first. Send a message, then straight away
 send another. If the second one is quick, what you were feeling was the
 sleep, and ₹600/month solves it with no work at all.
+
+---
+
+## Voice, and why it sounds like it does
+
+JARVIS speaks using the browser's own speech engine (`speechSynthesis`).
+No API, no key, no cost, no quota, works offline. It reads replies in
+whatever language they are written in, if a voice for that language is
+installed — on an iPad, **Settings → Accessibility → Spoken Content →
+Voices** adds more, and the Siri voices there are much better than the
+default.
+
+**It is not the voice you heard in AI Studio.** That is Gemini's own
+audio generation — the model produces speech directly rather than a
+device reading text, which is why it sounds natural and handles Indian
+languages properly. It is a different API, it costs money per character
+or per second, and it has quotas. Wiring it in is a real option, and an
+honest comparison first:
+
+| | Browser voice (now) | Gemini native audio |
+|---|---|---|
+| Quality | Fine to robotic, depends on installed voices | Natural |
+| Cost | ₹0 | Charged per use, counts against the budget |
+| Works offline | Yes | No |
+| Indian languages | Only if that voice is installed | Handled properly |
+| Latency | Instant | Another round trip after the reply |
+
+If the free voice is not good enough, that is the upgrade — but it should
+be a deliberate decision against the ₹3,500 ceiling, not a default.

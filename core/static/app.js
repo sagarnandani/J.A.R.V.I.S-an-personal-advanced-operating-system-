@@ -57,30 +57,132 @@ function setBusy(on) {
 setBusy(false);
 
 /* ----------------------------------------------------------------- voice */
-// Safari's built-in speech engine: no API, no key, no cost. Voices load
-// asynchronously and iOS will not speak until the page has had a real
-// tap, so both are handled rather than assumed.
+/* Safari's built-in speech engine: no API, no key, no cost, no quota.
+ *
+ * Two things make it fail silently, and both bit us:
+ *
+ * 1. iOS refuses to speak unless the speech was started by a real tap.
+ *    A reply arrives after a network round trip, which is not a tap, so
+ *    every single reply was blocked with no error anywhere. The fix is to
+ *    unlock the engine during a tap we DO have -- the Send button -- by
+ *    speaking one silent utterance. After that the page may speak freely.
+ *
+ * 2. getVoices() is empty until the browser has loaded them, which
+ *    happens asynchronously and often after the first render. Asking once
+ *    at start-up and caching the empty answer means no voice is ever
+ *    chosen.
+ */
 let speakOn = false;
 try { speakOn = localStorage.getItem("jarvis.speak") === "1"; } catch (e) {}
 const canSpeak = "speechSynthesis" in window;
+let speechUnlocked = false;
+let voices = [];
+
+function loadVoices() { if (canSpeak) voices = speechSynthesis.getVoices() || []; }
+if (canSpeak) {
+  loadVoices();
+  speechSynthesis.addEventListener("voiceschanged", loadVoices);
+}
+
+// Must be called from inside a real user gesture. Speaking one silent
+// utterance is what actually lifts iOS's restriction; nothing else does.
+function unlockSpeech() {
+  if (!canSpeak || speechUnlocked) return;
+  try {
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;
+    speechSynthesis.speak(u);
+    speechUnlocked = true;
+  } catch (e) { /* nothing useful to say; speak() will report if it fails */ }
+}
+
+// Which language the reply is in, read from the script it is written in.
+// JARVIS answers in whatever language you use, so reading it back in an
+// English voice would be unintelligible -- Devanagari spoken by an
+// English voice is noise.
+const SCRIPTS = [
+  [/[\u0C80-\u0CFF]/, "kn"],   // Kannada
+  [/[\u0900-\u097F]/, "hi"],   // Devanagari: Hindi, Marathi
+  [/[\u0B80-\u0BFF]/, "ta"],   // Tamil
+  [/[\u0C00-\u0C7F]/, "te"],   // Telugu
+  [/[\u0980-\u09FF]/, "bn"],   // Bengali
+  [/[\u0A80-\u0AFF]/, "gu"],   // Gujarati
+  [/[\u0600-\u06FF]/, "ar"],   // Arabic
+  [/[\u4E00-\u9FFF]/, "zh"],
+  [/[\u3040-\u30FF]/, "ja"],
+  [/[\uAC00-\uD7AF]/, "ko"],
+];
+function langOf(text) {
+  for (const [re, code] of SCRIPTS) if (re.test(text)) return code;
+  return null;
+}
+
+function pickVoice(lang) {
+  if (!voices.length) return null;
+  if (lang) {
+    // An Indian-English voice reads Hindi transliteration far better than
+    // a British one, so a regional fallback is worth having.
+    return (
+      voices.find((v) => v.lang.toLowerCase().startsWith(lang)) ||
+      voices.find((v) => /en-IN/i.test(v.lang)) ||
+      null
+    );
+  }
+  // JARVIS is Paul Bettany, after all.
+  return (
+    voices.find((v) => /en-GB/i.test(v.lang) && /(daniel|arthur|male)/i.test(v.name)) ||
+    voices.find((v) => /en-GB/i.test(v.lang)) ||
+    voices.find((v) => /^en/i.test(v.lang)) ||
+    null
+  );
+}
 
 function speak(text) {
   if (!speakOn || !canSpeak || !text) return;
   try {
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text.slice(0, 600));
-    const voices = speechSynthesis.getVoices();
-    // Prefer a British male voice -- JARVIS is Paul Bettany, after all.
-    const pick =
-      voices.find((v) => /en-GB/i.test(v.lang) && /(daniel|male|arthur)/i.test(v.name)) ||
-      voices.find((v) => /en-GB/i.test(v.lang)) ||
-      voices.find((v) => /^en/i.test(v.lang));
-    if (pick) u.voice = pick;
-    u.rate = 1.02; u.pitch = 0.92;
+    loadVoices();
+    const lang = langOf(text);
+    const u = new SpeechSynthesisUtterance(text.slice(0, 800));
+    const v = pickVoice(lang);
+    // Setting .voice can throw if the browser hands back something it
+    // will not accept. Losing the preferred accent is a small loss;
+    // losing the whole utterance because of it is not, so the language
+    // is set either way and JARVIS still speaks.
+    if (v) {
+      try { u.voice = v; } catch (e) { /* fall back to lang alone */ }
+      u.lang = v.lang;
+    } else if (lang) {
+      u.lang = lang;
+    }
+    u.rate = 1.02;
+    u.pitch = 0.92;
+    // The waveform moves while JARVIS is actually speaking, so silence
+    // caused by a missing voice looks different from silence caused by
+    // nothing being said.
+    u.onstart = () => setBusy(true);
+    u.onend = () => setBusy(false);
+    u.onerror = () => { setBusy(false); voiceProblem("The browser refused to play the voice."); };
     speechSynthesis.speak(u);
-  } catch (e) { /* never let speech break the reply */ }
+
+    if (lang && !v) {
+      voiceProblem(
+        `No ${lang} voice is installed on this device, so JARVIS cannot ` +
+        `read that reply aloud. On iPad: Settings → Accessibility → ` +
+        `Spoken Content → Voices.`
+      );
+    }
+  } catch (e) {
+    voiceProblem(`Speech failed: ${e.message}`);
+  }
 }
-if (canSpeak) speechSynthesis.getVoices();
+
+// Voice failing must say so. It failed silently for every reply until now,
+// which is indistinguishable from the feature not existing.
+function voiceProblem(msg) {
+  const el = $("convoNote");
+  if (el) el.textContent = msg;
+}
 
 /* ------------------------------------------------------- speech-to-text */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -95,6 +197,7 @@ function setupMic() {
     return;
   }
   btn.onclick = () => {
+    unlockSpeech();
     if (listening) { recog && recog.stop(); return; }
     recog = new SR();
     recog.lang = "en-IN";
@@ -288,6 +391,12 @@ function addMsg(who, text, tail, cls = "") {
 }
 
 async function send() {
+  // This is a real user gesture, which is the only moment iOS will let us
+  // lift the speech restriction. Done here rather than only in the toggle
+  // because the toggle may have been set on a previous visit and restored
+  // from storage, with no tap involved at all.
+  unlockSpeech();
+
   const input = $("msg");
   const text = input.value.trim();
   if (!text) return;
@@ -376,12 +485,19 @@ $("speakToggle").checked = speakOn;
 $("speakToggle").onchange = (e) => {
   speakOn = e.target.checked;
   try { localStorage.setItem("jarvis.speak", speakOn ? "1" : "0"); } catch (err) {}
-  // Speaking now doubles as priming: iOS only allows speech that follows
-  // a real tap, and this tap is one.
-  if (speakOn) speak("Voice enabled.");
+  if (speakOn) {
+    unlockSpeech();
+    // Speaking immediately confirms it works, in this tap, rather than
+    // leaving you to discover on the next reply that it does not.
+    speak("Voice enabled.");
+  } else {
+    try { speechSynthesis.cancel(); } catch (err) {}
+  }
 };
 $("voiceNote").textContent = canSpeak
-  ? "Uses your device's built-in voice. No API, no cost."
+  ? "Uses your device's built-in voice — no API, no cost, no limit. It " +
+    "matches the language JARVIS replies in, if that voice is installed. " +
+    "iPad: Settings → Accessibility → Spoken Content → Voices to add more."
   : "This browser has no speech engine, so JARVIS cannot speak here.";
 
 $("stopBtn").onclick = async () => {

@@ -59,18 +59,32 @@ body::after {
 }
 #app { position: relative; z-index: 2; padding: 0 clamp(.5rem, 1.4vw, 1rem) 1rem; }
 
-/* Landscape HUD: the page itself never scrolls. Panels scroll inside
-   themselves, so the frame stays put and the activity feed cannot push
-   the message box off the bottom of the screen. Only applied where there
-   is room -- a phone held upright gets the ordinary stacked page. */
+/* Landscape HUD: the frame fills the window and stays put.
+   
+   Each COLUMN scrolls, not just the lists inside it. The previous version
+   only scrolled the lists and let the columns overflow -- so on a browser
+   window shorter than the content (which is any browser window, once tabs
+   and an address bar take their share) the bottom panel was simply cut
+   off and unreachable.
+
+   That fault survived my own check because I measured page overflow while
+   `overflow: hidden` was set on the body, which forces the number to zero
+   whatever the truth is. A measurement that cannot fail is not a
+   measurement. The real check is now whether the last panel's bottom edge
+   falls inside the viewport. */
 @media (min-width: 900px) and (min-height: 480px) {
   html, body { height: 100%; overflow: hidden; }
-  #app { height: 100dvh; display: flex; flex-direction: column; padding-bottom: .6rem; }
+  #app { height: 100dvh; display: flex; flex-direction: column; padding-bottom: .5rem; }
   #app .grid { flex: 1; min-height: 0; }
   .panel { min-height: 0; }
-  /* min-height:0 on every level, or a flex child refuses to shrink below
-     its content and the inner scrollbar never appears. */
-  .col { min-height: 0; }
+  /* min-height:0 at every level, or a flex child refuses to shrink below
+     its content and no scrollbar ever appears. */
+  .col {
+    min-height: 0; overflow-y: auto; padding-right: 3px;
+    scrollbar-width: thin; scrollbar-color: var(--edge) transparent;
+  }
+  .col::-webkit-scrollbar { width: 5px; }
+  .col::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 3px; }
 }
 
 h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, system-ui, sans-serif; }
@@ -150,13 +164,17 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
   }
   .core-col { order: 0; }
   .core-col > .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  .core-col .convo { flex: 1; max-height: none; min-height: 100px; }
+  .core-col .convo { flex: 1; max-height: none; min-height: 0; }
 
-  /* Each scrolling panel gets a share of the column and keeps its own
-     scrollbar. Nothing runs off the bottom of the screen, which is what
-     the activity feed used to do. */
-  .col > .panel.flexy { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  .col > .panel.flexy .scroller { flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
+  /* Panels keep their natural height and the column scrolls around them.
+     The long lists are capped so one of them cannot fill the screen and
+     bury everything below it -- the activity feed's old habit. */
+  .col > .panel.flexy { display: flex; flex-direction: column; min-height: 0; }
+  .col > .panel.flexy .scroller { max-height: 30vh; overflow-y: auto; }
+  /* The centre never scrolls: the message box must always be on screen,
+     so the core column is sized to fit instead. */
+  .core-col { overflow: hidden; display: flex; flex-direction: column; }
+  .core-col .core-wrap { flex: 0 0 auto; }
 }
 
 /* --- stat rows --- */
@@ -178,9 +196,9 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 .bar.bad i { background: linear-gradient(90deg, var(--danger), #ff9aa2); box-shadow: 0 0 10px var(--danger); }
 
 /* --- the arc reactor --- */
-.core-wrap { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+.core-wrap { display: flex; flex-direction: column; align-items: center; gap: .35rem; }
 .core-status { text-align: center; }
-.core-status .k { font-size: .68rem; letter-spacing: .3em; color: var(--muted); text-transform: uppercase; }
+.core-status .k { font-size: .62rem; letter-spacing: .28em; color: var(--muted); text-transform: uppercase; }
 .core-status .v { font-family: Orbitron, sans-serif; font-size: clamp(1.1rem, 3vw, 1.5rem); letter-spacing: .18em; color: var(--cyan); text-shadow: 0 0 20px rgba(72,200,255,.6); }
 /* Real readings, arranged around the core. Every one is measured; none
    of them is decoration wearing a number. */
@@ -333,7 +351,13 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 .row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 /* Declared last so it wins over the base .reactor width above -- same
    specificity, so source order decides. */
-@media (min-width: 900px) { .reactor { width: min(30vw, 460px); } }
+@media (min-width: 900px) {
+  /* 42vh keeps the core generous on a tall screen and gets out of the way
+     on a short one. Without the vh term the reactor pushed the message box
+     off the bottom of every real browser window -- 893px of content in a
+     760px viewport. */
+  .reactor { width: min(28vw, 430px, 36vh); }
+}
 label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--text); cursor: pointer; padding: .3rem 0; }
 </style>
 </head>
@@ -434,7 +458,6 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
           <button class="btn danger" id="stopBtn" style="width:100%">Emergency stop</button>
         </div>
         <p class="note" id="stopNote">Refuses every request until switched back on. Nothing is deleted.</p>
-        <div class="scroller" style="flex:1;min-height:0"></div>
       </section>
     </div>
 
