@@ -1,4 +1,4 @@
-import { startLive, stopLive, liveActive } from './live.js';
+import { startLive, stopLive, liveActive, voiceCheck } from './live.js';
 
 /* JARVIS dashboard.
  *
@@ -246,6 +246,10 @@ document.addEventListener("jarvis:live", (e) => {
     btn.classList.remove("rec");
     setBusy(false);
     note.textContent = liveError;
+    // Also in the conversation, where you are actually looking. A note
+    // under the input is easy to miss, and a voice failure that goes
+    // unnoticed looks exactly like a voice feature that does not exist.
+    addMsg("jarvis", liveError, "live voice", "err");
     return;
   }
 
@@ -550,6 +554,17 @@ $("voiceNote").textContent = canSpeak
     "matches the language JARVIS replies in, if that voice is installed. " +
     "iPad: Settings → Accessibility → Spoken Content → Voices to add more."
   : "This browser has no speech engine, so JARVIS cannot speak here.";
+
+$("voiceCheckBtn").onclick = async () => {
+  const out = $("voiceOut");
+  out.style.display = "block";
+  out.textContent = "";
+  // unlockSpeech inside this tap, so the check exercises the same
+  // permission state a real reply would.
+  unlockSpeech();
+  await voiceCheck((line) => { out.textContent += line + "\n"; out.scrollTop = out.scrollHeight; });
+  out.textContent += "\nCopy this whole block and send it to Claude.\n";
+};
 
 $("stopBtn").onclick = async () => {
   const stopping = $("stopBtn").textContent.startsWith("Emergency");

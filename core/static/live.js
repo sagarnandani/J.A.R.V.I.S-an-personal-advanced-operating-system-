@@ -201,3 +201,83 @@ function stopLive() {
 function liveActive() { return LIVE.active; }
 
 export { startLive, stopLive, liveActive };
+
+
+/* A check that says where voice stops working, instead of leaving you to
+ * guess between "my speakers", "my browser", "the server" and "Google".
+ *
+ * It walks the same path a real conversation takes, in order, and reports
+ * each step in words. The tone at the end is the important one: if you
+ * hear it, every part of the audio pipeline on your side is fine and any
+ * remaining fault is upstream.
+ */
+async function voiceCheck(log) {
+  const say = (line) => log(line);
+
+  // 1. The browser's own speech engine (used for typed replies).
+  if (!("speechSynthesis" in window)) {
+    say("Browser voice: NOT AVAILABLE in this browser.");
+  } else {
+    const v = speechSynthesis.getVoices() || [];
+    say(`Browser voice: available, ${v.length} voice(s) installed.`);
+    if (!v.length) say("   -> none installed yet; iPad: Settings > Accessibility > Spoken Content > Voices.");
+  }
+
+  // 2. Can we make sound at all? Proves speakers, volume and the audio
+  //    path, which is otherwise indistinguishable from a server fault.
+  let ctx;
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") await ctx.resume();
+    say(`Audio output: ready (${ctx.state}, ${ctx.sampleRate}Hz).`);
+  } catch (e) {
+    say(`Audio output: FAILED - ${e.message}`);
+    return;
+  }
+
+  // 3. The live relay. Report the server's own first word verbatim.
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  say(`Live voice: connecting to ${proto}//${location.host}/v1/live ...`);
+  const result = await new Promise((resolve) => {
+    let ws;
+    const done = (r) => { try { ws && ws.close(); } catch (e) {} resolve(r); };
+    const timer = setTimeout(() => done({ ok: false, why: "no answer within 20 seconds" }), 20000);
+    try {
+      ws = new WebSocket(`${proto}//${location.host}/v1/live`);
+    } catch (e) {
+      clearTimeout(timer);
+      return resolve({ ok: false, why: e.message });
+    }
+    ws.onmessage = (ev) => {
+      clearTimeout(timer);
+      const m = JSON.parse(ev.data);
+      if (m.type === "ready") done({ ok: true, model: m.model, voice: m.voice });
+      else done({ ok: false, why: m.message || m.type });
+    };
+    ws.onerror = () => { clearTimeout(timer); done({ ok: false, why: "the connection was refused" }); };
+    ws.onclose = (e) => { clearTimeout(timer); done({ ok: false, why: `closed (code ${e.code})` }); };
+  });
+
+  if (result.ok) say(`Live voice: WORKING - ${result.model}, voice ${result.voice}.`);
+  else say(`Live voice: NOT WORKING - ${result.why}`);
+
+  // 4. A tone, through exactly the path Gemini's audio uses.
+  say("Playing a test tone now. If you hear a beep, your audio is fine.");
+  try {
+    const rate = 24000, seconds = 0.6;
+    const buf = ctx.createBuffer(1, rate * seconds, rate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = 0.25 * Math.sin((2 * Math.PI * 440 * i) / rate);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start();
+    await new Promise((r) => setTimeout(r, seconds * 1000 + 200));
+    say("Tone finished. Heard nothing? Check the volume and the silent switch.");
+  } catch (e) {
+    say(`Tone: FAILED - ${e.message}`);
+  }
+  try { await ctx.close(); } catch (e) {}
+}
+
+export { voiceCheck };
