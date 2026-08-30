@@ -133,6 +133,14 @@ async function startLive() {
         beginCapture();
         liveState("listening", `${msg.voice} · ${msg.model}`);
         break;
+      case "resumed":
+        // The server picked a dropped conversation back up. The
+        // microphone never stopped, so nothing restarts here.
+        liveState("listening", `${msg.voice} · ${msg.model}`);
+        break;
+      case "reconnecting":
+        liveState("reconnecting", msg.attempt);
+        break;
       case "audio":
         play(unb64(msg.data));
         break;

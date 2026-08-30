@@ -52,6 +52,10 @@ DEFAULT_VOICE = "Kore"
 INPUT_RATE = 16000
 OUTPUT_RATE = 24000
 
+# How many times to pick a dropped conversation back up before giving up
+# and saying so.
+MAX_RECONNECTS = 5
+
 # A voice conversation is still a conversation, so the model gets the same
 # instructions and the same memory as the typed one. Without this, talking
 # to JARVIS would reach something that had never heard of you.
@@ -62,6 +66,11 @@ _VOICE_NOTE = (
     "speaks, including when they mix languages within a sentence, and use "
     "the same mixture back."
 )
+
+
+def _backoff(attempt: int) -> float:
+    """Seconds to wait before picking a dropped conversation back up."""
+    return min(2 ** attempt, 8)
 
 
 def _authorise(websocket: WebSocket, settings) -> dict | None:
@@ -147,15 +156,47 @@ async def live_voice(websocket: WebSocket) -> None:
 
     client = genai.Client(api_key=settings.gemini_api_key)
     model = settings.live_model or LIVE_MODEL
+    voice = settings.live_voice or DEFAULT_VOICE
 
+    # Gemini ends a live session of its own accord after a while, and a
+    # network blip does the same. "Keep listening until I say stop" has to
+    # survive both, or a long conversation quietly dies mid-sentence and
+    # looks like JARVIS losing interest.
+    #
+    # Bounded, because reconnecting forever against a real failure -- a
+    # revoked key, an exhausted quota -- would hammer the API and never
+    # tell the owner why.
+    attempt = 0
     try:
-        async with client.aio.live.connect(model=model, config=config) as session:
-            await _say(
-                websocket, type="ready", model=model,
-                voice=settings.live_voice or DEFAULT_VOICE,
-                input_rate=INPUT_RATE, output_rate=OUTPUT_RATE,
-            )
-            await _pump(websocket, session, who, settings)
+        while attempt <= MAX_RECONNECTS:
+            async with client.aio.live.connect(model=model, config=config) as session:
+                await _say(
+                    websocket,
+                    type="ready" if attempt == 0 else "resumed",
+                    model=model, voice=voice,
+                    input_rate=INPUT_RATE, output_rate=OUTPUT_RATE,
+                )
+                # The budget resets only when a session actually carried
+                # a turn. Resetting merely because one OPENED means a
+                # session that opens and instantly dies -- quota gone
+                # mid-stream, say -- reconnects for ever and the bound
+                # never bites.
+                if await _pump(websocket, session, who, settings):
+                    attempt = 0
+
+            # _pump returned without raising, so Gemini's side ended while
+            # the browser is still here. Pick the conversation back up.
+            attempt += 1
+            if attempt > MAX_RECONNECTS:
+                break
+            await _say(websocket, type="reconnecting", attempt=attempt)
+            await asyncio.sleep(_backoff(attempt))
+
+        await _say(
+            websocket, type="error",
+            message="The live voice connection kept dropping, so JARVIS "
+            "stopped listening. Tap the microphone to start again.",
+        )
     except WebSocketDisconnect:
         pass
     except Exception as exc:  # noqa: BLE001
@@ -188,10 +229,15 @@ def _explain(exc: Exception, model: str) -> str:
     return "Live voice could not start. Google said: " + text
 
 
-async def _pump(websocket: WebSocket, session, who: dict, settings) -> None:
-    """Carry audio both ways until one side hangs up."""
+async def _pump(websocket: WebSocket, session, who: dict, settings) -> bool:
+    """Carry audio both ways until one side hangs up.
+
+    Returns whether this session carried anything, which is what decides
+    if it counts as a working session for the reconnect budget.
+    """
     said: list[str] = []   # what the owner said, this turn
     heard: list[str] = []  # what JARVIS replied, this turn
+    carried = False        # did this session do any work at all
 
     async def browser_to_gemini() -> None:
         while True:
@@ -217,7 +263,30 @@ async def _pump(websocket: WebSocket, session, who: dict, settings) -> None:
 
     async def gemini_to_browser() -> None:
         nonlocal said, heard
+        # The outer loop is the whole point of a continuous conversation.
+        #
+        # session.receive() is not an endless stream: the SDK ends the
+        # iterator as soon as a turn completes. Iterating it once meant
+        # this coroutine returned after the first reply, which brought the
+        # whole session down with it -- so every exchange needed the mic
+        # button pressed again. Starting a fresh iterator per turn keeps
+        # the one Gemini session open and JARVIS listening.
+        while True:
+            if not await _one_turn():
+                # A turn that produced nothing at all means the session is
+                # finished, not that the owner was quiet. Returning hands
+                # it to the reconnect path, which waits before trying
+                # again. Looping here instead would spin the CPU flat out
+                # against a session that is never going to answer.
+                return
+
+    async def _one_turn() -> bool:
+        """Relay one turn. False if the session produced nothing."""
+        nonlocal said, heard, carried
+        saw_anything = False
         async for response in session.receive():
+            saw_anything = True
+            carried = True
             server = getattr(response, "server_content", None)
 
             if getattr(response, "data", None):
@@ -245,7 +314,12 @@ async def _pump(websocket: WebSocket, session, who: dict, settings) -> None:
             if getattr(server, "turn_complete", None):
                 await _remember("".join(said).strip(), "".join(heard).strip(), who)
                 said, heard = [], []
+                # Says "your turn" to the page. The microphone never
+                # stopped, so speaking again just continues; this only
+                # moves the display back to listening.
                 await _say(websocket, type="turn_complete")
+
+        return saw_anything
 
     up = asyncio.create_task(browser_to_gemini())
     down = asyncio.create_task(gemini_to_browser())
@@ -254,10 +328,26 @@ async def _pump(websocket: WebSocket, session, who: dict, settings) -> None:
     )
     for task in pending:
         task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+
     for task in done:
         exc = task.exception()
-        if exc and not isinstance(exc, (WebSocketDisconnect, asyncio.CancelledError)):
+        if exc is None:
+            continue
+        # The browser hanging up is the owner tapping stop, and ends
+        # everything. Anything else is Gemini's side going away, which is
+        # worth reconnecting for -- so it returns rather than raising.
+        if isinstance(exc, WebSocketDisconnect):
             raise exc
+        if isinstance(exc, asyncio.CancelledError):
+            continue
+        logger.info("Live session ended (%s); will try to resume.", exc)
+        return carried
+
+    return carried
 
 
 async def _remember(said: str, replied: str, who: dict) -> None:

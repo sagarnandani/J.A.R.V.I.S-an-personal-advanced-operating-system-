@@ -227,13 +227,32 @@ document.addEventListener("jarvis:live", (e) => {
   }
   if (state === "listening") {
     btn.classList.add("rec");
-    note.textContent = detail ? `Listening — ${detail}. Tap the mic to stop.` : "Listening…";
+    btn.title = "Stop listening";
+    // Says both things that matter: it is still listening without being
+    // asked again, and how to make it stop.
+    note.textContent = detail
+      ? `Listening — ${detail}. Just keep talking; tap the mic to stop.`
+      : "Listening — just keep talking. Tap the mic to stop.";
     setBusy(false);
     return;
   }
-  if (state === "speaking") { setBusy(true); return; }
+  if (state === "reconnecting") {
+    note.textContent =
+      `The connection dropped; picking the conversation back up (try ${detail})…`;
+    setBusy(true);
+    return;
+  }
+  if (state === "speaking") {
+    // Still recording while JARVIS talks, so you can cut in. Echo
+    // cancellation is what stops it hearing itself and interrupting
+    // its own sentence.
+    note.textContent = "JARVIS is speaking — talk over it to interrupt.";
+    setBusy(true);
+    return;
+  }
   if (state === "off") {
     btn.classList.remove("rec");
+    btn.title = "Talk to JARVIS";
     // Keep a failure on screen; only a clean stop clears it.
     if (!liveError) note.textContent = "";
     setBusy(false);

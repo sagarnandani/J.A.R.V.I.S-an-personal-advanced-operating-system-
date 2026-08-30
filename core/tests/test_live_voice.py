@@ -30,10 +30,15 @@ SECRET = "test-secret-not-used-anywhere-real"
 class FakeSession:
     """Stands in for a Gemini Live session."""
 
-    def __init__(self, script=()):
+    def __init__(self, script=(), ends_when_done=False):
         self.script = list(script)
         self.sent_audio = []
         self.sent_text = []
+        self.turns_served = 0
+        # True means this session GOES AWAY once its script runs out,
+        # which is what Gemini does after a while. False means it waits
+        # for more speech, like a healthy session.
+        self.ends_when_done = ends_when_done
 
     async def send_realtime_input(self, audio=None):
         self.sent_audio.append(audio)
@@ -42,15 +47,34 @@ class FakeSession:
         self.sent_text.append(turns)
 
     async def receive(self):
-        for item in self.script:
+        """Ends at turn_complete, exactly as the real SDK does.
+
+        This is the behaviour that broke continuous conversation: the
+        first version of this fake streamed everything from one call and
+        then idled, so it could not have caught the bug. A stub that is
+        more forgiving than the real thing tests nothing.
+        """
+        while self.script:
+            item = self.script.pop(0)
             yield item
-        # Then idle, the way a real session waits for more speech.
+            sc = getattr(item, "server_content", None)
+            if sc is not None and getattr(sc, "turn_complete", None):
+                self.turns_served += 1
+                return
+        # Out of script: either the session has gone away, or it is
+        # healthy and waiting for the owner to speak again.
+        if self.ends_when_done:
+            return
         await asyncio.sleep(3600)
 
 
 class FakeConnect:
-    def __init__(self, session):
+    def __init__(self, session, sessions=None):
         self.session = session
+        # When given a queue, each connect hands out the next one -- which
+        # is how a dropped session and its replacement get scripted.
+        self.sessions = list(sessions) if sessions else None
+        self.opened = 0
         self.model = None
         self.config = None
 
@@ -59,6 +83,9 @@ class FakeConnect:
         return self
 
     async def __aenter__(self):
+        self.opened += 1
+        if self.sessions:
+            self.session = self.sessions.pop(0)
         return self.session
 
     async def __aexit__(self, *a):
@@ -93,9 +120,9 @@ def wired(monkeypatch):
     monkeypatch.setattr(live_route.memory, "store_exchange", fake_store)
     monkeypatch.setattr(live_route.audit, "log_audit", _async_return(None))
 
-    def build(script=()):
+    def build(script=(), sessions=None):
         session = FakeSession(script)
-        connect = FakeConnect(session)
+        connect = FakeConnect(session, sessions)
         monkeypatch.setattr(
             live_route.genai, "Client",
             lambda api_key: SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect))),
@@ -275,3 +302,124 @@ def test_a_half_exchange_is_not_stored(wired):
         for _ in range(2):
             ws.receive_json()
     assert stored == []
+
+
+# --- staying open ----------------------------------------------------------
+
+def test_the_conversation_continues_without_pressing_the_button_again(wired):
+    """Two exchanges on one session, which is what "continuous" means.
+
+    The SDK's receive() ends the moment a turn completes. Iterating it
+    once meant the relay finished after the first reply and closed the
+    whole session, so every exchange needed the microphone pressed again.
+    A fresh iterator per turn keeps the one Gemini session open.
+    """
+    client, session, _, stored = wired([
+        _turn(said="what is my colour?"),
+        _turn(replied="Red."),
+        _turn(complete=True),
+        _turn(said="and my name?"),
+        _turn(replied="Sagar."),
+        _turn(complete=True),
+    ])
+    _cookie(client)
+
+    kinds = []
+    with client.websocket_connect("/v1/live") as ws:
+        ws.receive_json()  # ready
+        for _ in range(6):  # you, jarvis, turn_complete -- twice
+            kinds.append(ws.receive_json()["type"])
+
+    assert kinds.count("turn_complete") == 2, "the session closed after one turn"
+    assert session.turns_served == 2, "receive() must be called again per turn"
+    assert stored == [
+        ("what is my colour?", "Red."),
+        ("and my name?", "Sagar."),
+    ], "both exchanges must be remembered"
+
+
+def test_the_session_survives_a_turn_that_stores_nothing(wired):
+    """A turn with no transcript must not end the conversation.
+
+    Background noise can complete a turn with nothing said. Treating that
+    as the end of the session would drop the owner mid-conversation for
+    coughing.
+    """
+    client, session, _, stored = wired([
+        _turn(complete=True),
+        _turn(said="still there?"),
+        _turn(replied="Yes."),
+        _turn(complete=True),
+    ])
+    _cookie(client)
+
+    with client.websocket_connect("/v1/live") as ws:
+        ws.receive_json()
+        seen = [ws.receive_json()["type"] for _ in range(4)]
+
+    assert seen.count("turn_complete") == 2
+    assert stored == [("still there?", "Yes.")]
+
+
+def test_a_dropped_session_is_picked_back_up(wired, monkeypatch):
+    """Gemini ends a live session on its own after a while.
+
+    Without this, a long conversation dies mid-sentence and looks like
+    JARVIS losing interest rather than a connection expiring.
+    """
+    monkeypatch.setattr(live_route, "_backoff", lambda attempt: 0)
+
+    dropped = FakeSession(
+        [_turn(said="first"), _turn(replied="one"), _turn(complete=True)],
+        ends_when_done=True,
+    )
+    resumed = FakeSession([_turn(said="second"), _turn(replied="two"), _turn(complete=True)])
+
+    client, _, connect, stored = wired(sessions=[dropped, resumed])
+    _cookie(client)
+
+    kinds = []
+    with client.websocket_connect("/v1/live") as ws:
+        kinds.append(ws.receive_json()["type"])          # ready
+        for _ in range(3):
+            kinds.append(ws.receive_json()["type"])      # first exchange
+        kinds.append(ws.receive_json()["type"])          # reconnecting
+        kinds.append(ws.receive_json()["type"])          # resumed
+        for _ in range(3):
+            kinds.append(ws.receive_json()["type"])      # second exchange
+
+    assert kinds[0] == "ready"
+    assert "reconnecting" in kinds
+    assert "resumed" in kinds
+    assert connect.opened == 2, "a second session must be opened"
+    assert stored == [("first", "one"), ("second", "two")], (
+        "both exchanges must survive the reconnect"
+    )
+
+
+def test_it_stops_trying_and_says_so_rather_than_hammering(wired, monkeypatch):
+    """A revoked key or exhausted quota must not become an infinite loop.
+
+    Reconnecting forever would hit the API hard and never tell the owner
+    why JARVIS went quiet.
+    """
+    monkeypatch.setattr(live_route, "_backoff", lambda attempt: 0)
+    monkeypatch.setattr(live_route, "MAX_RECONNECTS", 2)
+
+    # Sessions that open and immediately go away, carrying nothing --
+    # what an exhausted quota looks like mid-stream.
+    client, _, connect, _ = wired(
+        sessions=[FakeSession([], ends_when_done=True) for _ in range(8)]
+    )
+    _cookie(client)
+
+    with client.websocket_connect("/v1/live") as ws:
+        msgs = []
+        for _ in range(8):
+            msgs.append(ws.receive_json())
+            if msgs[-1]["type"] == "error":
+                break
+
+    assert msgs[-1]["type"] == "error"
+    assert "kept dropping" in msgs[-1]["message"]
+    assert connect.opened <= 4, "must give up rather than reconnect forever"
