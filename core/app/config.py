@@ -160,6 +160,15 @@ class Settings(BaseSettings):
     # message.
     memory_facts_per_exchange: int = 5
 
+    # --- Live voice ---
+    # Gemini speaking directly, rather than the browser reading text
+    # aloud. Model and voice are settings because a model name that
+    # Google retires would otherwise need a code change -- which has
+    # already happened once on this project.
+    live_model: str = "gemini-3.1-flash-live-preview"
+    # Kore, Fenrir, Charon, Puck, Zephyr. Kore is the composed male voice.
+    live_voice: str = "Kore"
+
     # --- Budget guardrail ---
     # A concrete ceiling was requested by the architecture doc (section P)
     # but not fixed by the owner; the Stage 0 brief gives a range

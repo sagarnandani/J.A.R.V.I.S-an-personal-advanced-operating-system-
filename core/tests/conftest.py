@@ -67,3 +67,12 @@ async def db_pool():
     finally:
         await pool.close()
         db_module._pool = None
+
+
+# A websocket test that waits for a message which never comes hangs the
+# whole suite instead of failing it. Ten seconds is far longer than any
+# test here legitimately needs.
+def pytest_collection_modifyitems(items):
+    for item in items:
+        if "live_voice" in item.nodeid and item.get_closest_marker("timeout") is None:
+            item.add_marker(pytest.mark.timeout(10))

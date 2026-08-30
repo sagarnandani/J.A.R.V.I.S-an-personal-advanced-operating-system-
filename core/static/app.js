@@ -1,3 +1,5 @@
+import { startLive, stopLive, liveActive } from './live.js';
+
 /* JARVIS dashboard.
  *
  * The one rule: nothing on screen is invented. Every figure comes from
@@ -184,35 +186,84 @@ function voiceProblem(msg) {
   if (el) el.textContent = msg;
 }
 
-/* ------------------------------------------------------- speech-to-text */
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recog = null, listening = false;
+/* ------------------------------------------------------------ live voice */
+/* The mic button now opens a live conversation: Gemini hears you and
+ * answers in its own voice. That is a different thing from the browser
+ * reading text aloud, and it is what handles Kannada, Hindi and Marathi
+ * mixed into English -- the model hears the mixture directly instead of a
+ * dictation engine guessing at one language and handing over text.
+ *
+ * The browser voice stays exactly as it was, for typed conversation and
+ * for when live voice is unavailable. Neither replaces the other.
+ */
+let liveTurn = null;
+// Set when live voice fails. Shutting down fires an "off" event straight
+// after the error, and clearing the note there wiped the explanation
+// before it could be read -- so the failure looked like nothing happening
+// at all, which is the exact failure mode this project keeps producing.
+let liveError = null;
+
 function setupMic() {
   const btn = $("micBtn");
-  if (!SR) {
-    // Not an error worth shouting about: the iPad keyboard has a
-    // microphone key that does the same job, better.
-    btn.disabled = true;
-    btn.title = "Use the microphone key on your keyboard to dictate";
-    return;
-  }
-  btn.onclick = () => {
+  btn.title = "Talk to JARVIS";
+  btn.onclick = async () => {
     unlockSpeech();
-    if (listening) { recog && recog.stop(); return; }
-    recog = new SR();
-    recog.lang = "en-IN";
-    recog.interimResults = true;
-    recog.onstart = () => { listening = true; btn.classList.add("rec"); setBusy(true); };
-    recog.onend = () => { listening = false; btn.classList.remove("rec"); setBusy(false); };
-    recog.onerror = () => { listening = false; btn.classList.remove("rec"); setBusy(false); };
-    recog.onresult = (e) => {
-      const said = [...e.results].map((r) => r[0].transcript).join("");
-      $("msg").value = said;
-      if (e.results[e.results.length - 1].isFinal) { recog.stop(); send(); }
-    };
-    try { recog.start(); } catch (e) { /* already running */ }
+    if (liveActive()) { stopLive(); return; }
+    liveError = null;
+    await startLive();
   };
 }
+
+document.addEventListener("jarvis:live", (e) => {
+  const { state, detail } = e.detail;
+  const btn = $("micBtn");
+  const note = $("convoNote");
+
+  if (state === "connecting") {
+    btn.classList.add("rec");
+    note.textContent = "Connecting to live voice…";
+    setBusy(true);
+    return;
+  }
+  if (state === "listening") {
+    btn.classList.add("rec");
+    note.textContent = detail ? `Listening — ${detail}. Tap the mic to stop.` : "Listening…";
+    setBusy(false);
+    return;
+  }
+  if (state === "speaking") { setBusy(true); return; }
+  if (state === "off") {
+    btn.classList.remove("rec");
+    // Keep a failure on screen; only a clean stop clears it.
+    if (!liveError) note.textContent = "";
+    setBusy(false);
+    liveTurn = null;
+    refresh();
+    return;
+  }
+  if (state === "error") {
+    liveError = detail || "Live voice failed.";
+    btn.classList.remove("rec");
+    setBusy(false);
+    note.textContent = liveError;
+    return;
+  }
+
+  // Transcripts arrive in fragments, so each side's bubble is created
+  // once and then appended to. A new bubble per fragment would shred one
+  // sentence across a dozen lines.
+  if (state === "heard" || state === "said") {
+    const who = state === "heard" ? "you" : "jarvis";
+    if (!liveTurn || liveTurn.who !== who) {
+      liveTurn = { who, el: addMsg(who, "", who === "jarvis" ? "spoken" : null) };
+    }
+    const body = liveTurn.el.querySelector(".body");
+    body.textContent += detail;
+    convo.scrollTop = convo.scrollHeight;
+    return;
+  }
+  if (state === "turn") liveTurn = null;
+});
 
 /* ------------------------------------------------------------ dashboard */
 let lastReplyMs = null;

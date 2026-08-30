@@ -81,6 +81,16 @@ services:
       # message. Setting 0 is faster and cheaper where a model allows it,
       # and JARVIS now falls back by itself if refused -- so it is safe to
       # try on a different model. See docs/SPEED.md.
+      # Live voice: Gemini speaking directly, rather than the browser
+      # reading text aloud. This is what handles Kannada/Hindi/Marathi
+      # mixed into English. Model and voice are settings so a retired
+      # model name never needs a code change.
+      # Voices: Kore, Fenrir, Charon, Puck, Zephyr.
+      - key: LIVE_MODEL
+        value: gemini-3.1-flash-live-preview
+      - key: LIVE_VOICE
+        value: Kore
+
       - key: GEMINI_THINKING_BUDGET
         value: "-1"
       - key: CLAUDE_MODEL

@@ -25,3 +25,7 @@ httpx>=0.27,<0.29
 # to build a Claude client.
 google-genai>=2.20,<3
 anthropic>=1.1,<2
+
+# Live voice opens a WebSocket to Gemini. google-genai pulls this in
+# already; named here because app/routes/live.py depends on it directly.
+websockets>=14,<17
