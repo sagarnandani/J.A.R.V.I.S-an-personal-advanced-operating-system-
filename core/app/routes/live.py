@@ -30,7 +30,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from google import genai
 from google.genai import types
 
-from app import audit, facts, memory
+from app import audit, facts, memory, status
 from app.auth import is_owner
 from app.config import get_settings
 from app.llm.base import system_prompt_with
@@ -66,6 +66,42 @@ _VOICE_NOTE = (
     "speaks, including when they mix languages within a sentence, and use "
     "the same mixture back."
 )
+
+
+async def _voice_context(settings) -> str | None:
+    """Facts, recent conversation and status, for the spoken session."""
+    parts: list[str] = []
+    try:
+        known = await facts.recall_facts(
+            "", limit=settings.memory_facts_limit,
+            max_chars=settings.memory_facts_max_chars,
+        )
+        if known:
+            parts.append("\n".join(f"- {f}" for f in known))
+    except Exception:  # noqa: BLE001 - memory is a nicety here, not a gate
+        pass
+
+    try:
+        turns = await memory.recall_turns(
+            limit=settings.memory_recall_turns,
+            max_chars=settings.memory_recall_max_chars,
+        )
+        if turns:
+            spoken = "\n".join(
+                f"{'Owner' if t.role == 'user' else 'You'}: {t.text}" for t in turns
+            )
+            parts.append("Recently, before this conversation started:\n" + spoken)
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        line = await status.briefing(settings)
+        if line:
+            parts.append(line)
+    except Exception:  # noqa: BLE001
+        pass
+
+    return "\n\n".join(parts) or None
 
 
 def _backoff(attempt: int) -> float:
@@ -126,16 +162,14 @@ async def live_voice(websocket: WebSocket) -> None:
         await websocket.close(code=4400)
         return
 
-    # The same long-term memory the typed conversation gets, so the voice
-    # knows what JARVIS knows.
-    try:
-        known = await facts.recall_facts(
-            "", limit=settings.memory_facts_limit,
-            max_chars=settings.memory_facts_max_chars,
-        )
-    except Exception:  # noqa: BLE001 - memory is a nicety here, not a gate
-        known = []
-    context = "\n".join(f"- {f}" for f in known) or None
+    # Everything the typed conversation gets: long-term facts, the recent
+    # conversation, and the status briefing.
+    #
+    # The recent conversation was missing before, so speaking to JARVIS
+    # reached something that had read your permanent facts but had no idea
+    # what you said to it two minutes ago -- half a memory, and the half
+    # you notice.
+    context = await _voice_context(settings)
 
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
@@ -362,7 +396,7 @@ async def _remember(said: str, replied: str, who: dict) -> None:
     if not said or not replied:
         return
     try:
-        await memory.store_exchange(said, replied)
+        user_id, _ = await memory.store_exchange(said, replied)
         await audit.log_audit(
             actor=f"user:{who.get('email') or who.get('uid')}",
             action="llm_voice_exchange",
@@ -371,3 +405,36 @@ async def _remember(said: str, replied: str, who: dict) -> None:
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not store the spoken exchange: %s", exc)
+        return
+
+    # Learn from what was SAID, not only from what was typed.
+    #
+    # This was missing entirely: a spoken exchange was stored as
+    # conversation and never looked at again, so nothing said aloud could
+    # ever become permanent. Telling JARVIS your wife's name out loud and
+    # having it forgotten by tomorrow is precisely the failure the owner
+    # hit.
+    settings = get_settings()
+    if not settings.memory_facts_enabled:
+        return
+    try:
+        learned, retired = await facts.learn_from_exchange(
+            _extractor(settings), said, replied, user_id,
+            settings.memory_facts_per_exchange,
+        )
+        if learned or retired:
+            logger.info("Learned %d, retired %d from speech", learned, retired)
+    except Exception as exc:  # noqa: BLE001 - never interrupt a conversation
+        logger.warning("Could not extract facts from speech: %s", exc)
+
+
+def _extractor(settings):
+    """The ordinary text model does the extracting, not the live session.
+
+    The live session is mid-conversation and talks in audio; asking it to
+    also emit JSON would put that JSON into the owner's ear. The text
+    provider is already configured, already costed and already tested.
+    """
+    from app.llm import get_provider
+
+    return get_provider(settings)

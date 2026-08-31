@@ -106,19 +106,34 @@ def _turn(*, audio=None, said=None, replied=None, complete=False):
 def wired(monkeypatch):
     settings = Settings(
         dev_mode=False, owner_email=OWNER_EMAIL, session_secret=SECRET,
-        gemini_api_key="fake-key", memory_facts_enabled=False,
+        gemini_api_key="fake-key", memory_facts_enabled=True,
     )
     monkeypatch.setattr(live_route, "get_settings", lambda: settings)
     monkeypatch.setattr(live_route.facts, "recall_facts", _async_return([]))
 
-    stored = []
+    class Recorder(list):
+        """A list that can also carry what was learned."""
+        learned: list = []
+
+    stored = Recorder()
 
     async def fake_store(said, replied):
         stored.append((said, replied))
-        return ("a", "b")
+        return ("mem-user", "mem-reply")
 
     monkeypatch.setattr(live_route.memory, "store_exchange", fake_store)
     monkeypatch.setattr(live_route.audit, "log_audit", _async_return(None))
+
+    learned = []
+
+    async def fake_learn(provider, said, replied, source_id, max_facts):
+        learned.append((said, replied))
+        return (1, 0)
+
+    monkeypatch.setattr(live_route.facts, "learn_from_exchange", fake_learn)
+    monkeypatch.setattr(live_route, "_extractor", lambda s: object())
+    monkeypatch.setattr(live_route, "get_settings", lambda: settings)
+    stored.learned = learned
 
     def build(script=(), sessions=None):
         session = FakeSession(script)
@@ -423,3 +438,74 @@ def test_it_stops_trying_and_says_so_rather_than_hammering(wired, monkeypatch):
     assert msgs[-1]["type"] == "error"
     assert "kept dropping" in msgs[-1]["message"]
     assert connect.opened <= 4, "must give up rather than reconnect forever"
+
+
+# --- the two gaps that made spoken memory useless -------------------------
+
+def test_speech_becomes_a_permanent_fact(wired):
+    """Saying something aloud must be able to become permanent.
+
+    It could not before: the spoken exchange was stored as conversation
+    and never looked at again, so telling JARVIS your wife's name out loud
+    was forgotten by the next day. Typing the same sentence worked. That
+    difference is invisible until it bites.
+    """
+    client, _, _, stored = wired([
+        _turn(said="my wife is called Sneha"),
+        _turn(replied="Noted, sir."),
+        _turn(complete=True),
+    ])
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        ws.receive_json()
+        for _ in range(3):
+            ws.receive_json()
+
+    assert stored.learned == [("my wife is called Sneha", "Noted, sir.")], (
+        "a spoken exchange must reach the fact extractor"
+    )
+
+
+def test_the_spoken_session_is_given_the_recent_conversation(wired, monkeypatch):
+    """Voice had facts but not the conversation -- half a memory.
+
+    Speaking to JARVIS reached something that had read your permanent
+    facts and had no idea what you said to it two minutes ago.
+    """
+    from app.llm.base import ASSISTANT, USER, Turn
+
+    monkeypatch.setattr(
+        live_route.memory, "recall_turns",
+        _async_return([Turn(USER, "my colour is red"), Turn(ASSISTANT, "Noted.")]),
+    )
+    monkeypatch.setattr(live_route.facts, "recall_facts", _async_return(["Owner is an engineer"]))
+    monkeypatch.setattr(live_route.status, "briefing", _async_return("Exchanges today: 4"))
+
+    client, _, connect, _ = wired()
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        ws.receive_json()
+
+    instruction = connect.config.system_instruction
+    assert "Owner is an engineer" in instruction, "facts missing"
+    assert "my colour is red" in instruction, "recent conversation missing"
+    assert "Exchanges today: 4" in instruction, "status missing"
+
+
+def test_a_broken_extractor_never_interrupts_the_conversation(wired, monkeypatch):
+    """The owner is mid-sentence. Bookkeeping must not stop them."""
+    async def explode(*a, **k):
+        raise RuntimeError("extractor down")
+
+    monkeypatch.setattr(live_route.facts, "learn_from_exchange", explode)
+
+    client, _, _, stored = wired([
+        _turn(said="hello"), _turn(replied="Welcome back, sir."), _turn(complete=True),
+    ])
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        ws.receive_json()
+        kinds = [ws.receive_json()["type"] for _ in range(3)]
+
+    assert "turn_complete" in kinds
+    assert stored == [("hello", "Welcome back, sir.")]

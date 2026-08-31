@@ -46,15 +46,31 @@ DEFAULT_FACT_CATEGORY = "semantic"
 _EXTRACTION_PROMPT = """\
 You maintain the long-term memory of a personal assistant, for one owner.
 
-Read the exchange below and decide what is worth remembering permanently.
+Read the exchange below and write down anything that will STILL BE TRUE IN
+A YEAR.
 
-Record ONLY durable facts about the owner or their world: preferences,
-relationships, important dates, decisions, ongoing projects, standing
-instructions. Write each as a short standalone sentence that will still
-make sense read alone in a year.
+Do not wait to be asked. The owner will almost never say "remember this".
+When they mention their wife's name, their date of birth, their
+anniversary, where they work or what they are allergic to, that is
+permanent information and you record it -- exactly as you would if they
+had asked you to. Judge the INFORMATION, not the phrasing of the
+sentence it arrived in.
 
-Do NOT record: passing chit-chat, questions the owner asked, anything the
-assistant said about itself, or anything already in the known facts below.
+Always record, whenever they come up:
+- People: names and who they are -- wife, children, parents, colleagues.
+- Dates: birthdays, anniversaries, deadlines, milestones.
+- Places: where they live, work, are from, travel to often.
+- Health: conditions, allergies, medication, dietary needs.
+- Work and money: job, business, clients, tools, budgets, commitments.
+- Preferences and standing instructions: how they like things done.
+- Decisions: choices made and the reason, where stated.
+
+Do not record: questions the owner asked, small talk with nothing durable
+in it, anything the assistant said about itself, or anything already in
+the known facts below.
+
+Write each as a short standalone sentence that still makes sense read
+alone in a year. "Owner's wife is called Sneha", not "her name is Sneha".
 
 You are also shown the facts already held. If this exchange makes any of
 them WRONG or out of date, list their ids as superseded. Only when they
@@ -71,8 +87,8 @@ Reply with JSON only, no other text:
 {{"facts": [{{"text": "...", "category": "..."}}], "supersedes": ["id", ...]}}
 
 category must be one of: preference, people, decision, project, task,
-semantic. Use an empty facts list if there is nothing worth keeping --
-that is the normal case and is always acceptable.
+semantic. An empty facts list is correct when the exchange genuinely
+contained nothing durable -- but do not use it to avoid a judgement call.
 """
 
 

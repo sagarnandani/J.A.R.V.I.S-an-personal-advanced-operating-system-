@@ -11,7 +11,7 @@ import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from app import audit, facts, memory, system_control
+from app import audit, facts, memory, status, system_control
 from app.auth import CurrentUser, get_current_user
 from app.budget import estimate_cost_inr
 from app.config import Settings, get_settings
@@ -64,8 +64,16 @@ async def send_message(
             max_chars=settings.memory_facts_max_chars,
         )
 
-    stopped, history, known_facts = await asyncio.gather(
-        system_control.is_stopped(), _recall(), _facts()
+    # The status briefing rides along with the rest -- one more query in
+    # the same batch, so it costs no extra waiting.
+    async def _status():
+        try:
+            return await status.briefing(settings)
+        except Exception:  # noqa: BLE001 - a briefing is never worth a failure
+            return ""
+
+    stopped, history, known_facts, status_line = await asyncio.gather(
+        system_control.is_stopped(), _recall(), _facts(), _status()
     )
 
     if stopped:
@@ -80,7 +88,7 @@ async def send_message(
 
     model_started = time.perf_counter()
     try:
-        memory_context = "\n".join(f"- {f}" for f in known_facts) or None
+        memory_context = _context(known_facts, status_line)
         result = await provider.complete(body.text, history, memory_context)
         outcome = "success"
         model_ms = int((time.perf_counter() - model_started) * 1000)
@@ -182,3 +190,17 @@ async def _learn_quietly(
             )
     except Exception as exc:  # noqa: BLE001 - never fatal, by design
         logger.warning("Could not extract long-term facts: %s", exc)
+
+
+def _context(known_facts: list[str], status_line: str) -> str | None:
+    """What JARVIS knows about its owner, plus where things stand now.
+
+    Both go into the system prompt rather than the conversation: they are
+    standing knowledge, not something anybody just said.
+    """
+    parts = []
+    if known_facts:
+        parts.append("\n".join(f"- {f}" for f in known_facts))
+    if status_line:
+        parts.append(status_line)
+    return "\n\n".join(parts) or None

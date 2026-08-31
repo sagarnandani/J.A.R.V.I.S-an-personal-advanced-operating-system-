@@ -47,6 +47,36 @@ Three things worth knowing:
   rather than money — roughly half as many messages per day. Switch it off
   with `MEMORY_FACTS_ENABLED=false`.
 
+### What JARVIS decides to keep, and how it speaks
+
+**Permanence is judged on the information, not the phrasing.** The first
+version asked the model to record what seemed "worth keeping" and warned
+it off "passing chit-chat" — so *"keep my wife's name in long-term
+memory"* was obeyed and *"my wife is called Sneha"* was not. The owner had
+to know the magic words, which is the opposite of an assistant. It now
+records anything that will still be true in a year — names, relationships,
+dates, places, health, work, commitments, decisions — explicitly without
+waiting to be asked.
+
+**Speech learns too.** It did not before: a spoken exchange was stored as
+conversation and never looked at again, so nothing said aloud could ever
+become permanent, while the identical typed sentence worked. A voice
+session was also given the owner's long-term facts but not the recent
+conversation — half a memory, and the half you notice. Both are fixed;
+typed and spoken JARVIS now have the same memory.
+
+**Manner.** JARVIS addresses its owner as *sir*: composed, brief,
+understated, no filler, no "As an AI". An arrival — *"daddy's home"*,
+*"I'm back"* — gets a proper greeting and a short status.
+
+**That status is measured, and says what it cannot measure.** Handed a
+prompt with a figure missing, a model supplies a plausible one, and a
+confident invented number about money is worse than no number. So the
+briefing carries real counts (exchanges today, facts held, spend against
+the ceiling) and names the gaps in capitals: tasks completed are NOT
+TRACKED YET, money earned is NOT TRACKED AT ALL. JARVIS is told never to
+estimate a figure it was not given.
+
 ### Forgetting — taking things back
 
 The architecture doc specifies the memory system as *store / recall /
