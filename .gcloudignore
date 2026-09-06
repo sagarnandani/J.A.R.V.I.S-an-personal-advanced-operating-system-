@@ -2,8 +2,8 @@
 #
 # Without this, the build uploads the entire folder -- including the git
 # history and any local Python virtual environment. That's slow, and on a
-# metered connection it's wasteful. None of it is needed: the Dockerfile
-# only copies core/app, core/static, and core/requirements.txt.
+# metered connection it's wasteful. The Dockerfile copies core/app,
+# core/static, core/requirements.txt and db/migrations.
 #
 # Note gcloud falls back to reading .gitignore when this file is absent,
 # which mostly works -- but .git itself isn't in .gitignore, and it's
@@ -18,5 +18,11 @@ __pycache__/
 .env
 docs/
 workers/
-db/
+# The schema is NOT excluded. The container applies its own migrations at
+# startup, so it has to contain them -- and excluding db/ here made every
+# Docker build fail on `COPY db/migrations` with no source, which on Render
+# means the previous container keeps serving and the new code never lands.
+# That is a silent failure: the site stays up and stays wrong.
+db/*
+!db/migrations/
 core/tests/

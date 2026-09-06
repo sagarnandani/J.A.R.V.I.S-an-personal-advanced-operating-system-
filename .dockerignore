@@ -1,6 +1,6 @@
 # Keeps the Docker build context small -- matters most on Render's free
-# tier, where builds get modest CPU. The Dockerfile only needs core/app,
-# core/static and core/requirements.txt.
+# tier, where builds get modest CPU. The Dockerfile needs core/app,
+# core/static, core/requirements.txt and db/migrations.
 .git/
 .venv/
 venv/
@@ -10,7 +10,13 @@ __pycache__/
 .env
 docs/
 workers/
-db/
+# The schema is NOT excluded. The container applies its own migrations at
+# startup, so it has to contain them -- and excluding db/ here made every
+# Docker build fail on `COPY db/migrations` with no source, which on Render
+# means the previous container keeps serving and the new code never lands.
+# That is a silent failure: the site stays up and stays wrong.
+db/*
+!db/migrations/
 core/tests/
 infra/deploy.sh
 infra/docker-compose.yml
