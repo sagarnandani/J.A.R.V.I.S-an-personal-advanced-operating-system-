@@ -160,6 +160,11 @@ class Settings(BaseSettings):
     # message.
     memory_facts_per_exchange: int = 5
 
+    # Model used for web search. Grounding needs a model that supports
+    # tools; kept separate so the search model and the conversation model
+    # can differ without either being pinned to the other.
+    search_model: str = ""
+
     # --- Model tiers (see app/agents/model_router.py) ---
     # Agents ask for cheap/standard/deep, never a model name. These map
     # the tiers onto real models, so a provider retiring a name is an

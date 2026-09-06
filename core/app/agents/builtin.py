@@ -119,7 +119,7 @@ def _bind(capability: str):
 
 
 async def install() -> None:
-    """Register the built-in capabilities and attach their code.
+    """Register every capability and attach its code.
 
     Idempotent: registering an existing version updates its description
     and leaves its lifecycle alone, so a restart never promotes or demotes
@@ -128,3 +128,19 @@ async def install() -> None:
     for spec in SPECS:
         await registry.register(spec)
         registry.implement(spec.capability, _bind(spec.capability))
+
+    # Real capabilities, registered alongside the mocks. Each one is
+    # installed separately so a failure in one does not take out the rest
+    # -- a broken capability should be a missing capability, not a system
+    # that will not start.
+    from app.agents.capabilities import research_web
+
+    for module in (research_web,):
+        try:
+            await module.install()
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("jarvis.agents").warning(
+                "Could not install %s: %s", module.__name__, exc
+            )
