@@ -381,3 +381,43 @@ async def test_an_objective_nothing_can_take_fails_with_the_reason(clean, monkey
     assert result["status"] == "failed"
     wf = await tasks.get_workflow(result["workflow_id"])
     assert "send an email" in wf["failure_reason"]
+
+
+# --- what the fallback picks ------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_the_fallback_does_not_pick_a_specialist(clean, monkeypatch):
+    """Alphabetical order is not a decision.
+
+    The registry lists capabilities by name, so the untouched fallback
+    handed every unplanned objective to whatever sorted first -- which,
+    once factcheck.claims existed, was a fact-checker being asked to
+    research things it had no claims for.
+    """
+    from app.agents.capabilities import factcheck_claims, research_web
+
+    await builtin.install()
+    await research_web.install()
+    await factcheck_claims.install()
+    stub_planner_model(monkeypatch, "not json at all")
+
+    plan = await planner.propose("What is the EV subsidy in Karnataka?")
+
+    assert plan.source == "direct"
+    assert plan.steps[0].capability != "factcheck.claims"
+    spec = await registry.resolve(plan.steps[0].capability)
+    assert spec.domain == "general", (
+        "the fallback reached for a specialist when it knew nothing about "
+        "the objective"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_specialist_is_not_offered_general_work(clean):
+    """Claiming "general" is claiming to be the right answer for anything."""
+    from app.agents.capabilities import factcheck_claims
+
+    await factcheck_claims.install()
+    general = {s.capability for s in await registry.find(task_type="general")}
+
+    assert "factcheck.claims" not in general

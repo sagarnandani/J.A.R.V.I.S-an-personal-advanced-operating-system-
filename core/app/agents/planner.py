@@ -247,11 +247,23 @@ async def _direct(objective: str) -> Plan:
     candidates = await registry.find(task_type="general")
     if not candidates:
         return Plan(source="none", reasoning="No routable capability can take this.")
+
+    # Ranked, because the registry's own order is alphabetical and that is
+    # not a decision. This fallback runs precisely when nothing is known
+    # about the objective, so it wants the most general agent available,
+    # and among those the one whose job is finding things out -- which is
+    # the useful first move on a question nobody has classified.
+    def rank(spec):
+        return (0 if spec.domain == "general" else 1,
+                0 if "research" in spec.task_types else 1,
+                spec.capability)
+
+    chosen = sorted(candidates, key=rank)[0]
     return Plan(
-        steps=[Step(capability=candidates[0].capability, objective=objective,
+        steps=[Step(capability=chosen.capability, objective=objective,
                     name="direct")],
         source="direct",
-        reasoning=f"Handed straight to {candidates[0].capability}.",
+        reasoning=f"Handed straight to {chosen.capability}.",
     )
 
 

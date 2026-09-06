@@ -219,3 +219,28 @@ async def set_workflow_status(
 async def get_workflow(workflow_id: UUID) -> dict | None:
     row = await fetchrow("SELECT * FROM workflows WHERE id = $1", workflow_id)
     return dict(row) if row else None
+
+
+async def recent_workflows(limit: int = 10) -> list[dict]:
+    """The last few pieces of work, newest first.
+
+    For the Tasks panel's history. Costs and statuses come from the rows
+    themselves rather than being recounted, so what is shown is what
+    happened.
+    """
+    rows = await fetch(
+        """
+        SELECT w.id, w.objective, w.status, w.created_at, w.finished_at,
+               w.requested_by,
+               COALESCE(SUM(t.spend_inr), 0) AS spend_inr,
+               COUNT(t.id) AS task_count,
+               COUNT(t.id) FILTER (WHERE t.status = 'completed') AS done_count
+        FROM workflows w
+        LEFT JOIN tasks t ON t.workflow_id = w.id
+        GROUP BY w.id
+        ORDER BY w.created_at DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    return [dict(r) for r in rows]

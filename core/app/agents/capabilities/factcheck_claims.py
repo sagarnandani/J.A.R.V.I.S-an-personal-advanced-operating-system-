@@ -66,7 +66,10 @@ SPEC = AgentSpec(
         "returns a verdict and the evidence for each."
     ),
     domain="research",
-    task_types=("general", "factcheck", "verification"),
+    # Not "general". A capability that claims to handle anything will be
+    # handed anything, and a fact-checker asked to research something has
+    # nothing to check.
+    task_types=("factcheck", "verification"),
     tools=("websearch",),
     # NETWORK only. No READ_MEMORY on purpose -- see the module docstring.
     # A checker that knows what the owner wants to be true is not a checker.

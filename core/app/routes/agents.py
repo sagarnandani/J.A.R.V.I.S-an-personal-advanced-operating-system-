@@ -5,6 +5,8 @@ dashboard, so this exposes what is needed to run and inspect work and
 nothing more. The owner still talks to JARVIS; this is for the machinery
 behind it.
 """
+import asyncio
+import logging
 from decimal import Decimal
 from uuid import UUID
 
@@ -15,6 +17,35 @@ from app.agents import orchestrator, registry, tasks, telemetry
 from app.auth import CurrentUser, get_current_user
 
 router = APIRouter()
+logger = logging.getLogger("jarvis.routes.agents")
+
+# Live background runs, held so the event loop does not collect them.
+# asyncio keeps only a weak reference to a bare create_task, so a
+# fire-and-forget workflow can vanish mid-step -- which looks exactly like
+# a task that hung.
+_RUNNING: set[asyncio.Task] = set()
+
+
+def _run_detached(workflow_id: UUID) -> None:
+    """Let the work happen after the response has gone.
+
+    A research-then-check workflow takes half a minute or more. Holding
+    the HTTP request open for it means a spinner on a phone, a proxy
+    timeout, and no way to close the tab and come back -- so the request
+    returns as soon as the tasks exist, and the panel polls.
+    """
+    task = asyncio.create_task(orchestrator.advance(workflow_id))
+    _RUNNING.add(task)
+
+    def _done(finished: asyncio.Task) -> None:
+        _RUNNING.discard(finished)
+        if not finished.cancelled() and finished.exception():
+            # The workflow's own rows already record what happened to each
+            # task; this is for the failure that escaped all of them.
+            logger.error("Workflow %s ended in an exception: %s",
+                         workflow_id, finished.exception())
+
+    task.add_done_callback(_done)
 
 
 class StepIn(BaseModel):
@@ -61,6 +92,10 @@ async def list_agents(
 async def start_workflow(
     body: WorkflowIn, user: CurrentUser = Depends(get_current_user)
 ) -> dict:
+    """Create the task graph, start it, and answer straight away.
+
+    The work continues after the response. Poll the workflow to watch it.
+    """
     steps = [
         orchestrator.Step(
             capability=s.capability, objective=s.objective, name=s.name,
@@ -69,9 +104,32 @@ async def start_workflow(
         )
         for s in body.steps
     ] or None
-    return await orchestrator.run(
+
+    workflow_id = await orchestrator.start(
         body.objective, f"user:{user.email or user.uid}", steps, body.budget_inr
     )
+    rows = await tasks.workflow_tasks(workflow_id)
+    wf = await tasks.get_workflow(workflow_id)
+
+    # Planning can settle a workflow before any task exists -- nothing
+    # registered could take the objective. Starting a runner for that
+    # would only rediscover it.
+    if rows:
+        _run_detached(workflow_id)
+
+    return {
+        "workflow_id": str(workflow_id),
+        "status": "running" if rows else (wf or {}).get("status", "failed"),
+        "failure_reason": (wf or {}).get("failure_reason"),
+        "tasks": rows,
+    }
+
+
+@router.get("/v1/workflows", include_in_schema=False)
+async def list_workflows(
+    limit: int = 10, user: CurrentUser = Depends(get_current_user)
+) -> list[dict]:
+    return await tasks.recent_workflows(min(max(limit, 1), 50))
 
 
 @router.post("/v1/plans", include_in_schema=False)

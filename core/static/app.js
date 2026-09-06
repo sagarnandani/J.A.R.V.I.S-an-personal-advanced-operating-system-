@@ -530,16 +530,23 @@ function explain(status, detail) {
 // In the landscape layout every panel is on screen at once, so "go to
 // memory" had nothing to go to. Home and Settings remain; full screen is
 // genuinely useful for leaving this up on a spare monitor.
-const views = {
-  home: () => { $("settingsView").classList.add("hidden"); document.querySelector(".grid").classList.remove("hidden"); },
-  settings: () => { document.querySelector(".grid").classList.add("hidden"); $("settingsView").classList.remove("hidden"); },
-};
+const VIEWS = { home: null, tasks: "tasksView", settings: "settingsView" };
+const homeGrid = () => document.querySelector(".grid");
+
+function showView(name) {
+  homeGrid().classList.toggle("hidden", name !== "home");
+  for (const [view, id] of Object.entries(VIEWS)) {
+    if (id) $(id).classList.toggle("hidden", view !== name);
+  }
+  if (name === "tasks") loadWorkflows();
+}
+
 $("nav").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-view]");
   if (!btn) return;
   [...$("nav").querySelectorAll("button[data-view]")].forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
-  views[btn.dataset.view]();
+  showView(btn.dataset.view);
 });
 
 $("fsBtn").onclick = async () => {
@@ -655,4 +662,277 @@ async function start() {
   };
   render();
 }
+/* ---------------------------------------------------------------- tasks */
+/* Plan, then run. Two steps on purpose: every step of a workflow is a real
+ * model call against a real monthly budget, so nothing spends anything
+ * until the plan has been read. The Run button appears only once there is
+ * a plan on screen to approve.
+ *
+ * Progress is polled rather than streamed. The work happens in the server's
+ * background, so the page can be closed and reopened without losing it --
+ * which a streaming connection would not survive. */
+let pendingPlan = null;      // the proposal awaiting approval
+let watching = null;         // the workflow id being polled
+let pollTimer = null;
+
+const STEP_STATES = ["queued", "blocked", "running", "waiting_approval",
+                     "completed", "failed", "cancelled"];
+// Workflow statuses that mean nothing more will happen without a person.
+const DONE = new Set(["completed", "failed", "cancelled", "waiting_approval"]);
+
+function taskNote(text, tone = "") {
+  const el = $("taskNote");
+  el.textContent = text;
+  el.style.color = tone === "bad" ? "var(--danger)"
+                 : tone === "good" ? "var(--ok)" : "";
+}
+
+function showPlanButtons({ run = false, discard = false, plan = true } = {}) {
+  $("planBtn").classList.toggle("hidden", !plan);
+  $("runBtn").classList.toggle("hidden", !run);
+  $("discardBtn").classList.toggle("hidden", !discard);
+}
+
+/* --- proposing ---------------------------------------------------------- */
+async function proposePlan() {
+  const objective = $("objective").value.trim();
+  if (!objective) { taskNote("Say what you want done first.", "bad"); return; }
+
+  stopPolling();
+  $("planBtn").disabled = true;
+  taskNote("Working out the steps…");
+  $("planSteps").innerHTML = "";
+  $("planWhy").textContent = "";
+  $("planRejected").textContent = "";
+
+  try {
+    const res = await api("/v1/plans", {
+      method: "POST", body: JSON.stringify({ objective }),
+    });
+    if (!res.ok) throw new Error(await problem(res));
+    const plan = await res.json();
+    pendingPlan = { objective, ...plan };
+    renderPlan(plan);
+  } catch (err) {
+    taskNote(String(err.message || err), "bad");
+    showPlanButtons({});
+  } finally {
+    $("planBtn").disabled = false;
+  }
+}
+
+function renderPlan(plan) {
+  $("planTitle").textContent = "The plan";
+  $("planWhy").textContent = plan.reasoning || "";
+
+  if (!plan.steps || !plan.steps.length) {
+    $("planSteps").innerHTML =
+      `<p class="note">Nothing JARVIS has can do this yet — so it is not going to pretend otherwise.</p>`;
+    showPlanButtons({ discard: true });
+    taskNote("No plan to run.");
+  } else {
+    $("planSteps").innerHTML = plan.steps.map((s, i) => `
+      <div class="step">
+        <div class="cap">${i + 1}. ${esc(s.capability)}</div>
+        <div class="obj">${esc(s.objective)}</div>
+        ${s.after && s.after.length
+          ? `<div class="meta">after: ${esc(s.after.join(", "))}</div>` : ""}
+      </div>`).join("");
+    showPlanButtons({ run: true, discard: true });
+    const n = plan.steps.length;
+    taskNote(`${n} step${n === 1 ? "" : "s"}. Nothing has run and nothing has been spent.`);
+  }
+
+  // What the planner asked for and was refused. Shown rather than dropped:
+  // a planner that silently discards what it could not use looks like it
+  // agreed with you.
+  $("planRejected").textContent = (plan.rejected && plan.rejected.length)
+    ? `Refused: ${plan.rejected.join("; ")}`
+    : "";
+}
+
+function discardPlan() {
+  pendingPlan = null;
+  stopPolling();
+  $("planSteps").innerHTML = "";
+  $("planWhy").textContent = "";
+  $("planRejected").textContent = "";
+  $("planTitle").textContent = "The plan";
+  showPlanButtons({});
+  taskNote("Discarded. Nothing ran.");
+}
+
+/* --- running ------------------------------------------------------------ */
+async function runPlan() {
+  if (!pendingPlan || !pendingPlan.steps || !pendingPlan.steps.length) return;
+  $("runBtn").disabled = true;
+  taskNote("Starting…");
+
+  try {
+    const res = await api("/v1/workflows", {
+      method: "POST",
+      body: JSON.stringify({
+        objective: pendingPlan.objective,
+        // The approved steps go back verbatim, so what runs is what was
+        // read. Re-planning here would run something nobody approved.
+        steps: pendingPlan.steps.map((s) => ({
+          capability: s.capability, objective: s.objective,
+          name: s.name || "", after: s.after || [],
+        })),
+      }),
+    });
+    if (!res.ok) throw new Error(await problem(res));
+    const started = await res.json();
+    pendingPlan = null;
+    showPlanButtons({});
+    watch(started.workflow_id);
+  } catch (err) {
+    taskNote(String(err.message || err), "bad");
+  } finally {
+    $("runBtn").disabled = false;
+  }
+}
+
+async function problem(res) {
+  // Reuse the message vocabulary the rest of the page already speaks: a
+  // second explanation of the same 502 would be a second thing to keep
+  // right.
+  let detail = "";
+  try { detail = (await res.json()).detail || ""; } catch (e) { detail = res.statusText; }
+  return explain(res.status, String(detail));
+}
+
+function stopPolling() {
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = null;
+  watching = null;
+}
+
+async function watch(workflowId) {
+  stopPolling();
+  watching = workflowId;
+  await pollOnce();
+}
+
+async function pollOnce() {
+  const id = watching;
+  if (!id) return;
+  try {
+    const res = await api(`/v1/workflows/${id}`);
+    if (!res.ok) throw new Error(await problem(res));
+    const data = await res.json();
+    if (watching !== id) return;   // the user moved on while this was in flight
+    renderWorkflow(data);
+
+    // Poll until it is genuinely over, rather than while it looks busy.
+    // A workflow is "planning" from the moment it is created and only
+    // becomes "running" once a wave has settled, so watching for "running"
+    // stops before the work has started.
+    if (DONE.has(data.workflow.status)) {
+      stopPolling();
+      loadWorkflows();
+    } else {
+      pollTimer = setTimeout(pollOnce, 2000);
+    }
+  } catch (err) {
+    taskNote(String(err.message || err), "bad");
+    stopPolling();
+  }
+}
+
+function renderWorkflow(data) {
+  const wf = data.workflow, rows = data.tasks || [];
+  $("planTitle").textContent = "Progress";
+  $("planWhy").textContent = wf.objective || "";
+
+  $("planSteps").innerHTML = rows.map((t, i) => {
+    const state = STEP_STATES.includes(t.status) ? t.status : "";
+    const bits = [];
+    if (t.confidence != null) bits.push(`confidence ${Number(t.confidence).toFixed(2)}`);
+    if (t.spend_inr != null) bits.push(`Rs.${Number(t.spend_inr).toFixed(2)}`);
+    return `
+      <div class="step ${state}">
+        <div class="cap">${i + 1}. ${esc(t.capability)} — ${esc(t.status)}</div>
+        <div class="obj">${esc(t.objective)}</div>
+        ${bits.length ? `<div class="meta">${esc(bits.join(" · "))}</div>` : ""}
+        ${t.failure_reason ? `<div class="meta" style="color:var(--danger)">${esc(t.failure_reason)}</div>` : ""}
+        ${renderResult(t.result)}
+      </div>`;
+  }).join("") || `<p class="note">No tasks.</p>`;
+
+  const spent = rows.reduce((sum, t) => sum + Number(t.spend_inr || 0), 0);
+  const done = rows.filter((t) => t.status === "completed").length;
+  taskNote(
+    `${wf.status} — ${done}/${rows.length} done, Rs.${spent.toFixed(2)} spent.`,
+    wf.status === "failed" ? "bad" : wf.status === "completed" ? "good" : "",
+  );
+  $("planRejected").textContent = wf.failure_reason || "";
+}
+
+function renderResult(result) {
+  if (!result) return "";
+  const out = result.output;
+  let body = "";
+
+  if (out && typeof out === "object" && Array.isArray(out.claims) && out.claims.length) {
+    // Fact-checking: the verdict is the point, so it leads.
+    body = out.claims.map((c) => `
+      <div style="margin-top:.4rem">
+        <span class="verdict ${esc(c.verdict)}">${esc(c.verdict)}</span>
+        <span class="out" style="display:inline">${esc(c.claim)}</span>
+        ${c.why ? `<div class="meta">${esc(c.why)}</div>` : ""}
+        ${(c.sources || []).map(sourceLink).join("")}
+      </div>`).join("");
+  } else if (out && typeof out === "object") {
+    body = `<p class="out">${esc(out.summary || JSON.stringify(out))}</p>`;
+  } else if (out) {
+    body = `<p class="out">${esc(String(out))}</p>`;
+  }
+
+  // A fact-check already shows each claim's own sources, and the task's
+  // evidence list is those same links pooled together. Printing both
+  // makes the panel look like there is twice as much support as there is.
+  const perClaim = out && typeof out === "object" && Array.isArray(out.claims) && out.claims.length;
+  const evidence = perClaim ? "" : (result.evidence || []).map(sourceLink).join("");
+  const unresolved = (result.unresolved || []).length
+    ? `<div class="meta" style="margin-top:.3rem">Unresolved: ${esc(result.unresolved.join("; "))}</div>`
+    : "";
+  return body + (evidence ? `<div style="margin-top:.3rem">${evidence}</div>` : "") + unresolved;
+}
+
+function sourceLink(source) {
+  // Sources arrive as "Title — https://url" or a bare url. Splitting on the
+  // last space keeps a title containing a dash intact.
+  const match = String(source).match(/^(.*?)\s*—\s*(https?:\/\/\S+)$/);
+  const title = match ? match[1] : source;
+  const url = match ? match[2] : (String(source).startsWith("http") ? source : null);
+  return url
+    ? `<a class="src" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)}</a>`
+    : `<span class="src">${esc(title)}</span>`;
+}
+
+/* --- history ------------------------------------------------------------ */
+async function loadWorkflows() {
+  try {
+    const res = await api("/v1/workflows?limit=10");
+    if (!res.ok) return;
+    const rows = await res.json();
+    $("wfList").innerHTML = rows.length ? rows.map((w) => `
+      <div class="wf" data-wf="${esc(w.id)}">
+        <span class="o">${esc(w.objective)}</span>
+        <span class="s ${esc(w.status)}">${esc(w.status)}</span>
+      </div>`).join("")
+      : `<p class="note">Nothing yet.</p>`;
+  } catch (e) { /* the panel is still usable without its history */ }
+}
+
+$("wfList").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-wf]");
+  if (row) { pendingPlan = null; showPlanButtons({}); watch(row.dataset.wf); }
+});
+
+$("planBtn").onclick = proposePlan;
+$("runBtn").onclick = runPlan;
+$("discardBtn").onclick = discardPlan;
+
 start();

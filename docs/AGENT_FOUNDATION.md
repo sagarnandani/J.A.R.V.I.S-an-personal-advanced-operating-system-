@@ -198,6 +198,26 @@ capability and producing something confident and irrelevant.
 — steps, reasoning, and what was refused — and creates nothing. One cheap
 call instead of a whole workflow.
 
+## Using it — the Tasks tab
+
+Everything above was reachable only by posting JSON, which from an iPad is
+not reachable at all. The dashboard's **Tasks** tab is the door:
+
+1. Type what you want done.
+2. **Plan** — JARVIS shows the steps it proposes, why, and anything it
+   asked for and was refused. One cheap call; nothing has run.
+3. **Run** — the approved steps go back verbatim, so what executes is what
+   you read. Re-planning here would run something nobody approved.
+4. Steps appear as they finish, with confidence, cost, and — for a
+   fact-check — a verdict and sources per claim.
+
+The work runs on the server, not in the page, so a research-then-check job
+survives closing the tab. The panel polls; **Recent** reopens any past run.
+
+`GET /v1/workflows` lists recent work; `POST /v1/workflows` starts it and
+returns immediately rather than holding the request open for the minute
+the work takes.
+
 `PLANNER_ENABLED=false` switches it off entirely. "Decide your own work"
 is the one capability an owner should be able to withdraw without a
 deploy.

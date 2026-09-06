@@ -37,7 +37,7 @@ SPEC = AgentSpec(
         "it relied on."
     ),
     domain="research",
-    task_types=("general", "research", "web"),
+    task_types=("general", "research", "web"),  # genuinely general: any question
     tools=("websearch",),
     # NETWORK is the whole point. READ_MEMORY so a question can be
     # understood in the owner's terms; nothing else -- it reads the web
