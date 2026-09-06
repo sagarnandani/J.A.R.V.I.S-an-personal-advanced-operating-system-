@@ -451,6 +451,11 @@ and voice keep working while you sort it out.
 
 Set `AUTO_MIGRATE=false` if you would rather apply them yourself.
 
+`PLANNER_ENABLED=false` stops JARVIS working out its own workflow steps;
+it falls back to handing each objective to a single agent.
+`PLANNER_MAX_STEPS` (default 5) caps how many steps a self-made plan may
+have — a budget control, since every step is a real model call.
+
 ## 5. Verify the full loop
 
 1. Open the deployed URL in a browser (iPad included).

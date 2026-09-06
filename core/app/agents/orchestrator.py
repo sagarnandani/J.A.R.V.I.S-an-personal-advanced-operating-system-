@@ -1,16 +1,16 @@
 """Objective in, task graph out, results back.
 
-Deliberately not an autonomous planner yet. The brief asks for the
-architecture that lets orchestration intelligence grow, not for a system
-that plans its own work on day one -- and a planner that can invent
-arbitrary task graphs before permissions, budgets and telemetry are
-proven is the least safe thing to build first.
-
-So planning is a seam: `plan()` turns an objective into tasks, and today
-it does that from an explicit recipe or a single delegation. Replacing
-its body with a model-driven planner later changes nothing below it,
+Planning and execution are separate, and this module is the execution
+half. Where the steps came from -- a caller who wrote them out, or
+`planner` working them out from the registry -- makes no difference here,
 because everything below works from the task rows rather than from
-whatever produced them.
+whatever produced them. That separation is what let the planner arrive
+last, after permissions, budgets and telemetry were proven, rather than
+first, when a component that can invent arbitrary task graphs would have
+had nothing underneath it to be bounded by.
+
+Explicit steps always win. A caller who names the steps has decided
+something on purpose, and a proposal must never override that.
 
 Execution runs the graph in waves: everything currently runnable goes at
 once, then the graph is asked again. That gives concurrency and
@@ -18,44 +18,40 @@ dependency ordering without a workflow engine, and the "ask again" is a
 database query, so it is correct even if two of these run at once.
 """
 import asyncio
-from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
-from app.agents import registry, runtime, tasks, telemetry
-from app.agents.schemas import TaskStatus
+from app.agents import planner, runtime, tasks, telemetry
+from app.agents.schemas import Step, TaskStatus
+
+__all__ = ["Step", "advance", "plan", "propose", "run", "start"]
 
 
-@dataclass
-class Step:
-    """One intended piece of work, before it becomes a task row."""
+async def propose(objective: str, max_steps: int | None = None) -> planner.Plan:
+    """What JARVIS would do about this. Creates nothing, runs nothing.
 
-    capability: str
-    objective: str
-    inputs: dict | None = None
-    expected_output: str = ""
-    constraints: dict | None = None
-    after: tuple[str, ...] = ()   # names of steps this one needs
-    name: str = ""
-    budget_inr: Decimal | None = None
+    The review seam. A plan is a proposal until somebody starts it, and
+    reading one costs a single cheap model call rather than the whole
+    workflow.
+    """
+    return await planner.propose(objective, max_steps=max_steps)
 
 
 async def plan(objective: str, steps: list[Step] | None = None) -> list[Step]:
     """Decide what work an objective requires.
 
-    One step today when given nothing: hand the objective to whichever
-    capability can take it. The signature is the important part -- it is
-    where a real planner lands, and it returns Steps rather than acting,
-    so a plan can be inspected and approved before anything runs.
+    Given steps, those are the plan -- an explicit recipe always wins over
+    a proposed one, because somebody wrote it on purpose. Given none,
+    `planner` works one out from the registry.
+
+    Still returns Steps rather than acting, which is what keeps planning
+    reviewable: nothing here creates a task or spends anything beyond the
+    one call that produced the proposal.
     """
     if steps:
         return steps
 
-    candidates = await registry.find(task_type="general")
-    if not candidates:
-        return []
-    return [Step(capability=candidates[0].capability, objective=objective,
-                 name="direct")]
+    return (await planner.propose(objective)).steps
 
 
 async def start(
@@ -66,12 +62,27 @@ async def start(
 ) -> UUID:
     """Create the workflow and its task graph. Nothing runs yet."""
     workflow_id = await tasks.create_workflow(objective, requested_by, budget_inr)
-    resolved = await plan(objective, steps)
+
+    if steps:
+        proposal = planner.Plan(steps=steps, source="given",
+                                reasoning="Steps were specified by the caller.")
+    else:
+        proposal = await planner.propose(objective)
+    resolved = proposal.steps
+
+    # Recorded before anything is created, so a plan that produced nothing
+    # is as readable afterwards as one that produced work.
+    await telemetry.record(
+        "plan_proposed", workflow_id=workflow_id, detail=proposal.as_detail()
+    )
 
     if not resolved:
         await tasks.set_workflow_status(
             workflow_id, "failed",
-            failure="No registered capability can take this objective.",
+            failure=(
+                proposal.reasoning
+                or "No registered capability can take this objective."
+            ),
         )
         return workflow_id
 
@@ -103,7 +114,8 @@ async def start(
     await telemetry.record(
         "workflow_planned", workflow_id=workflow_id,
         detail={"objective": objective, "steps": len(resolved),
-                "capabilities": [s.capability for s in resolved]},
+                "capabilities": [s.capability for s in resolved],
+                "planned_by": proposal.source},
     )
     return workflow_id
 
@@ -135,6 +147,23 @@ async def advance(workflow_id: UUID, max_waves: int = 20) -> dict:
 async def _settle(workflow_id: UUID, waves: int) -> dict:
     """Decide what the workflow as a whole amounts to."""
     rows = await tasks.workflow_tasks(workflow_id)
+
+    if not rows:
+        # No tasks at all, so there is nothing here to derive a status
+        # from -- the workflow's fate was already decided when planning
+        # produced nothing, and it came with a reason. Recomputing here
+        # would replace that reason with "running", which is both wrong
+        # and permanent: nothing will ever move it again.
+        wf = await tasks.get_workflow(workflow_id)
+        status = (wf or {}).get("status", "failed")
+        await telemetry.record(
+            "workflow_settled", workflow_id=workflow_id,
+            detail={"status": status, "waves": waves, "tasks": {},
+                    "why": "the workflow has no tasks"},
+        )
+        return {"workflow_id": str(workflow_id), "status": status,
+                "tasks": {}, "waves": waves, "outputs": {}}
+
     counts: dict[str, int] = {}
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1

@@ -172,6 +172,22 @@ class Settings(BaseSettings):
     model_cheap: str = ""
     model_deep: str = ""
 
+    # --- Autonomous planning (see app/agents/planner.py) ---
+    # When a workflow is started without explicit steps, JARVIS works out
+    # the steps itself from the registry.
+    #
+    # An off-switch, because "decide your own work" is the one capability
+    # an owner should be able to withdraw without a deploy. Off, JARVIS
+    # falls back to handing the objective to a single agent -- which is
+    # what it did before a planner existed.
+    planner_enabled: bool = True
+
+    # The hard ceiling on a self-made plan. This is a budget control, not
+    # a quality one: every step is a real model call on a small monthly
+    # allowance, and an eight-step plan for a one-step question is how
+    # that allowance disappears.
+    planner_max_steps: int = 5
+
     # Apply pending database migrations at startup.
     #
     # On by default because the owner has no terminal: a deploy that

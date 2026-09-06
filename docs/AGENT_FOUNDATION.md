@@ -146,13 +146,63 @@ await orchestrator.run(
 Nothing else. Registry, tasks, routing, permissions, cost, telemetry and
 evaluation already apply to it.
 
-## What is deliberately not built
+## Planning its own work
 
-**Autonomous planning.** `orchestrator.plan()` is the seam where it will
-go. It returns steps rather than acting, so a plan can be reviewed before
-anything runs. A planner that can invent arbitrary task graphs before
-permissions and budgets are proven is the least safe thing to build
-first.
+Until now you told JARVIS the steps. Now it can work them out: start a
+workflow with an objective and no steps, and `planner` reads the registry
+and decides which capabilities run and in what order.
+
+This was built last on purpose. A planner is the one component that can
+invent work nobody asked for, so the useful question is not "can it plan"
+but **what can a bad plan actually do**. Four answers:
+
+**It can only name capabilities that already exist.** The list it is
+shown comes from the registry. A step naming anything else is refused —
+not mapped to the nearest match, because guessing which capability was
+meant is how a plan ends up doing something adjacent to what you wanted.
+There is no path from "the model wrote a word" to "code ran".
+
+**It cannot widen anything.** A plan carries a capability, an objective
+and an ordering. Not permissions, not budgets, not model tiers, not
+constraints — those come from the registry and the runtime, exactly as
+they do for a step you wrote yourself. The runtime reads a task's
+constraints when deciding which approvals apply, so a planner able to
+write them could plan its way around an approval. It may not write them
+at all, and what it tried is recorded.
+
+**It is bounded before it runs.** Five steps maximum (`PLANNER_MAX_STEPS`
+— a budget control: every step is a real model call). No loops. No
+duplicate names. No step depending on one that isn't in the plan. Each of
+those is *refused*, never quietly repaired, because a repaired plan is a
+plan nobody wrote and nobody reviewed. Dropping one bad dependency would
+let a checking step start before the thing it checks, find nothing, and
+report success.
+
+**It cannot fail into silence.** If the model errors, returns junk, or
+proposes something that won't validate, JARVIS falls back to handing the
+objective to a single agent — what it did before the planner existed —
+and the reason lands in the trace. Planning must never break the request
+it was helping with.
+
+Two more things worth knowing:
+
+*Explicit steps always win.* If you name the steps, the planner does not
+run at all. You decided something on purpose.
+
+*"Nothing here can do that" is a real answer.* Asked to email your
+accountant, the planner says nothing registered can send email, and the
+workflow fails with that sentence — rather than handing it to the nearest
+capability and producing something confident and irrelevant.
+
+**Read before run.** `POST /v1/plans` with an objective returns the plan
+— steps, reasoning, and what was refused — and creates nothing. One cheap
+call instead of a whole workflow.
+
+`PLANNER_ENABLED=false` switches it off entirely. "Decide your own work"
+is the one capability an owner should be able to withdraw without a
+deploy.
+
+## What is deliberately not built
 
 **Approval resumption.** A task that needs your approval waits correctly
 and says why; resuming it is currently manual.

@@ -114,6 +114,26 @@ class AgentSpec:
     id: UUID | None = None
 
 
+@dataclass
+class Step:
+    """One intended piece of work, before it becomes a task row.
+
+    Lives here rather than in the orchestrator because it is now the thing
+    a planner hands over: a plan is a list of Steps, produced by one
+    module and executed by another, and a shape that crosses that
+    boundary belongs with the other shapes that do.
+    """
+
+    capability: str
+    objective: str
+    inputs: dict | None = None
+    expected_output: str = ""
+    constraints: dict | None = None
+    after: tuple[str, ...] = ()   # names of steps this one needs
+    name: str = ""
+    budget_inr: Decimal | None = None
+
+
 @dataclass(frozen=True)
 class Handoff:
     """What an agent is given. The briefing, not the archive.

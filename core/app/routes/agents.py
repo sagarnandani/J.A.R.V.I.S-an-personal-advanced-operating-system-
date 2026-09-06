@@ -33,6 +33,11 @@ class WorkflowIn(BaseModel):
     budget_inr: Decimal | None = None
 
 
+class PlanIn(BaseModel):
+    objective: str
+    max_steps: int | None = None
+
+
 @router.get("/v1/agents", include_in_schema=False)
 async def list_agents(
     task_type: str | None = None,
@@ -67,6 +72,20 @@ async def start_workflow(
     return await orchestrator.run(
         body.objective, f"user:{user.email or user.uid}", steps, body.budget_inr
     )
+
+
+@router.post("/v1/plans", include_in_schema=False)
+async def propose_plan(
+    body: PlanIn, user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    """What JARVIS would do about this, without doing any of it.
+
+    Read before run. Starting a workflow spends money on every step;
+    asking what the steps would be spends one cheap call, and the answer
+    includes what the planner asked for and was refused.
+    """
+    plan = await orchestrator.propose(body.objective, body.max_steps)
+    return plan.as_detail()
 
 
 @router.get("/v1/workflows/{workflow_id}", include_in_schema=False)
