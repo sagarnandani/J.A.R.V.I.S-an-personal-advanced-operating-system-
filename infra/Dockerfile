@@ -13,6 +13,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY core/app ./app
 COPY core/static ./static
+# The schema, so the container can bring the database up to date itself.
+# Without this JARVIS cannot see its own migrations and every schema
+# change needs a human with a SQL editor.
+COPY db/migrations ./db/migrations
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080

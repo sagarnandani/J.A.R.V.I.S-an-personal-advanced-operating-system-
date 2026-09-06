@@ -172,6 +172,14 @@ class Settings(BaseSettings):
     model_cheap: str = ""
     model_deep: str = ""
 
+    # Apply pending database migrations at startup.
+    #
+    # On by default because the owner has no terminal: a deploy that
+    # quietly requires a manual SQL step is one that gets forgotten, and
+    # then a feature is mysteriously broken. Set false to take that
+    # control back.
+    auto_migrate: bool = True
+
     # --- Live voice ---
     # Gemini speaking directly, rather than the browser reading text
     # aloud. Model and voice are settings because a model name that

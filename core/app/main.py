@@ -45,6 +45,9 @@ async def lifespan(app: FastAPI):
     _warn_if_cookies_are_unprotected(settings)
     _warn_if_spend_is_untracked(settings)
     async with lifespan_db(app):
+        # Schema first: the registry and the task tables have to exist
+        # before anything tries to use them.
+        await _apply_migrations(settings)
         # Inside the pool: the registry lives in the database, so this
         # cannot run before there is a connection to it.
         await _install_agents()
@@ -75,6 +78,25 @@ def _ensure_session_secret(settings) -> None:
         "will work, but every restart or redeploy will sign you out again. "
         "Set SESSION_SECRET in your environment -- see /docs/DEPLOYMENT.md step 4g."
     )
+
+
+async def _apply_migrations(settings) -> None:
+    """Bring the database up to date with the code that is deploying.
+
+    The owner has no terminal. Making them find a SQL editor for every
+    schema change is friction JARVIS can simply remove, and a deploy that
+    silently needs a manual step is a deploy that will be forgotten.
+    """
+    if not settings.auto_migrate:
+        logger.info("AUTO_MIGRATE is off; not checking the schema.")
+        return
+    try:
+        from app.db import get_pool
+        from app.migrate import apply_pending
+
+        await apply_pending(get_pool())
+    except Exception as exc:  # noqa: BLE001 - never worth refusing to start
+        logger.error("Could not check or apply migrations: %s", exc)
 
 
 async def _install_agents() -> None:

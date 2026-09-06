@@ -434,6 +434,23 @@ Two reasons it isn't the default any more:
 If you'd rather go this way, everything for it is in `infra/deploy.sh`;
 run `bash infra/deploy.sh` from Cloud Shell after cloning the repo.
 
+## Schema changes after the first setup
+
+**Nothing to do.** JARVIS applies its own migrations when it starts: it
+compares the migration files it ships with against what the database has
+already had, and applies whatever is missing, once.
+
+You only need the SQL Editor for the very first setup, before JARVIS
+exists to do it for itself.
+
+If you ever want to check, `docker compose logs jarvis` or Render's log
+tab shows a line like `Applied 1 migration(s): 002_agent_foundation.sql`.
+A migration that fails is rolled back whole, logged loudly, and does not
+stop JARVIS running on the schema it already had — conversation, memory
+and voice keep working while you sort it out.
+
+Set `AUTO_MIGRATE=false` if you would rather apply them yourself.
+
 ## 5. Verify the full loop
 
 1. Open the deployed URL in a browser (iPad included).
