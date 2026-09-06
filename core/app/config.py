@@ -160,6 +160,13 @@ class Settings(BaseSettings):
     # message.
     memory_facts_per_exchange: int = 5
 
+    # --- Model tiers (see app/agents/model_router.py) ---
+    # Agents ask for cheap/standard/deep, never a model name. These map
+    # the tiers onto real models, so a provider retiring a name is an
+    # environment change rather than a code change.
+    model_cheap: str = ""
+    model_deep: str = ""
+
     # --- Live voice ---
     # Gemini speaking directly, rather than the browser reading text
     # aloud. Model and voice are settings because a model name that

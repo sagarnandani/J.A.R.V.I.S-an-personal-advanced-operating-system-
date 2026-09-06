@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.db import lifespan_db
 from app.routes import (
     admin,
+    agents,
     auth_proxy,
     budget,
     dashboard,
@@ -44,6 +45,9 @@ async def lifespan(app: FastAPI):
     _warn_if_cookies_are_unprotected(settings)
     _warn_if_spend_is_untracked(settings)
     async with lifespan_db(app):
+        # Inside the pool: the registry lives in the database, so this
+        # cannot run before there is a connection to it.
+        await _install_agents()
         logger.info("JARVIS Core started.")
         yield
     logger.info("JARVIS Core stopped.")
@@ -71,6 +75,23 @@ def _ensure_session_secret(settings) -> None:
         "will work, but every restart or redeploy will sign you out again. "
         "Set SESSION_SECRET in your environment -- see /docs/DEPLOYMENT.md step 4g."
     )
+
+
+async def _install_agents() -> None:
+    """Register the built-in capabilities at startup.
+
+    Needs the database, so it runs inside the lifespan rather than at
+    import. A failure here leaves JARVIS entirely usable -- the agent
+    foundation is additional machinery, not something conversation
+    depends on -- so it warns instead of refusing to start.
+    """
+    from app.agents import builtin
+
+    try:
+        await builtin.install()
+        logger.info("Agent foundation ready.")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not install built-in agents: %s", exc)
 
 
 def _warn_if_cookies_are_unprotected(settings) -> None:
@@ -135,6 +156,7 @@ app.include_router(budget.router)
 app.include_router(dashboard.router)
 app.include_router(live.router)
 app.include_router(admin.router)
+app.include_router(agents.router)
 
 # The Stage 0 test console (plain HTML/JS) -- see /core/static/README for
 # what this is and isn't. Mounted last so it doesn't shadow API routes.

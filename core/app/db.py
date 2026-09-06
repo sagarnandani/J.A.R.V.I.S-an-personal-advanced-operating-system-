@@ -1,4 +1,5 @@
 """Postgres connection pool, shared across the app via FastAPI's lifespan."""
+import json
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -31,6 +32,21 @@ def _pool_kwargs(database_url: str) -> dict:
     return {}
 
 
+async def init_connection(conn: asyncpg.Connection) -> None:
+    """Teach a connection to read JSON columns as Python objects.
+
+    Without this asyncpg hands back JSONB as a string, so every read of a
+    task's inputs or a trace's detail returns text that merely looks like
+    a dict -- and fails at the first `.get()`. Decoding once, here, is the
+    difference between one setting and a json.loads scattered through
+    every call site waiting to be forgotten in one of them.
+    """
+    for kind in ("json", "jsonb"):
+        await conn.set_type_codec(
+            kind, encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+        )
+
+
 def get_pool() -> asyncpg.Pool:
     if _pool is None:
         raise RuntimeError(
@@ -48,6 +64,7 @@ async def lifespan_db(app: FastAPI):
         settings.database_url,
         min_size=1,
         max_size=5,
+        init=init_connection,
         **_pool_kwargs(settings.database_url),
     )
     try:

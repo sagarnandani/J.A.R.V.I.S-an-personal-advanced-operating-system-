@@ -56,7 +56,11 @@ async def db_pool():
         return
 
     try:
-        pool = await asyncpg.create_pool(url, min_size=1, max_size=2)
+        # Same JSON decoding as the app, or tests read JSONB as strings
+        # and pass against behaviour production never sees.
+        pool = await asyncpg.create_pool(
+            url, min_size=1, max_size=2, init=db_module.init_connection
+        )
     except (OSError, asyncpg.PostgresError) as exc:
         pytest.skip(f"No reachable Postgres at {url}: {exc}")
         return
