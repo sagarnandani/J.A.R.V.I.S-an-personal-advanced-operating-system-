@@ -20,6 +20,7 @@ Three things keep that safe:
   missing table would punish the owner for a problem they did not cause.
 """
 import logging
+import os
 from pathlib import Path
 
 import asyncpg
@@ -28,6 +29,9 @@ logger = logging.getLogger("jarvis.migrate")
 
 # Any constant will do; it only has to be the same in every instance.
 _LOCK_KEY = 8_314_559_201
+
+# The schema state, once it is known for certain. See `state()`.
+_CACHED_STATE: dict | None = None
 
 
 def _migrations_dir() -> Path | None:
@@ -107,3 +111,68 @@ async def apply_pending(pool: asyncpg.Pool) -> list[str]:
     if applied:
         logger.info("Applied %d migration(s): %s", len(applied), ", ".join(applied))
     return applied
+
+
+async def state(pool: asyncpg.Pool) -> dict:
+    """What the schema actually is, right now, on this deployment.
+
+    This exists because "did the migration land?" turned out to be
+    genuinely hard to answer from an iPad. The migration log line is
+    written once, on the one startup that applies something, and is gone
+    by the next deploy -- so the question outlives its own evidence.
+
+    Reported rather than logged, so it can be read at any time.
+
+    Deliberately says nothing about the database itself: no host, no
+    connection string, no raw exception text, because this is served
+    unauthenticated. Migration filenames and a commit hash are already
+    public in the repository; a failure reason might not be.
+    """
+    global _CACHED_STATE
+    if _CACHED_STATE is not None:
+        return _CACHED_STATE
+
+    directory = _migrations_dir()
+    info: dict = {
+        "commit": (os.environ.get("RENDER_GIT_COMMIT")
+                   or os.environ.get("GIT_COMMIT") or "")[:7] or None,
+        "migrations_in_image": None,
+        "applied": None,
+        "pending": None,
+        "state": "unknown",
+    }
+
+    if directory is None:
+        # The container was built without the schema in it. Nothing is
+        # broken with the database; the image simply cannot see what it
+        # is supposed to apply.
+        info["state"] = "no_migrations_in_image"
+        info["migrations_in_image"] = 0
+        _CACHED_STATE = info
+        return info
+
+    files = [p.name for p in sorted(directory.glob("*.sql"))]
+    info["migrations_in_image"] = len(files)
+
+    try:
+        rows = await pool.fetch("SELECT filename FROM schema_migrations")
+        done = {r["filename"] for r in rows}
+    except Exception:  # noqa: BLE001 - health must answer even when the DB will not
+        info["state"] = "unreadable"
+        return info
+
+    pending = [f for f in files if f not in done]
+    info["applied"] = sorted(done)
+    info["pending"] = pending
+    info["state"] = "up_to_date" if not pending else "pending"
+
+    # Cached because it cannot change again: migrations are applied at
+    # startup and nowhere else, so this process will report the same
+    # answer for its whole life. /health is polled continuously by the
+    # host, and a diagnostic that bills a query per poll would be a
+    # strange thing to add to a system with a monthly budget.
+    #
+    # Only settled answers are kept. "unreadable" is a statement about
+    # one moment, and caching it would turn a blip into a permanent lie.
+    _CACHED_STATE = info
+    return info

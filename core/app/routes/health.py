@@ -14,7 +14,27 @@ async def health() -> dict:
         "status": "ok",
         "emergency_stop": stopped,
         "dev_mode": get_settings().dev_mode,
+        # Which code is running and whether the database matches it. Both
+        # questions have now cost real time to answer from a phone, and
+        # both are one query away from the thing already being asked.
+        "schema": await _schema(),
     }
+
+
+async def _schema() -> dict:
+    """Never the reason /health fails.
+
+    A health check that goes down because a diagnostic went down is worse
+    than no diagnostic: it turns a working deployment into one that looks
+    dead.
+    """
+    try:
+        from app.db import get_pool
+        from app.migrate import state
+
+        return await state(get_pool())
+    except Exception:  # noqa: BLE001
+        return {"state": "unknown"}
 
 
 @router.get("/public/firebase-config")

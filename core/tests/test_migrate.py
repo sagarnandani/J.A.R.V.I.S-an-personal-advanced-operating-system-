@@ -15,6 +15,21 @@ from app import db as db_module
 from app.migrate import apply_pending
 
 
+@pytest.fixture(autouse=True)
+def _forget_the_cached_schema_state(monkeypatch):
+    """The schema report is cached for the process's life, deliberately.
+
+    That is right in production -- one process, migrations applied once at
+    startup -- and wrong across tests, where each one builds a different
+    schema in the same process. Without this the second test reads the
+    first one's answer, which is exactly how these passed alone and failed
+    together.
+    """
+    import app.migrate as migrate
+
+    monkeypatch.setattr(migrate, "_CACHED_STATE", None)
+
+
 @pytest_asyncio.fixture
 async def blank(db_pool):
     """An empty schema, created and dropped per test.
@@ -34,7 +49,6 @@ async def blank(db_pool):
 
     async def init(conn):
         await db_module.init_connection(conn)
-        await conn.execute(f'SET search_path TO "{name}"')
 
     dsn = os.environ.get(
         "DATABASE_URL", "postgres://jarvis:jarvis@localhost:5432/jarvis"
@@ -46,7 +60,18 @@ async def blank(db_pool):
     # untangle than the original fault.
     pool = None
     try:
-        pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2, init=init)
+        # search_path travels as a connection parameter, not as a SET in
+        # `init`. asyncpg resets a connection when it goes back to the
+        # pool, which wipes anything init ran -- so a SET survives only
+        # for as long as one caller holds the connection. `apply_pending`
+        # holds one for its whole run and looked isolated; anything using
+        # `pool.fetch()` was quietly reading the shared public schema
+        # instead, and one test here passed because of what a previous
+        # real run had left there. A startup parameter survives the reset.
+        pool = await asyncpg.create_pool(
+            dsn, min_size=1, max_size=2, init=init,
+            server_settings={"search_path": name},
+        )
         # asyncpg's Pool uses __slots__, so the schema name travels
         # alongside it rather than being attached to it.
         yield SimpleNamespace(pool=pool, schema=name)
@@ -133,3 +158,138 @@ async def test_a_missing_directory_is_survivable(blank, monkeypatch):
     """JARVIS should still start and talk, even if it cannot find its schema."""
     monkeypatch.setattr("app.migrate._migrations_dir", lambda: None)
     assert await apply_pending(blank.pool) == []
+
+
+# --- reporting the schema, rather than logging it once ---------------------
+
+@pytest.mark.asyncio
+async def test_the_schema_reports_itself_as_up_to_date(blank):
+    """The question "did the migration land?" outlives its own log line.
+
+    "Applied 1 migration(s)" is written on the one startup that applies
+    something and is gone by the next deploy. This is the same answer,
+    available at any time.
+    """
+    from app.migrate import state
+
+    await apply_pending(blank.pool)
+    reported = await state(blank.pool)
+
+    assert reported["state"] == "up_to_date"
+    assert reported["pending"] == []
+    assert "002_agent_foundation.sql" in reported["applied"]
+    assert reported["migrations_in_image"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_a_half_applied_schema_says_what_is_missing(blank):
+    """The case that actually happened, and by name."""
+    from app.migrate import state
+
+    await apply_pending(blank.pool)
+    await blank.pool.execute(
+        "DELETE FROM schema_migrations WHERE filename = '002_agent_foundation.sql'"
+    )
+
+    reported = await state(blank.pool)
+    assert reported["state"] == "pending"
+    assert reported["pending"] == ["002_agent_foundation.sql"]
+
+
+@pytest.mark.asyncio
+async def test_an_image_built_without_the_schema_says_so(blank, monkeypatch):
+    """The failure that is invisible from the database side.
+
+    Nothing is wrong with Postgres; the container simply does not contain
+    the files it is meant to apply. Told apart from "pending" because the
+    fix is a rebuild, not a retry.
+    """
+    from app.migrate import state
+
+    monkeypatch.setattr("app.migrate._migrations_dir", lambda: None)
+    reported = await state(blank.pool)
+
+    assert reported["state"] == "no_migrations_in_image"
+    assert reported["migrations_in_image"] == 0
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_database_is_reported_not_raised(blank, monkeypatch):
+    """/health must answer even when the thing it describes will not."""
+    from app.migrate import state
+
+    class Dead:
+        async def fetch(self, *args):
+            raise RuntimeError("connection refused")
+
+    reported = await state(Dead())
+    assert reported["state"] == "unreadable"
+
+
+@pytest.mark.asyncio
+async def test_nothing_about_the_database_itself_is_disclosed(blank, monkeypatch):
+    """/health is public, so this reports the schema and nothing around it.
+
+    Filenames and a commit hash are already public in the repository. A
+    connection string or a raw exception is not, and an unauthenticated
+    endpoint is exactly the wrong place to find out otherwise.
+    """
+    from app.migrate import state
+
+    class Leaky:
+        async def fetch(self, *args):
+            raise RuntimeError(
+                "could not connect: postgres://jarvis:hunter2@db.internal:5432/jarvis"
+            )
+
+    blob = repr(await state(Leaky()))
+    assert "hunter2" not in blob and "db.internal" not in blob
+
+
+@pytest.mark.asyncio
+async def test_a_settled_answer_is_not_re_queried(blank, monkeypatch):
+    """/health is polled continuously; the answer cannot change until restart.
+
+    Migrations run at startup and nowhere else, so this process reports
+    the same thing for its whole life. Billing a query per health check
+    for a fixed answer would be a strange thing to add to a system with a
+    monthly budget.
+    """
+    import app.migrate as migrate
+
+    await apply_pending(blank.pool)
+
+    class Counting:
+        """A wrapper, because asyncpg's Pool uses __slots__ and cannot be
+        patched in place."""
+
+        def __init__(self, pool):
+            self.pool, self.queries = pool, 0
+
+        async def fetch(self, *args, **kwargs):
+            self.queries += 1
+            return await self.pool.fetch(*args, **kwargs)
+
+    counted = Counting(blank.pool)
+    first = await migrate.state(counted)
+    for _ in range(5):
+        await migrate.state(counted)
+    queries = counted.queries
+
+    assert first["state"] == "up_to_date"
+    assert queries == 1, f"the schema was queried {queries} times for a fixed answer"
+
+
+@pytest.mark.asyncio
+async def test_a_momentary_failure_is_never_cached(blank, monkeypatch):
+    """Caching 'unreadable' would turn one bad moment into a permanent lie."""
+    import app.migrate as migrate
+
+    await apply_pending(blank.pool)
+
+    class Blip:
+        async def fetch(self, *args):
+            raise RuntimeError("connection reset")
+
+    assert (await migrate.state(Blip()))["state"] == "unreadable"
+    assert (await migrate.state(blank.pool))["state"] == "up_to_date"
