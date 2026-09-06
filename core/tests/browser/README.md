@@ -39,6 +39,23 @@ provider; `verdicts.mjs` needs the seeded workflow, because the mock
 cannot produce a fact-check result and that is the richest thing the panel
 renders.
 
+```bash
+node tests/browser/fits_the_screen.mjs        # six viewports, both layouts
+node tests/browser/ios_viewport_height.mjs    # the iOS 100vh trap
+```
+
+`ios_viewport_height.mjs` deserves a note. On iOS Safari `100vh` is the
+*large* viewport — the height the page would have if the toolbars were
+hidden — so anything sized `calc(100vh - x)` is laid out against a number
+bigger than what you can see, and its bottom edge is unreachable. Chromium
+has no such gap, so it cannot show this by itself. The script renders at
+the height iOS *reports* and asserts everything fits inside the height iOS
+actually *shows*. That is what makes it able to fail.
+
+That bug shipped once: the Tasks panel worked on a phone and put 50px of
+the results list beyond the edge of an iPad, because the rule only applies
+from 900px up and a phone never reaches it.
+
 Third-party requests (Google Fonts, the sign-in script) are reported as
 blocked in a sandbox with no egress. That is the sandbox, not JARVIS —
 the scripts fail only on requests to JARVIS itself.
