@@ -71,6 +71,13 @@ async def _dependency_results(task_id: UUID) -> list[str]:
         result = r["result"]
         if isinstance(result, dict):
             result = result.get("output", result)
+        # A structured output that carries its own summary hands that over
+        # instead of its raw shape. Not a special case for one capability:
+        # any agent returning structure owes the next one a readable
+        # version of it, and a dict printed into a briefing is noise the
+        # reader has to decode before it can start work.
+        if isinstance(result, dict) and isinstance(result.get("summary"), str):
+            result = result["summary"]
         out.append(f"From {r['capability']}: {result}")
     return out
 

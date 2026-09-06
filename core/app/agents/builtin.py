@@ -133,9 +133,9 @@ async def install() -> None:
     # installed separately so a failure in one does not take out the rest
     # -- a broken capability should be a missing capability, not a system
     # that will not start.
-    from app.agents.capabilities import research_web
+    from app.agents.capabilities import factcheck_claims, research_web
 
-    for module in (research_web,):
+    for module in (research_web, factcheck_claims):
         try:
             await module.install()
         except Exception as exc:  # noqa: BLE001

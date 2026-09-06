@@ -71,7 +71,7 @@ about an overspend afterwards is an audit trail, not a budget.
 ## What exists now
 
 Three mock capabilities that prove the machinery — `general.research`,
-`general.analysis`, `general.writer` — and one real one:
+`general.analysis`, `general.writer` — and two real ones:
 
 **`research.web`** answers a question from live web sources and returns
 the pages it relied on. It uses Gemini's own Google Search grounding, so
@@ -86,6 +86,55 @@ Its confidence is **computed, not asserted**: from how many independent
 sources supported the answer, never above 0.85. A model asked to rate its
 own certainty produces a number that sounds thoughtful and tracks
 nothing. And the web agreeing is not the same as the web being right.
+
+**`factcheck.claims`** takes claims — usually the ones a research task
+just produced — splits them apart, and checks each one against live
+sources on its own. It gives back a verdict per claim (supported,
+contradicted, disputed, unverified), the evidence behind it, and one
+overall number.
+
+It is the second half of `research.web`, and it is what makes a
+confidence figure worth reading. Research counts sources: four sources
+scores 0.85 whether those four agreed, disagreed, or were four copies of
+the same press release. Fact-checking asks whether the thing is actually
+so.
+
+Two rules keep it honest.
+
+*A verdict with nothing behind it is not a verdict.* If a check comes
+back with no sources, the claim is recorded as **unverified** whatever
+the model said about it. A model will cheerfully answer "SUPPORTED" from
+its own recollection with nothing to cite; letting that through would
+launder an unchecked opinion into a green tick — worse than never
+checking, because it carries a stamp.
+
+*It is not shown what you already believe.* `factcheck.claims` holds
+NETWORK and nothing else — no `READ_MEMORY`, working scope only. A
+checker that knows what its owner wants to be true has been handed a
+reason to agree, and the entire value of the check is that it does not
+have one.
+
+Practical limits, both deliberate: five claims per task by default
+(`max_claims` raises it), because a ten-claim answer means ten searches
+and on a free tier that is the difference between a check and a rate
+limit; and if one lookup fails the other claims still report, while if
+*every* lookup fails the task fails — five failed searches are not five
+honest "unverified" verdicts, and reporting them as verdicts would look
+like the claims had been examined and found wanting.
+
+Running the pair as a chain is the ordinary use:
+
+```python
+await orchestrator.run(
+    "How fast did India's economy grow?", "user:owner",
+    steps=[
+        orchestrator.Step("research.web", "How fast did India's economy grow?",
+                          name="research"),
+        orchestrator.Step("factcheck.claims", "Check the research findings",
+                          name="check", after=("research",)),
+    ],
+)
+```
 
 ## Adding a capability
 
