@@ -176,10 +176,28 @@ What the work finds is stored as a memory (`retrieved`), so tomorrow
 JARVIS still knows it. That applies to Tasks-tab runs too — otherwise a
 research run answers the question and is forgotten by the next message.
 
-**Voice is not wired to this yet.** The live voice path talks to Gemini
-directly rather than through JARVIS's own model, so the marker has
-nowhere to ride. It needs a different mechanism and is a separate piece
-of work.
+### By voice
+
+Voice works too, by a different mechanism, because it has to. Live voice
+talks to Gemini directly and Gemini *generates speech* — a marker in its
+output is a marker read out loud, brackets and all. So the spoken path is
+split in two:
+
+- **Gemini says it in words.** It is told that it can search and check,
+  though not during this spoken turn, and to say so plainly and ask
+  whether to go ahead — the way a person would offer to fetch something.
+- **JARVIS decides the button.** After the turn, it reads back what you
+  actually said and works out the objective, then puts the same offer card
+  on screen. You hear the question and press the answer.
+
+A model call per spoken turn would be real money on a free quota, so a
+free keyword filter runs first and most turns never reach the model. It
+reads English cues, which catches the owner's usual mixed speech because
+the verb tends to arrive in English; a request made entirely in another
+script will be missed. That is a known limit, not an accident.
+
+Everything after the button is identical to the typed path: same planner,
+same agents, same card, same memory.
 
 ## Adding a capability
 

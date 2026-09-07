@@ -44,6 +44,7 @@ node tests/browser/fits_the_screen.mjs        # six viewports, both layouts
 node tests/browser/ios_viewport_height.mjs    # the iOS 100vh trap
 node tests/browser/stale_script.mjs           # a deploy that half-arrives
 node tests/browser/offer_in_chat.mjs          # ask in chat, work happens
+node tests/browser/voice_offer.mjs            # ask aloud, work happens
 ```
 
 `offer_in_chat.mjs` injects a marked reply at the network boundary,

@@ -201,3 +201,90 @@ async def remember_outcome(objective: str, summary: str) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - never worth failing the work over
         logger.warning("Could not remember what the work found: %s", exc)
+
+
+# --- the spoken path -------------------------------------------------------
+#
+# Voice cannot use the marker. Gemini Live generates speech, so a marker in
+# its output is a marker read out loud -- brackets and all. It is told to
+# offer in plain words instead ("I can look that up, sir -- shall I?"), and
+# the button that makes that actionable comes from here: JARVIS reads back
+# what the owner *said* and decides separately.
+#
+# That means a model call per spoken turn, which is a real cost on a free
+# quota. So a free filter runs first and most turns never reach the model.
+
+_ASKING = (
+    "look up", "look it up", "find out", "search", "google", "check",
+    "verify", "fact check", "is it true", "latest", "current", "right now",
+    "today", "this week", "news", "what happened", "how much is",
+    "how much does", "price of", "confirm",
+)
+
+_SPEECH_PROMPT = """\
+The owner of a personal assistant said this out loud. Decide whether
+answering it honestly needs looking something up on the live web --
+because it depends on current information, because they asked for
+something to be checked or verified, or because they told the assistant
+to go and find something out.
+
+Say no to chat, to opinions, to anything about the owner the assistant
+would already know, and to anything a search cannot settle. No is the
+common answer and the safe one: saying yes when it is not warranted
+spends the owner's money on nothing.
+
+They said: {said}
+
+Reply with JSON only:
+{{"needed": true or false, "objective": "one self-contained sentence"}}
+"""
+
+
+def looks_like_a_request(said: str) -> bool:
+    """The free half of the decision.
+
+    A keyword filter, not a judgement -- its only job is to keep most
+    spoken turns from costing a model call at all. It is deliberately
+    loose: a false positive costs one cheap call, a false negative costs
+    an offer that was never made.
+
+    It reads English cues, which catches the owner's usual mixed speech
+    because the verb tends to arrive in English. A request made entirely
+    in another script will be missed, and that is a known limit rather
+    than an accident.
+    """
+    text = (said or "").lower()
+    return len(text.split()) >= 3 and any(cue in text for cue in _ASKING)
+
+
+async def from_speech(said: str, provider) -> str | None:
+    """What the owner asked for out loud, if it wants real work.
+
+    Returns an objective, or None -- and never raises. This runs while the
+    owner is mid-conversation, so a bad JSON day must cost a missed offer
+    and nothing else.
+    """
+    import json
+
+    if not looks_like_a_request(said) or not await can_act():
+        return None
+
+    try:
+        result = await provider.complete(_SPEECH_PROMPT.format(said=said[:1000]))
+        text = result.text.strip()
+        fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
+        if fenced:
+            text = fenced.group(1).strip()
+        else:
+            start, end = text.find("{"), text.rfind("}")
+            if start != -1 and end > start:
+                text = text[start : end + 1]
+        data = json.loads(text)
+    except Exception as exc:  # noqa: BLE001 - a missed offer, nothing more
+        logger.info("Could not read a spoken request: %s", exc)
+        return None
+
+    if not isinstance(data, dict) or not data.get("needed"):
+        return None
+    objective = str(data.get("objective") or "").strip()
+    return objective if len(objective) > 8 else None

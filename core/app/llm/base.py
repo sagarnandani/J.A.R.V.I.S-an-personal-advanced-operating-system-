@@ -47,6 +47,10 @@ JARVIS_SYSTEM_PROMPT = (
 # second call.
 from app.offer import INSTRUCTION as _CAN_DO_INSTRUCTION  # noqa: E402
 
+# Kept separately so the spoken path can use the persona without the
+# marker. A model reading "[[JARVIS_CAN_DO: ...]]" aloud is not a subtle
+# failure, and it would have been every voice reply that wanted looking up.
+_PROMPT_WITHOUT_OFFERS = JARVIS_SYSTEM_PROMPT
 JARVIS_SYSTEM_PROMPT += _CAN_DO_INSTRUCTION
 
 
@@ -54,18 +58,25 @@ USER = "user"
 ASSISTANT = "assistant"
 
 
-def system_prompt_with(memory_context: str | None) -> str:
+def system_prompt_with(memory_context: str | None, *, offers: bool = True) -> str:
     """The system prompt, plus what JARVIS knows about its owner.
 
     Labelled as JARVIS's own notes rather than presented as fact. They are
     summaries it wrote of things the owner said, and the instruction to
     trust the owner over its own notes is what stops a stale note winning
     an argument with the person it is about.
+
+    `offers=False` removes the instruction that has the model mark work it
+    could do. That mark is written text, invisible in a typed reply and
+    stripped before anybody sees it -- but a model that is *speaking*
+    would read the brackets out loud. Voice therefore asks in words
+    instead; see app/routes/live.py.
     """
+    prompt = JARVIS_SYSTEM_PROMPT if offers else _PROMPT_WITHOUT_OFFERS
     if not memory_context:
-        return JARVIS_SYSTEM_PROMPT
+        return prompt
     return (
-        f"{JARVIS_SYSTEM_PROMPT}\n\n"
+        f"{prompt}\n\n"
         "These are your own notes about your owner, from earlier "
         "conversations. Use them when relevant, and do not announce them "
         "unprompted. If the owner says something that contradicts a note, "

@@ -157,6 +157,12 @@ async function startLive() {
       case "turn_complete":
         liveState("turn");
         break;
+      case "offer":
+        // JARVIS has already said out loud that it can look this up. This
+        // is the half you can press. Dispatched rather than rendered here
+        // because drawing in the conversation is app.js's job.
+        document.dispatchEvent(new CustomEvent("jarvis:offer", { detail: msg }));
+        break;
       case "error":
         liveState("error", msg.message);
         stopLive();

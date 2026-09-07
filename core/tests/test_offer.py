@@ -328,3 +328,124 @@ async def test_a_marked_message_still_answers_when_nothing_can_act(chat, clean):
     body = (await chat.client.post("/v1/message", json={"text": "rate?"})).json()
     assert body["reply"] == "Best I have is 8%."
     assert body["offer"] is None
+
+
+# --- the spoken path ------------------------------------------------------
+
+def test_a_speaking_model_is_never_told_to_emit_the_marker():
+    """The regression this file exists to stop happening twice.
+
+    The marker is written text: invisible in a typed reply, stripped
+    before anyone sees it. A model generating speech would read the
+    brackets out loud -- "bracket bracket JARVIS underscore CAN underscore
+    DO" -- on every reply that wanted looking up.
+    """
+    from app.llm.base import system_prompt_with
+
+    assert offer.MARKER in system_prompt_with(None)
+    assert offer.MARKER not in system_prompt_with(None, offers=False)
+    assert offer.MARKER not in system_prompt_with("some notes", offers=False)
+
+
+def test_the_spoken_prompt_still_carries_the_persona_and_the_notes():
+    """Dropping the marker must not drop everything else with it."""
+    from app.llm.base import system_prompt_with
+
+    spoken = system_prompt_with("Owner's wife is called Sneha.", offers=False)
+    assert "Address him as 'sir'" in spoken
+    assert "Sneha" in spoken
+
+
+def test_voice_asks_for_the_prompt_without_the_marker():
+    """Checked at the call site, not only in the helper.
+
+    A correct helper called with the wrong argument is the same bug, and
+    this is the line that had it wrong.
+    """
+    import inspect
+
+    from app.routes import live
+
+    source = inspect.getsource(live)
+    assert "system_prompt_with(context, offers=False)" in source
+
+
+@pytest.mark.parametrize("said,expected", [
+    ("what is the latest on the EV policy", True),
+    ("can you check the karnataka subsidy for me", True),
+    ("haan check karo the latest news", True),
+    ("is it true that the subsidy went up", True),
+    ("good morning", False),
+    ("what is my wife's name", False),
+    ("yes", False),
+    ("", False),
+])
+def test_the_free_filter_keeps_most_turns_from_costing_anything(said, expected):
+    """A model call per spoken turn is real money on a free quota.
+
+    The filter is deliberately loose: a false positive costs one cheap
+    call, a false negative costs an offer nobody was promised.
+    """
+    assert offer.looks_like_a_request(said) is expected
+
+
+@pytest.mark.asyncio
+async def test_a_spoken_request_becomes_an_objective(clean):
+    await builtin.install()
+    await research_web.install()
+
+    class Fake:
+        async def complete(self, message, history=None, memory_context=None):
+            assert "EV policy" in message, "the model was not shown what was said"
+            return SimpleNamespace(
+                text='{"needed": true, "objective": "find the current Karnataka EV subsidy"}',
+                input_tokens=1, output_tokens=1, model="t", provider="mock")
+
+    got = await offer.from_speech("what is the latest on the EV policy", Fake())
+    assert got == "find the current Karnataka EV subsidy"
+
+
+@pytest.mark.asyncio
+async def test_chat_that_only_sounds_like_a_request_is_dropped(clean):
+    """The filter lets things through; the model is what decides."""
+    await builtin.install()
+
+    class Fake:
+        async def complete(self, message, history=None, memory_context=None):
+            return SimpleNamespace(text='{"needed": false}', input_tokens=1,
+                                   output_tokens=1, model="t", provider="mock")
+
+    assert await offer.from_speech("check with me later today", Fake()) is None
+
+
+@pytest.mark.asyncio
+async def test_the_filter_runs_before_the_model_is_ever_called(clean):
+    await builtin.install()
+    called = False
+
+    class Fake:
+        async def complete(self, *a, **k):
+            nonlocal called
+            called = True
+            raise AssertionError("a model was called on ordinary chat")
+
+    assert await offer.from_speech("good morning", Fake()) is None
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_a_bad_reply_costs_a_missed_offer_and_nothing_else(clean):
+    """This runs while the owner is mid-conversation."""
+    await builtin.install()
+
+    class Junk:
+        async def complete(self, *a, **k):
+            return SimpleNamespace(text="sorry, what?", input_tokens=1,
+                                   output_tokens=1, model="t", provider="mock")
+
+    class Broken:
+        async def complete(self, *a, **k):
+            raise RuntimeError("503")
+
+    assert await offer.from_speech("check the latest news", Junk()) is None
+    assert await offer.from_speech("check the latest news", Broken()) is None

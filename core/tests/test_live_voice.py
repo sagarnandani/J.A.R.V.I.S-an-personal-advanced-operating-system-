@@ -509,3 +509,108 @@ def test_a_broken_extractor_never_interrupts_the_conversation(wired, monkeypatch
 
     assert "turn_complete" in kinds
     assert stored == [("hello", "Welcome back, sir.")]
+
+
+# --- offering to go and do it ---------------------------------------------
+
+def test_the_spoken_prompt_carries_no_written_marker(wired):
+    """A speaking model would read the brackets out loud.
+
+    The typed path has the model append "[[JARVIS_CAN_DO: ...]]", which is
+    invisible in text and stripped before anyone sees it. Sending the same
+    instruction to a model generating speech is not a subtle failure --
+    every reply that wanted looking up would be read out with its
+    punctuation.
+    """
+    client, _, connect, _ = wired([_turn(said="hello", replied="Sir.", complete=True)])
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "end"})
+
+    instruction = connect.config.system_instruction
+    assert "JARVIS_CAN_DO" not in instruction
+    # It still has to know it can offer -- just in words.
+    assert "search the live web" in instruction
+    assert "ask whether to go ahead" in instruction
+
+
+def test_a_spoken_request_puts_an_offer_on_the_screen(wired, monkeypatch):
+    """The half the owner can press.
+
+    Gemini has already said out loud that it can look this up; it cannot
+    also emit a silent marker, so the button is decided here from what the
+    owner said.
+    """
+    async def detected(said, provider):
+        assert "EV subsidy" in said
+        return "find the current Karnataka EV subsidy"
+
+    monkeypatch.setattr(live_route, "_maybe_offer", live_route._maybe_offer)
+    monkeypatch.setattr("app.offer.from_speech", detected)
+    monkeypatch.setattr("app.offer.build", _async_return(
+        {"objective": "find the current Karnataka EV subsidy",
+         "cost_note": "no measurement yet", "typical_cost_inr": None}))
+
+    client, _, _, _ = wired([
+        _turn(said="check the EV subsidy", replied="I can look that up, sir.",
+              complete=True),
+    ])
+    _cookie(client)
+
+    seen = []
+    with client.websocket_connect("/v1/live") as ws:
+        for _ in range(6):
+            msg = ws.receive_json()
+            seen.append(msg)
+            if msg["type"] == "offer":
+                break
+        ws.send_json({"type": "end"})
+
+    offers = [m for m in seen if m["type"] == "offer"]
+    assert offers, f"no offer reached the browser: {[m['type'] for m in seen]}"
+    assert offers[0]["objective"] == "find the current Karnataka EV subsidy"
+    assert offers[0]["cost_note"] == "no measurement yet"
+
+
+def test_ordinary_talk_produces_no_offer(wired, monkeypatch):
+    monkeypatch.setattr("app.offer.from_speech", _async_return(None))
+
+    client, _, _, _ = wired([
+        _turn(said="good morning", replied="Welcome back, sir.", complete=True),
+    ])
+    _cookie(client)
+
+    seen = []
+    with client.websocket_connect("/v1/live") as ws:
+        for _ in range(5):
+            try:
+                seen.append(ws.receive_json())
+            except Exception:  # noqa: BLE001
+                break
+            if seen[-1]["type"] == "turn_complete":
+                break
+        ws.send_json({"type": "end"})
+
+    assert not [m for m in seen if m["type"] == "offer"]
+
+
+def test_a_failure_while_offering_never_touches_the_conversation(wired, monkeypatch):
+    """This runs while the owner is mid-sentence."""
+    async def boom(said, provider):
+        raise RuntimeError("the model fell over")
+
+    monkeypatch.setattr("app.offer.from_speech", boom)
+
+    client, _, _, stored = wired([
+        _turn(said="check something", replied="Certainly not, sir.", complete=True),
+    ])
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        for _ in range(4):
+            if ws.receive_json()["type"] == "turn_complete":
+                break
+        ws.send_json({"type": "end"})
+
+    # The exchange was still remembered, which is the thing that matters.
+    assert stored == [("check something", "Certainly not, sir.")]

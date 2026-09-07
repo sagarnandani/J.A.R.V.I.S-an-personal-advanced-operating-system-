@@ -65,6 +65,13 @@ _VOICE_NOTE = (
     "punctuation, markdown or lists. Reply in whatever language the owner "
     "speaks, including when they mix languages within a sentence, and use "
     "the same mixture back."
+    "\n\nYou can also search the live web and check claims, though not "
+    "during this spoken turn. When the honest answer needs that -- it "
+    "depends on current information, or the owner asked you to check or "
+    "find something out -- say so plainly in your own words and ask "
+    "whether to go ahead, as you would if asked to fetch something. A "
+    "button appears on the owner's screen at the same time. Never read out "
+    "any bracketed marker or code; say it as a person would."
 )
 
 
@@ -173,7 +180,12 @@ async def live_voice(websocket: WebSocket) -> None:
 
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
-        system_instruction=system_prompt_with(context) + _VOICE_NOTE,
+        # offers=False: the typed path has the model append a marker for
+        # work it could do, which is invisible in text and stripped before
+        # anyone sees it. A speaking model would read the brackets out
+        # loud, so voice asks in words and the actionable half is decided
+        # server-side from what the owner said.
+        system_instruction=system_prompt_with(context, offers=False) + _VOICE_NOTE,
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(
@@ -346,7 +358,12 @@ async def _pump(websocket: WebSocket, session, who: dict, settings) -> bool:
                 await _say(websocket, type="interrupted")
 
             if getattr(server, "turn_complete", None):
-                await _remember("".join(said).strip(), "".join(heard).strip(), who)
+                spoken = "".join(said).strip()
+                await _remember(spoken, "".join(heard).strip(), who)
+                # Detached: deciding whether that was a job takes a model
+                # call, and the owner is already free to speak again. Made
+                # to wait for it, they would hear the pause.
+                _detached(_maybe_offer(websocket, spoken, settings))
                 said, heard = [], []
                 # Says "your turn" to the page. The microphone never
                 # stopped, so speaking again just continues; this only
@@ -382,6 +399,41 @@ async def _pump(websocket: WebSocket, session, who: dict, settings) -> bool:
         return carried
 
     return carried
+
+
+# Detached work, held so the event loop does not collect it mid-flight.
+_PENDING: set[asyncio.Task] = set()
+
+
+def _detached(coro) -> None:
+    task = asyncio.create_task(coro)
+    _PENDING.add(task)
+    task.add_done_callback(_PENDING.discard)
+
+
+async def _maybe_offer(websocket: WebSocket, spoken: str, settings) -> None:
+    """Offer to go and do it, when what was said asked for that.
+
+    Sent to the page rather than spoken: the model has already said in
+    words that it can look it up, and a decision needs something to press.
+    Reading a cost figure aloud and waiting for "yes" would be slower and
+    easier to mishear.
+
+    Silent on every failure. A missed offer is a small loss; an exception
+    here would take down the conversation the owner is in the middle of.
+    """
+    try:
+        from app import offer
+        from app.llm import get_provider
+
+        objective = await offer.from_speech(spoken, get_provider(settings))
+        if not objective:
+            return
+        proposal = await offer.build(objective)
+        if proposal:
+            await _say(websocket, type="offer", **proposal)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Could not offer to act on what was said: %s", exc)
 
 
 async def _remember(said: str, replied: str, who: dict) -> None:

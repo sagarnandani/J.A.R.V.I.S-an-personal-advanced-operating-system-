@@ -949,6 +949,14 @@ $("wfList").addEventListener("click", (e) => {
   if (row) { pendingPlan = null; showPlanButtons({}); watch(row.dataset.wf); }
 });
 
+// A spoken request that wanted doing. The same card as the typed path --
+// one way of showing an offer, however it was asked for.
+document.addEventListener("jarvis:offer", (e) => {
+  const row = addMsg("jarvis", "", null);
+  row.querySelector(".body").remove();
+  addOffer(row, e.detail);
+});
+
 $("planBtn").onclick = proposePlan;
 $("runBtn").onclick = runPlan;
 $("discardBtn").onclick = discardPlan;
