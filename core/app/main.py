@@ -182,4 +182,26 @@ app.include_router(agents.router)
 
 # The Stage 0 test console (plain HTML/JS) -- see /core/static/README for
 # what this is and isn't. Mounted last so it doesn't shadow API routes.
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+class RevalidatingStatic(StaticFiles):
+    """Static files that are always checked before being reused.
+
+    Without a Cache-Control header a browser invents its own freshness
+    window, and Safari's is generous -- generous enough that an iPad ran
+    the new index.html against a cached app.js from before the Tasks tab
+    existed. The tab was there, the code behind it was not, and tapping it
+    did nothing.
+
+    `no-cache` does not mean "do not store". It means "store, but ask
+    before reusing", so a browser still gets a 304 and no body when
+    nothing has changed. For an app whose whole front end is three small
+    files, one conditional request per load is nothing next to shipping a
+    deploy that only half arrives.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/", RevalidatingStatic(directory="static", html=True), name="static")

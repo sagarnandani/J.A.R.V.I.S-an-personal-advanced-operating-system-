@@ -791,6 +791,11 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
 
 
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="/app.js" type="module"></script>
+<!-- ?v=2 is a one-off, not a convention. Static files are now served
+     no-cache so every deploy is picked up on the next load; this exists
+     only to break browsers out of a copy cached before that header
+     existed, which they would otherwise never re-request. Future changes
+     need no bump. -->
+<script src="/app.js?v=2" type="module"></script>
 </body>
 </html>

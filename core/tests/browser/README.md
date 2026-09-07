@@ -42,7 +42,16 @@ renders.
 ```bash
 node tests/browser/fits_the_screen.mjs        # six viewports, both layouts
 node tests/browser/ios_viewport_height.mjs    # the iOS 100vh trap
+node tests/browser/stale_script.mjs           # a deploy that half-arrives
 ```
+
+`stale_script.mjs` checks that static files are served with a
+Cache-Control that makes a browser ask before reusing them, and that a
+nav button for a view the script does not know stays un-highlighted and
+says so. Both come from a real failure: an iPad ran new HTML against an
+`app.js` cached from before the Tasks tab existed, so the button was
+there, the code was not, and tapping it highlighted the button and did
+nothing at all.
 
 `ios_viewport_height.mjs` deserves a note. On iOS Safari `100vh` is the
 *large* viewport — the height the page would have if the toolbars were

@@ -544,9 +544,23 @@ function showView(name) {
 $("nav").addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-view]");
   if (!btn) return;
+
+  // Check the view exists BEFORE marking the button active. The old order
+  // highlighted first and then threw on an unknown name, which is the
+  // worst possible outcome: the button looks selected and nothing opens,
+  // and there is no clue on screen that anything went wrong. That is
+  // exactly what a browser running new HTML against a cached older
+  // app.js produced.
+  const name = btn.dataset.view;
+  if (!(name in VIEWS)) {
+    console.error(`No such view: ${name}. This page's HTML is newer than ` +
+                  `its script — reload to pick up the rest of the update.`);
+    return;
+  }
+
   [...$("nav").querySelectorAll("button[data-view]")].forEach((b) => b.classList.remove("active"));
   btn.classList.add("active");
-  showView(btn.dataset.view);
+  showView(name);
 });
 
 $("fsBtn").onclick = async () => {
