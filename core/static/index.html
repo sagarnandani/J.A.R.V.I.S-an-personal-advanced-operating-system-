@@ -464,6 +464,27 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
   }
 }
 
+/* --- an offer inside the conversation --- */
+.offer {
+  border: 1px solid rgba(255,171,61,.45); border-left: 2px solid var(--gold);
+  background: rgba(40,28,8,.35); padding: .55rem .7rem; margin: .35rem 0 .2rem;
+}
+.offer .what { font-size: .9rem; color: var(--text); }
+.offer .cost { font-size: .74rem; color: var(--muted); margin-top: .2rem; letter-spacing: .03em; }
+.offer .row { margin-top: .5rem; }
+.offer .btn { padding: .3rem .7rem; font-size: .74rem; }
+.offer .btn.go { color: var(--gold); border-color: rgba(255,171,61,.5); }
+.offer .btn.go:hover { box-shadow: 0 0 14px rgba(255,171,61,.3); }
+.offer.running { border-left-color: var(--cyan); }
+.offer.done { border-left-color: var(--ok); border-color: rgba(61,220,151,.35); background: rgba(8,34,26,.3); }
+.offer.failed { border-left-color: var(--danger); }
+.offer .steps { font-size: .78rem; color: var(--muted); margin-top: .35rem; }
+.offer .steps b { color: var(--cyan); font-weight: 600; }
+/* A finished answer scrolls inside its own card. The conversation box is
+   a few hundred pixels tall, and a research result pasted into it whole
+   pushes the question, the offer and everything before them off the top. */
+.offer .out { max-height: 9rem; overflow-y: auto; margin: .3rem 0 0; }
+
 label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--text); cursor: pointer; padding: .3rem 0; }
 </style>
 </head>

@@ -196,8 +196,44 @@ async def _settle(workflow_id: UUID, waves: int) -> dict:
         "workflow_settled", workflow_id=workflow_id,
         detail={"status": status, "waves": waves, "tasks": counts},
     )
+
+    # What the work found becomes something JARVIS remembers. Without
+    # this a research run answers the question and is forgotten by the
+    # next message -- the exact failure long-term memory exists to stop --
+    # and it applies however the work was started, from the Tasks tab or
+    # from a sentence in conversation.
+    if status == "completed" and outputs:
+        wf = await tasks.get_workflow(workflow_id)
+        await _remember(wf, outputs)
+
     return {"workflow_id": str(workflow_id), "status": status,
             "tasks": counts, "waves": waves, "outputs": outputs}
+
+
+def _readable(outputs: dict) -> str:
+    """The workflow's result as something a person, or a later prompt, reads.
+
+    A structured output hands over its own summary; anything else goes as
+    it stands. The last step speaks last, because in a chain it is the one
+    that had everything before it.
+    """
+    parts = []
+    for capability, output in outputs.items():
+        if isinstance(output, dict):
+            output = output.get("summary") or output
+        parts.append(f"{capability}: {output}")
+    return "\n\n".join(str(p) for p in parts)
+
+
+async def _remember(wf, outputs: dict) -> None:
+    from app import offer
+
+    if not wf:
+        return
+    try:
+        await offer.remember_outcome(wf["objective"], _readable(outputs))
+    except Exception:  # noqa: BLE001 - remembering must not fail the work
+        pass
 
 
 async def run(

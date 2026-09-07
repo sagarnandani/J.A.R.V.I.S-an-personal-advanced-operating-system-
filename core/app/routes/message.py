@@ -11,12 +11,12 @@ import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from app import audit, facts, memory, status, system_control
+from app import audit, facts, memory, offer, status, system_control
 from app.auth import CurrentUser, get_current_user
 from app.budget import estimate_cost_inr
 from app.config import Settings, get_settings
 from app.llm import get_provider
-from app.models import MessageRequest, MessageResponse
+from app.models import MessageRequest, MessageResponse, Offer
 
 logger = logging.getLogger("jarvis.message")
 
@@ -108,6 +108,17 @@ async def send_message(
             detail=f"The language model provider failed to respond: {exc}",
         ) from exc
 
+    # The model marks a message it judges worth real work, on the end of
+    # the reply it was already writing. Split before anything else touches
+    # the text: the marker must never reach the owner, and must never be
+    # stored as though JARVIS had said it.
+    reply_text, objective = offer.split(result.text)
+    proposal = await offer.build(objective) if objective else None
+    if objective and proposal is None:
+        # Marked, but nothing registered can take it. Dropped quietly --
+        # an offer JARVIS cannot honour is worse than none.
+        logger.info("Ignoring an offer nothing can act on: %s", objective[:120])
+
     # Provenance: the user's own words are 'stated'. JARVIS's reply is
     # content that came back from the model -- 'retrieved' -- never
     # 'stated' (that word is reserved for what the user told us) and never
@@ -124,7 +135,7 @@ async def send_message(
     # the answer already exists, which is the worst place to spend time:
     # the owner is watching a spinner while JARVIS files paperwork.
     (user_memory_id, reply_memory_id), audit_log_id = await asyncio.gather(
-        memory.store_exchange(body.text, result.text),
+        memory.store_exchange(body.text, reply_text),
         audit.log_audit(
             actor="system",
             action="llm_message_exchange",
@@ -142,14 +153,15 @@ async def send_message(
             _learn_quietly,
             provider,
             body.text,
-            result.text,
+            reply_text,
             user_memory_id,
             settings.memory_facts_per_exchange,
         )
 
     total_ms = int((time.perf_counter() - started) * 1000)
     return MessageResponse(
-        reply=result.text,
+        reply=reply_text,
+        offer=Offer(**proposal) if proposal else None,
         user_memory_id=user_memory_id,
         reply_memory_id=reply_memory_id,
         audit_log_id=audit_log_id,

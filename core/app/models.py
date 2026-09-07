@@ -10,8 +10,25 @@ class MessageRequest(BaseModel):
     text: str
 
 
+class Offer(BaseModel):
+    """Work JARVIS is proposing, which has not happened and costs nothing.
+
+    Present only when the reply's own knowledge was not good enough and
+    there is a registered agent that could do better. Accepting it is a
+    separate request -- nothing here has run.
+    """
+
+    objective: str
+    # In words, not a number, so "I have no measurement yet" can be said
+    # rather than dressed up as a figure.
+    cost_note: str
+    typical_cost_inr: float | None = None
+
+
 class MessageResponse(BaseModel):
     reply: str
+    # None for the great majority of messages: chat stays chat.
+    offer: Offer | None = None
     user_memory_id: UUID
     reply_memory_id: UUID
     audit_log_id: UUID

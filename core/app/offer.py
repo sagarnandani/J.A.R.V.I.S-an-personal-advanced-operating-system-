@@ -1,0 +1,203 @@
+"""Noticing that a message wants doing, not answering.
+
+JARVIS has two halves that did not know about each other. The chat box
+answers from what the model already holds; the agents go and read the
+live web and check what they find. Ask the same question in each and you
+get different answers, and nothing tells you which one you are getting.
+
+This is the join. While answering, the model marks any message whose
+answer really needs looking up, and JARVIS offers to go and do it. The
+owner says yes or ignores it.
+
+Three decisions worth stating, because each rules out a worse version.
+
+**The mark rides on the reply that was already being written.** No second
+model call, so no extra waiting and no extra spend on a message the owner
+was only chatting on. Classifying every message first would have cost a
+round trip on "good morning", and the owner has twice said speed matters.
+
+**Nothing runs without a yes.** The offer is the approval. The Tasks tab
+exists for when a plan is worth reading before it runs; in conversation,
+asking twice for one intent is just friction.
+
+**The price is measured or absent.** What a run costs comes from what
+runs like it have actually cost. Before there is any history JARVIS says
+it does not know yet, rather than inventing a figure -- the same rule
+that keeps it from inventing the income it does not track.
+"""
+import logging
+import re
+
+from app.agents import registry
+from app.db import fetchrow
+
+logger = logging.getLogger("jarvis.offer")
+
+# What the model appends when it judges a message worth real work. Two
+# brackets because a single one appears in ordinary prose; this does not.
+MARKER = "JARVIS_CAN_DO"
+
+# Deliberately forgiving: any bracket count, any spacing, upper or lower
+# case, and a closing bracket that never arrived. A marker that leaks into
+# the reply is the failure that matters -- the owner should never see the
+# machinery -- so the pattern that removes it errs towards removing more.
+_MARKER_RE = re.compile(
+    r"\[{1,3}\s*" + MARKER + r"\s*[::]?\s*(?P<objective>[^\]]*?)\s*\]{0,3}\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+# The same thing when it lands mid-reply rather than at the end.
+_MARKER_ANYWHERE_RE = re.compile(
+    r"\[{1,3}\s*" + MARKER + r"\s*[::]?\s*(?P<objective>[^\]\n]*?)\s*\]{1,3}",
+    re.IGNORECASE,
+)
+
+# Appended to the system prompt for every conversation. It is always
+# present, and the server decides separately whether an offer is real by
+# asking the registry -- so a marker for something JARVIS cannot do is
+# stripped and quietly dropped rather than promised to the owner.
+INSTRUCTION = f"""
+
+You can do more than answer. Separately from this conversation you can
+search the live web and check claims against sources.
+
+When the honest answer is that your own knowledge is not good enough --
+it depends on current information, the owner has asked you to check or
+verify something, or they have plainly told you to go and find something
+out -- answer as best you can in one or two sentences, say that you can
+look it up properly, and end your reply with exactly:
+
+[[{MARKER}: a single self-contained sentence describing the job]]
+
+That line is machinery. The owner never sees it, so do not describe it,
+apologise for it, or refer to it. Never put anything after it.
+
+Do not use it for chat, for things about the owner you already hold in
+memory, for opinions, or for anything a search cannot settle. Most
+messages need no marker at all. Using it when it is not warranted spends
+the owner's money on nothing, which is worse than not offering.
+"""
+
+
+def split(reply: str) -> tuple[str, str | None]:
+    """Separate what the owner reads from what the machinery uses.
+
+    Returns the cleaned reply and the objective, if one was marked.
+
+    Never raises, and always strips. A reply that reaches the owner with
+    "[[JARVIS_CAN_DO: ...]]" hanging off it is worse than one that misses
+    an offer, so every path here removes the marker even when it cannot
+    make sense of it.
+    """
+    if not reply or MARKER.lower() not in reply.lower():
+        return reply, None
+
+    objective = None
+    match = _MARKER_RE.search(reply)
+    if match:
+        objective = (match.group("objective") or "").strip()
+        reply = reply[: match.start()] + reply[match.end():]
+    else:
+        match = _MARKER_ANYWHERE_RE.search(reply)
+        if match:
+            objective = (match.group("objective") or "").strip()
+            reply = _MARKER_ANYWHERE_RE.sub("", reply)
+
+    # Whatever is left of a malformed marker goes too, rather than being
+    # shown to the owner as if JARVIS had said it.
+    if MARKER.lower() in reply.lower():
+        reply = re.sub(r"\[*\s*" + MARKER + r".*$", "", reply,
+                       flags=re.IGNORECASE | re.DOTALL)
+
+    cleaned = re.sub(r"\n{3,}", "\n\n", reply).strip()
+    if not objective:
+        return cleaned, None
+    # A marker with nothing useful in it is not an offer. Falling back to
+    # the owner's own message would be guessing at what they meant.
+    return cleaned, objective if len(objective) > 8 else None
+
+
+async def can_act() -> bool:
+    """Is there actually an agent that could take this on?
+
+    Asked of the registry rather than assumed, because the prompt always
+    invites the marker and the agents may not have installed -- and an
+    offer JARVIS cannot honour is worse than no offer.
+    """
+    try:
+        return any(
+            spec.capability != "general.writer"
+            for spec in await registry.find(task_type="general")
+        )
+    except Exception:  # noqa: BLE001 - never worth failing a reply over
+        return False
+
+
+async def typical_cost() -> float | None:
+    """What work like this has actually cost, or None if nothing has run.
+
+    The median of finished workflows rather than the mean: one expensive
+    run should not make every future offer look dear. None is an honest
+    answer and the caller says so in words -- a made-up figure about money
+    is the one thing this project refuses to produce.
+    """
+    try:
+        row = await fetchrow(
+            """
+            SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY spend) AS median
+            FROM (
+                SELECT SUM(t.spend_inr) AS spend
+                FROM tasks t
+                JOIN workflows w ON w.id = t.workflow_id
+                WHERE w.status = 'completed'
+                GROUP BY t.workflow_id
+                HAVING SUM(t.spend_inr) > 0
+            ) runs
+            """
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if row is None or row["median"] is None:
+        return None
+    return round(float(row["median"]), 2)
+
+
+async def build(objective: str) -> dict | None:
+    """Turn a marked objective into the offer the owner is shown."""
+    if not objective or not await can_act():
+        return None
+
+    cost = await typical_cost()
+    return {
+        "objective": objective,
+        # Said in words rather than as a number the caller has to
+        # interpret, so an unknown price reads as unknown.
+        "cost_note": (
+            f"about Rs.{cost:.2f}, going by what runs like this have cost"
+            if cost is not None
+            else "this would be the first one, so I have no measurement yet"
+        ),
+        "typical_cost_inr": cost,
+    }
+
+
+async def remember_outcome(objective: str, summary: str) -> None:
+    """Keep what the work found, so tomorrow JARVIS still knows it.
+
+    Stored 'retrieved': it is material that came back from outside, not
+    something the owner said and not JARVIS's own inference. Without this
+    a research run would answer the question and be forgotten by the next
+    message, which is the exact failure long-term memory exists to stop.
+    """
+    from app.memory import store_memory
+
+    text = summary.strip()
+    if not text:
+        return
+    try:
+        await store_memory(
+            content=f"Looked into: {objective.strip()}\n\n{text[:4000]}",
+            category="project",
+            origin="retrieved",
+        )
+    except Exception as exc:  # noqa: BLE001 - never worth failing the work over
+        logger.warning("Could not remember what the work found: %s", exc)

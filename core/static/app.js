@@ -486,10 +486,14 @@ async function send() {
 
     if (res.ok) {
       lastReplyMs = data.total_ms;
-      addMsg("jarvis", data.reply,
+      const msg = addMsg("jarvis", data.reply,
         `${data.provider} · ${data.recalled_turns} turns, ${data.recalled_facts} facts · ` +
         `${(data.total_ms / 1000).toFixed(1)}s`);
       speak(data.reply);
+      // Only the reply is spoken. The offer is a decision, and a decision
+      // read aloud as a wall of text is harder to act on than one sitting
+      // on screen with two buttons under it.
+      if (data.offer) addOffer(msg, data.offer);
     } else {
       addMsg("jarvis", explain(res.status, data.detail || ""), null, "err");
     }
@@ -948,5 +952,136 @@ $("wfList").addEventListener("click", (e) => {
 $("planBtn").onclick = proposePlan;
 $("runBtn").onclick = runPlan;
 $("discardBtn").onclick = discardPlan;
+
+/* ---------------------------------------------------------------- offers */
+/* JARVIS noticing that a message wanted doing rather than answering.
+ *
+ * The offer is the approval: accepting it plans and runs in one step. The
+ * Tasks tab is where a plan is worth reading before it runs; asking twice
+ * for one sentence of intent is friction, not safety. Nothing spends
+ * anything until the button is pressed. */
+
+function showOffer(box) {
+  // Scroll to the TOP of the card, not the bottom of the conversation.
+  // Otherwise the thing being offered -- or the answer that came back --
+  // is pushed off the top and you are looking at its last line with no
+  // idea what it was for.
+  convo.scrollTop = Math.max(0, box.offsetTop - convo.offsetTop - 8);
+}
+
+function addOffer(afterEl, offer) {
+  const box = document.createElement("div");
+  box.className = "offer";
+  box.innerHTML =
+    `<div class="what">I can look this up properly: ${esc(offer.objective)}</div>` +
+    `<div class="cost">Cost: ${esc(offer.cost_note)}.</div>` +
+    `<div class="row">` +
+    `<button class="btn go">Go ahead</button>` +
+    `<button class="btn">No thanks</button>` +
+    `</div>`;
+  afterEl.appendChild(box);
+  showOffer(box);
+
+  const [go, no] = box.querySelectorAll("button");
+  no.onclick = () => {
+    box.innerHTML = `<div class="cost">Left it. Nothing was run.</div>`;
+  };
+  go.onclick = () => runOffer(box, offer.objective);
+  return box;
+}
+
+async function runOffer(box, objective) {
+  box.className = "offer running";
+  box.innerHTML = `<div class="what">${esc(objective)}</div>` +
+                  `<div class="steps">Working out the steps…</div>`;
+  try {
+    const res = await api("/v1/workflows", {
+      method: "POST", body: JSON.stringify({ objective }),
+    });
+    if (!res.ok) throw new Error(await problem(res));
+    const started = await res.json();
+    if (started.status === "failed") {
+      box.className = "offer failed";
+      box.innerHTML = `<div class="what">${esc(objective)}</div>` +
+        `<div class="cost">${esc(started.failure_reason || "Nothing registered can do this.")}</div>`;
+      return;
+    }
+    await followOffer(box, objective, started.workflow_id);
+  } catch (err) {
+    box.className = "offer failed";
+    box.innerHTML = `<div class="what">${esc(objective)}</div>` +
+                    `<div class="cost">${esc(String(err.message || err))}</div>`;
+  }
+}
+
+async function followOffer(box, objective, workflowId) {
+  // Polled, not streamed: the work runs on the server, so closing the tab
+  // does not cancel it, and reopening picks it up again from Tasks.
+  for (let tick = 0; tick < 150; tick++) {
+    const res = await api(`/v1/workflows/${workflowId}`);
+    if (!res.ok) throw new Error(await problem(res));
+    const data = await res.json();
+    const rows = data.tasks || [];
+    const done = rows.filter((t) => t.status === "completed").length;
+
+    if (DONE.has(data.workflow.status)) {
+      renderOfferResult(box, objective, data);
+      refresh();
+      return;
+    }
+    box.querySelector(".steps").innerHTML =
+      `<b>${done}/${rows.length || "?"}</b> steps done — ` +
+      esc(rows.map((t) => t.capability).join(" → ") || "starting");
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  box.querySelector(".steps").textContent =
+    "Still running. Open the Tasks tab to watch the rest.";
+}
+
+function renderOfferResult(box, objective, data) {
+  const rows = data.tasks || [];
+  const spent = rows.reduce((sum, t) => sum + Number(t.spend_inr || 0), 0);
+  const failed = data.workflow.status !== "completed";
+  box.className = `offer ${failed ? "failed" : "done"}`;
+
+  // The last step speaks: in a chain it is the one that saw everything
+  // before it. Its own summary is the answer worth showing.
+  const last = [...rows].reverse().find((t) => t.result && t.result.output);
+  const out = last && last.result.output;
+  let body = "";
+  if (out && typeof out === "object" && Array.isArray(out.claims) && out.claims.length) {
+    body = out.claims.map((c) => `
+      <div style="margin-top:.35rem">
+        <span class="verdict ${esc(c.verdict)}">${esc(c.verdict)}</span>
+        <span style="font-size:.88rem">${esc(c.claim)}</span>
+        ${c.why ? `<div class="steps">${esc(c.why)}</div>` : ""}
+        ${(c.sources || []).map(sourceLink).join("")}
+      </div>`).join("");
+  } else if (out) {
+    const text = (typeof out === "object" ? (out.summary || JSON.stringify(out)) : String(out));
+    body = `<div class="out">${esc(text)}</div>` +
+           ((last.result.evidence || []).map(sourceLink).join(""));
+  } else {
+    body = `<div class="cost">${esc(data.workflow.failure_reason || "Nothing came back.")}</div>`;
+  }
+
+  // The objective goes small once the work is done: it was the question,
+  // and the answer is what the owner came back for. The conversation box
+  // is short, so whichever line leads gets most of the space.
+  box.innerHTML =
+    `<div class="cost" style="margin:0 0 .2rem">${esc(objective)}</div>` + body +
+    `<div class="cost">${failed ? "Did not finish" : "Done"} · ` +
+    `Rs.${spent.toFixed(2)} · <a class="src" href="#" data-open-tasks="1">see the steps</a></div>`;
+  showOffer(box);
+
+  const link = box.querySelector("[data-open-tasks]");
+  if (link) link.onclick = (e) => {
+    e.preventDefault();
+    [...$("nav").querySelectorAll("button[data-view]")].forEach((b) => b.classList.remove("active"));
+    document.querySelector('button[data-view="tasks"]').classList.add("active");
+    showView("tasks");
+    watch(data.workflow.id);
+  };
+}
 
 start();

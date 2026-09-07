@@ -43,7 +43,13 @@ renders.
 node tests/browser/fits_the_screen.mjs        # six viewports, both layouts
 node tests/browser/ios_viewport_height.mjs    # the iOS 100vh trap
 node tests/browser/stale_script.mjs           # a deploy that half-arrives
+node tests/browser/offer_in_chat.mjs          # ask in chat, work happens
 ```
+
+`offer_in_chat.mjs` injects a marked reply at the network boundary,
+because the mock provider cannot decide to mark a message. Everything
+downstream of that is real: the strip, the registry check, the planner,
+the agents, the workflow, and the memory it leaves behind.
 
 `stale_script.mjs` checks that static files are served with a
 Cache-Control that makes a browser ask before reusing them, and that a

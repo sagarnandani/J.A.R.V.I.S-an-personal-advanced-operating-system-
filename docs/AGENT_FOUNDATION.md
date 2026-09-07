@@ -136,6 +136,51 @@ await orchestrator.run(
 )
 ```
 
+## Just asking for it
+
+The Tasks tab is where you go deliberately. Most of the time you are
+already talking to JARVIS, so it can notice for itself.
+
+While it writes your reply, JARVIS marks any message whose honest answer
+needs looking up — something that depends on current information, a claim
+you asked it to check, an instruction to go and find something out. The
+reply comes back with a small offer under it:
+
+> *My own figure is likely out of date, sir.*
+>
+> **I can look this up properly:** find the current EV subsidy in
+> Karnataka and check it
+> Cost: about ₹1.40, going by what runs like this have cost.
+> `Go ahead`  `No thanks`
+
+Four things about that, each ruling out a worse version:
+
+**The mark rides on the reply already being written.** No second model
+call, so no extra waiting and nothing spent classifying "good morning".
+
+**Nothing runs without a yes.** The offer *is* the approval — the Tasks
+tab exists for when a plan is worth reading first, and asking twice for
+one sentence of intent is friction, not safety.
+
+**The price is measured or absent.** It comes from the median of what
+finished runs have actually cost. Before there is any history JARVIS says
+it has no measurement yet, rather than inventing a figure — the same rule
+that stops it inventing the income it does not track.
+
+**The marker never reaches you.** It is stripped from the reply, from
+what gets spoken aloud, and from what is written to memory. A reply
+carrying `[[JARVIS_CAN_DO: …]]` would be JARVIS visibly leaking its own
+machinery, and it would be replayed into every later prompt.
+
+What the work finds is stored as a memory (`retrieved`), so tomorrow
+JARVIS still knows it. That applies to Tasks-tab runs too — otherwise a
+research run answers the question and is forgotten by the next message.
+
+**Voice is not wired to this yet.** The live voice path talks to Gemini
+directly rather than through JARVIS's own model, so the marker has
+nowhere to ride. It needs a different mechanism and is a separate piece
+of work.
+
 ## Adding a capability
 
 1. Write a module in `app/agents/capabilities/` with a `SPEC` and a

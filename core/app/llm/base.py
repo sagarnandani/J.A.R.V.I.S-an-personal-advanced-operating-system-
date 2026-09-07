@@ -41,6 +41,14 @@ JARVIS_SYSTEM_PROMPT = (
     "way. Never switch to English because it is easier."
 )
 
+# Appended rather than written inline so the persona above stays readable
+# and the two can be changed without disturbing each other. See
+# app/offer.py for why the mark rides on the reply instead of costing a
+# second call.
+from app.offer import INSTRUCTION as _CAN_DO_INSTRUCTION  # noqa: E402
+
+JARVIS_SYSTEM_PROMPT += _CAN_DO_INSTRUCTION
+
 
 USER = "user"
 ASSISTANT = "assistant"
