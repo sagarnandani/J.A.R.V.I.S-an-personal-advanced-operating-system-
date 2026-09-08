@@ -111,7 +111,6 @@ async def test_it_says_plainly_what_is_not_tracked(clean):
     so the gap is named -- in the prompt, and here.
     """
     text = await briefing(Settings())
-    assert "Tasks completed: NOT TRACKED YET" in text
     assert "Money earned: NOT TRACKED AT ALL" in text
     assert "never produce a figure" in text
 
@@ -127,3 +126,46 @@ async def test_the_briefing_is_real_lines_not_escaped_text(clean):
     text = await briefing(Settings())
     assert "\\n" not in text, "escaped newlines leaked into the prompt"
     assert text.count("\n") >= 5, "the briefing should be one line per figure"
+
+
+
+@pytest.mark.asyncio
+async def test_completed_work_is_counted_rather_than_denied(clean):
+    """This line used to be a hardcoded "the task engine is not built".
+
+    It went on being sent for a week after the task engine was built, so
+    JARVIS said nothing was tracked while finished work sat in the
+    database -- and a test asserted that it should. A claim about the
+    system's own capabilities goes stale silently; a query cannot.
+    """
+    from app.agents import tasks
+
+    wf = await tasks.create_workflow("a job", "user:owner")
+    task_id = await tasks.create(objective="do it", capability="general.analysis",
+                                 workflow_id=wf)
+    await tasks.complete(task_id, {"output": "done"}, confidence=0.9)
+
+    text = await briefing(Settings())
+    assert "Tasks completed in the last 24 hours: 1" in text
+    assert "NOT TRACKED" not in text.split("Money earned")[0], (
+        "work that demonstrably happened was still reported as untracked"
+    )
+
+
+@pytest.mark.asyncio
+async def test_finished_work_is_reported_once_and_then_not_again(clean):
+    """A briefing that repeats yesterday's news is one you stop reading."""
+    from app.agents import tasks
+    from app.status import mark_seen
+
+    wf = await tasks.create_workflow("check the subsidy", "schedule")
+    task_id = await tasks.create(objective="check", capability="general.analysis",
+                                 workflow_id=wf)
+    await tasks.complete(task_id, {"output": "done"}, confidence=0.9)
+    await tasks.set_workflow_status(wf, "completed")
+
+    first = await briefing(Settings())
+    assert "check the subsidy" in first
+
+    await mark_seen()
+    assert "check the subsidy" not in await briefing(Settings())

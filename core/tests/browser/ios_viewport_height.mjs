@@ -1,39 +1,73 @@
-/* Modelling what iOS Safari does, which Chromium does not do by itself.
+/* The iOS viewport-height trap, checked where it actually lives.
  *
- * On iOS, 100vh is the LARGE viewport: the height the page would have if
- * the toolbars were hidden. The visible area is smaller by the address bar
- * and tab bar. So a block sized calc(100vh - x) is laid out against the
- * big number and displayed inside the small one, and its bottom edge is
- * unreachable.
+ * On iOS Safari `100vh` (and `lvh`) is the LARGE viewport: the height the
+ * page would have if the toolbars were hidden. What you can see is
+ * smaller. So a box sized `height: calc(100vh - x)` is laid out against a
+ * number bigger than the screen and its bottom edge is unreachable --
+ * which shipped once, and put 50px of the results list past the edge of
+ * an iPad.
  *
- * Chromium's 100vh equals what you can see, so it can never show this by
- * itself. The trick is to render at the height iOS REPORTS and assert
- * everything fits inside the height iOS actually SHOWS.
+ * `svh` is the small viewport: toolbars showing, always what is really
+ * visible. `dvh` is whatever is visible right now. Either is safe.
+ *
+ * This used to measure pixels: render at the height iOS reports and
+ * assert everything fits inside the height iOS shows. That models `vh`
+ * correctly and `svh` wrongly -- Chromium has no toolbar, so its `svh`
+ * equals its `vh`, and an `svh`-sized box looked oversized when on a real
+ * iPad it is bounded correctly. It failed on a layout that was fine.
+ *
+ * So it reads the rule instead. Every height that is capped by the
+ * viewport must use `svh` or `dvh`, or offer one as the line after a
+ * plain `vh` fallback. That is exactly the thing that went wrong, and
+ * unlike a pixel count it cannot be fooled by the browser doing the
+ * check.
  */
-import { chromium } from 'playwright';
+import { readFileSync } from 'fs';
 
-const REPORTED = 820;   // what iOS calls 100vh on an iPad in landscape
-const VISIBLE  = 690;   // what is left once Safari's chrome is on screen
+const CSS = readFileSync(new URL('../../static/index.html', import.meta.url), 'utf8');
+const out = [];
+const fail = (m) => { console.error('FAIL: ' + m); process.exitCode = 1; };
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
-const ctx = await browser.newContext({ viewport: { width: 1180, height: REPORTED } });
-const page = await ctx.newPage();
-await page.goto('http://127.0.0.1:8099', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('#app:not(.hidden)');
-await page.click('button[data-view="tasks"]');
-await page.waitForSelector('#tasksView:not(.hidden)');
-await page.waitForSelector('#wfList .wf');
-await page.click('#wfList .wf:has-text("Karnataka EV subsidy, checked")');
-await page.waitForSelector('#planSteps .step');
+// `height` and `max-height` clip. `min-height` can only make a box taller,
+// which leaves the page scrollable rather than cutting content off, so a
+// plain vh there is not the trap.
+// (?<![a-z]) rather than \b: in "30vh" the digit and the v are both
+// word characters, so \bvh matches nothing at all. The lookbehind also
+// keeps svh, dvh and lvh apart from a bare vh.
+const RISKY = /(^|[;{}\s])(max-height|height)\s*:\s*([^;{}]*(?<![a-z])(?:vh|lvh)\b[^;{}]*)/g;
 
-const bottom = await page.evaluate(() =>
-  Math.round(document.getElementById('planSteps').getBoundingClientRect().bottom));
+const lines = CSS.split('\n');
+let found = 0;
 
-if (bottom > VISIBLE) {
-  console.error(`FAIL  results end at ${bottom}px, but an iPad only shows ${VISIBLE}px ` +
-                `(sized against the ${REPORTED}px iOS reports) — ${bottom - VISIBLE}px unreachable`);
-  process.exitCode = 1;
-} else {
-  console.log(`  ok  results end at ${bottom}px, inside the ${VISIBLE}px an iPad really shows`);
+for (let i = 0; i < lines.length; i++) {
+  RISKY.lastIndex = 0;
+  const m = RISKY.exec(lines[i]);
+  if (!m) continue;
+  found++;
+  const property = m[2];
+  const value = m[3].trim();
+
+  // Safe when the same declaration already uses a small/dynamic unit, or
+  // when the very next line repeats the property with one -- the standard
+  // fallback pair, older browsers taking the first and everything else
+  // the second.
+  const selfSafe = /\b(svh|dvh)\b/.test(value);
+  const nextLine = lines[i + 1] || '';
+  const overridden = new RegExp(`${property}\\s*:[^;]*(svh|dvh)\\b`).test(nextLine);
+
+  if (selfSafe || overridden) continue;
+  fail(`line ${i + 1}: "${property}: ${value}" is sized against the LARGE ` +
+       `viewport, so on an iPad its bottom edge is off screen. Use svh ` +
+       `(or dvh), with a plain vh line before it as the fallback.`);
 }
-await browser.close();
+
+if (!found) fail('no viewport-height rules found at all — has the file moved?');
+else out.push(`${found} viewport-sized height rule(s), none against the large viewport`);
+
+// And the specific shape that shipped broken, so the lesson stays named.
+if (/height:\s*calc\(100vh[^)]*\)/.test(CSS))
+  fail('a calc(100vh - x) height is back; that is the exact rule that put ' +
+       'the results list past the edge of an iPad');
+else out.push('no calc(100vh - x) heights, which is the form that shipped broken');
+
+console.log(out.map((l) => '  ok  ' + l).join('\n'));

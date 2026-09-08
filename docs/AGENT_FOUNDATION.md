@@ -315,6 +315,61 @@ the work takes.
 is the one capability an owner should be able to withdraw without a
 deploy.
 
+## Work that happens without you
+
+The **On a schedule** panel, on the Tasks tab. An objective and a time —
+no cron syntax, because "every morning at seven" is what is meant and
+cron is a thing people get wrong and then cannot debug.
+
+This is the first code in the project that spends money with nobody
+watching, and most of its design is restraint:
+
+- **It stops at 60% of the monthly ceiling** (`SCHEDULER_BUDGET_PERCENT`).
+  Unattended work must never be what leaves you unable to talk to your own
+  assistant. When it pauses, it records why, so nothing stops silently.
+- **Two runs a day per schedule**, adjustable. A loop is a bill nobody
+  notices until the month ends.
+- **Late is not skipped, but late is once.** A free-tier server sleeps, so
+  a 7am job may not be looked at until 9am. Running it late is what you
+  wanted; running it four times because four slots passed is not. How late
+  it was is recorded, so a stale result does not read as fresh.
+- **One runner at a time**, by advisory lock, because Render starts the
+  replacement instance before stopping the old one.
+
+### Making it fire on time
+
+The process checks every minute *while awake*. On Render's free tier it
+sleeps after about fifteen minutes idle, and a loop that is not running
+notices nothing — so a 7am job would happen whenever you next opened
+JARVIS.
+
+`POST /v1/cron/tick` is the other half: something outside calls it and the
+server wakes and runs what is due. It takes a shared key
+(`X-Cron-Key` header, or `?key=` — the header is better, since query
+strings end up in logs), and **with no key set the endpoint does not
+exist**. An open trigger for work that spends money is not a sensible
+default.
+
+Any free pinger will do — cron-job.org, UptimeRobot, a GitHub Action.
+Point it at `https://<your-jarvis>/v1/cron/tick` every 10 minutes with the
+key from Render's Environment tab.
+
+## The arrival briefing
+
+Every line of it is now a query. It reports exchanges today, facts held,
+spend against the ceiling, **tasks completed in the last 24 hours and what
+they cost**, standing schedules, and anything finished since you were last
+told — once, and then not again.
+
+Money earned still says, in those words, that nothing records income.
+That gap is named rather than left blank, because a model handed a prompt
+with a missing figure supplies a plausible one.
+
+The tasks line used to be a hardcoded "the task engine is not built". It
+went on being sent for a week after the task engine was built, and a test
+asserted that it should be. A claim about the system's own capabilities
+goes stale in silence; a query cannot.
+
 ## What is deliberately not built
 
 **Approval resumption.** A task that needs your approval waits correctly

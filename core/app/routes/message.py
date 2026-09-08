@@ -158,6 +158,12 @@ async def send_message(
             settings.memory_facts_per_exchange,
         )
 
+    # Marked only now, after the reply exists. Marking when the briefing
+    # was built would mean a message that failed on the way had silently
+    # consumed the news it was carrying.
+    if status_line and "Work finished since" in status_line:
+        background.add_task(status.mark_seen)
+
     total_ms = int((time.perf_counter() - started) * 1000)
     return MessageResponse(
         reply=reply_text,

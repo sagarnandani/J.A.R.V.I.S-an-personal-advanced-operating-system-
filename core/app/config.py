@@ -188,6 +188,26 @@ class Settings(BaseSettings):
     # that allowance disappears.
     planner_max_steps: int = 5
 
+    # --- Scheduled work (see app/scheduler.py) ---
+    # Off by default. This is the first thing that spends money with
+    # nobody watching, so it starts switched off and the owner turns it
+    # on deliberately.
+    scheduler_enabled: bool = True
+
+    # Where "seven in the morning" is seven in the morning.
+    timezone: str = "Asia/Kolkata"
+
+    # Scheduled work stops at this share of the monthly ceiling, leaving
+    # the rest for the owner's own conversations. Unattended spend should
+    # never be what exhausts a budget the owner then cannot use.
+    scheduler_budget_percent: int = 60
+
+    # Shared secret for POST /v1/cron/tick, so something outside can wake
+    # a sleeping free-tier server on time. Empty disables the endpoint --
+    # an unauthenticated trigger for paid work is not something to leave
+    # switched on by accident.
+    cron_key: str = ""
+
     # Apply pending database migrations at startup.
     #
     # On by default because the owner has no terminal: a deploy that

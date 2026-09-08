@@ -51,8 +51,13 @@ async def lifespan(app: FastAPI):
         # Inside the pool: the registry lives in the database, so this
         # cannot run before there is a connection to it.
         await _install_agents()
+        ticker = _start_scheduler(settings)
         logger.info("JARVIS Core started.")
-        yield
+        try:
+            yield
+        finally:
+            if ticker is not None:
+                ticker.cancel()
     logger.info("JARVIS Core stopped.")
 
 
@@ -97,6 +102,25 @@ async def _apply_migrations(settings) -> None:
         await apply_pending(get_pool())
     except Exception as exc:  # noqa: BLE001 - never worth refusing to start
         logger.error("Could not check or apply migrations: %s", exc)
+
+
+def _start_scheduler(settings):
+    """Check for due work while the process is awake.
+
+    Only half the story on a free tier, where the process sleeps: a loop
+    that is not running notices nothing. POST /v1/cron/tick is the other
+    half, for something outside to wake it. Both call the same code, and
+    an advisory lock means it does not matter if they overlap.
+    """
+    if not settings.scheduler_enabled:
+        logger.info("Scheduled work is switched off (SCHEDULER_ENABLED).")
+        return None
+    import asyncio
+
+    from app import scheduler
+
+    logger.info("Scheduler running; checking every %ds.", scheduler.TICK_SECONDS)
+    return asyncio.create_task(scheduler.loop(settings))
 
 
 async def _install_agents() -> None:

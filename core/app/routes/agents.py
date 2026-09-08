@@ -7,14 +7,17 @@ behind it.
 """
 import asyncio
 import logging
+import secrets
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
+from app import scheduler
 from app.agents import orchestrator, registry, tasks, telemetry
 from app.auth import CurrentUser, get_current_user
+from app.config import get_settings
 
 router = APIRouter()
 logger = logging.getLogger("jarvis.routes.agents")
@@ -67,6 +70,15 @@ class WorkflowIn(BaseModel):
 class PlanIn(BaseModel):
     objective: str
     max_steps: int | None = None
+
+
+class ScheduleIn(BaseModel):
+    objective: str
+    hour: int
+    minute: int = 0
+    # ISO weekdays, 1=Monday..7=Sunday. Empty means every day.
+    days: list[int] = []
+    max_per_day: int = 2
 
 
 @router.get("/v1/agents", include_in_schema=False)
@@ -159,3 +171,76 @@ async def workflow(
         # The audit trail: why each agent ran, what it was told, what it cost.
         "trace": await telemetry.trace(workflow_id),
     }
+
+
+# --- work that happens without being asked ---------------------------------
+
+@router.get("/v1/schedules", include_in_schema=False)
+async def list_schedules(user: CurrentUser = Depends(get_current_user)) -> list[dict]:
+    return await scheduler.listing()
+
+
+@router.post("/v1/schedules", include_in_schema=False)
+async def add_schedule(
+    body: ScheduleIn,
+    user: CurrentUser = Depends(get_current_user),
+    settings=Depends(get_settings),
+) -> dict:
+    if not body.objective.strip():
+        raise HTTPException(status_code=400, detail="Say what should be done.")
+    if not 0 <= body.hour <= 23 or not 0 <= body.minute <= 59:
+        raise HTTPException(status_code=400, detail="That is not a time of day.")
+    if any(d < 1 or d > 7 for d in body.days):
+        raise HTTPException(status_code=400, detail="Days are 1 (Monday) to 7 (Sunday).")
+    return await scheduler.create(
+        body.objective, body.hour, body.minute, body.days,
+        tz=settings.timezone, max_per_day=max(1, min(body.max_per_day, 24)),
+        created_by=f"user:{user.email or user.uid}",
+    )
+
+
+@router.post("/v1/schedules/{schedule_id}/enabled", include_in_schema=False)
+async def toggle_schedule(
+    schedule_id: UUID, enabled: bool,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    if not await scheduler.set_enabled(schedule_id, enabled):
+        raise HTTPException(status_code=404, detail="No such schedule.")
+    return {"ok": True, "enabled": enabled}
+
+
+@router.delete("/v1/schedules/{schedule_id}", include_in_schema=False)
+async def remove_schedule(
+    schedule_id: UUID, user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    if not await scheduler.delete(schedule_id):
+        raise HTTPException(status_code=404, detail="No such schedule.")
+    return {"ok": True}
+
+
+@router.post("/v1/cron/tick", include_in_schema=False)
+async def cron_tick(
+    request: Request,
+    x_cron_key: str | None = Header(default=None),
+    settings=Depends(get_settings),
+) -> dict:
+    """Let something outside wake a sleeping server on time.
+
+    On a free tier the process sleeps after a quarter of an hour, and a
+    loop that is not running cannot notice that anything is due. A free
+    pinger calling this every few minutes is what makes a 7am job happen
+    at 7am.
+
+    Not behind the owner's session, because a pinger has no session -- so
+    it is behind a shared key instead, and with no key configured the
+    endpoint does not exist at all. An open trigger for work that spends
+    money is not something to leave on by accident.
+    """
+    if not settings.cron_key:
+        raise HTTPException(status_code=404, detail="Not found.")
+    supplied = x_cron_key or request.query_params.get("key")
+    if not supplied or not secrets.compare_digest(supplied, settings.cron_key):
+        raise HTTPException(status_code=403, detail="Bad cron key.")
+
+    ran = await scheduler.run_due(settings)
+    return {"ran": len(ran), "work": ran}

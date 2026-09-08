@@ -542,7 +542,7 @@ function showView(name) {
   for (const [view, id] of Object.entries(VIEWS)) {
     if (id) $(id).classList.toggle("hidden", view !== name);
   }
-  if (name === "tasks") loadWorkflows();
+  if (name === "tasks") { loadWorkflows(); loadSchedules(); }
 }
 
 $("nav").addEventListener("click", (e) => {
@@ -1128,5 +1128,85 @@ function renderOfferResult(box, objective, data) {
     watch(data.workflow.id);
   };
 }
+
+/* ------------------------------------------------------------- schedules */
+/* Work that happens without being asked.
+ *
+ * Deliberately plain: an objective and a time. Cron syntax is a thing
+ * people get wrong and then cannot debug, and "every morning at seven" is
+ * what is actually wanted. */
+
+const DAY_NAMES = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function whenText(s) {
+  const at = `${String(s.hour).padStart(2, "0")}:${String(s.minute).padStart(2, "0")}`;
+  const days = (s.days_of_week || []).length
+    ? s.days_of_week.map((d) => DAY_NAMES[d]).join(" ")
+    : "daily";
+  return `${days} ${at}`;
+}
+
+function outcomeText(s) {
+  if (!s.last_run_at) return "not run yet";
+  const when = new Date(s.last_run_at).toLocaleString(undefined,
+    { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return `last: ${s.last_outcome || "?"} · ${when}`;
+}
+
+async function loadSchedules() {
+  try {
+    const res = await api("/v1/schedules");
+    if (!res.ok) return;
+    const rows = await res.json();
+    $("schList").innerHTML = rows.length ? rows.map((s) => `
+      <div class="sch ${s.enabled ? "" : "paused"}" data-id="${esc(s.id)}">
+        <span class="o">${esc(s.objective)}<small>${esc(outcomeText(s))}</small></span>
+        <span class="when">${esc(whenText(s))}</span>
+        <button data-act="toggle">${s.enabled ? "pause" : "resume"}</button>
+        <button class="x" data-act="delete" title="Remove">×</button>
+      </div>`).join("")
+      : `<p class="note" style="margin:0">Nothing scheduled. JARVIS only acts when you ask.</p>`;
+  } catch (e) { /* the panel is still usable without its list */ }
+}
+
+$("schAdd").onclick = async () => {
+  const objective = $("schObjective").value.trim();
+  const [hour, minute] = ($("schTime").value || "07:00").split(":").map(Number);
+  if (!objective) { $("schNote").textContent = "Say what should be done."; return; }
+
+  $("schAdd").disabled = true;
+  try {
+    const res = await api("/v1/schedules", {
+      method: "POST",
+      body: JSON.stringify({ objective, hour, minute, days: [], max_per_day: 2 }),
+    });
+    if (!res.ok) throw new Error(await problem(res));
+    $("schObjective").value = "";
+    $("schNote").textContent =
+      "Scheduled. It plans and runs on its own — you approve nothing at the time, " +
+      "so it stops at 60% of your monthly budget and twice a day at most.";
+    loadSchedules();
+  } catch (err) {
+    $("schNote").textContent = String(err.message || err);
+  } finally {
+    $("schAdd").disabled = false;
+  }
+};
+
+$("schList").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const row = btn.closest("[data-id]");
+  const id = row.dataset.id;
+
+  if (btn.dataset.act === "delete") {
+    if (!confirm("Remove this schedule?")) return;
+    await api(`/v1/schedules/${id}`, { method: "DELETE" });
+  } else {
+    const paused = row.classList.contains("paused");
+    await api(`/v1/schedules/${id}/enabled?enabled=${paused}`, { method: "POST" });
+  }
+  loadSchedules();
+});
 
 start();

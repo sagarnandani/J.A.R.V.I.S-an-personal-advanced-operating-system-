@@ -178,7 +178,11 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
      The long lists are capped so one of them cannot fill the screen and
      bury everything below it -- the activity feed's old habit. */
   .col > .panel.flexy { display: flex; flex-direction: column; min-height: 0; }
-  .col > .panel.flexy .scroller { max-height: 30vh; overflow-y: auto; }
+  .col > .panel.flexy .scroller {
+    max-height: 30vh;
+    max-height: 30svh;   /* iOS: vh is the toolbar-less height */
+    overflow-y: auto;
+  }
   /* The centre never scrolls: the message box must always be on screen,
      so the core column is sized to fit instead. */
   .core-col { overflow: hidden; display: flex; flex-direction: column; }
@@ -267,7 +271,11 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 }
 
 /* --- conversation --- */
-.convo { max-height: 30vh; overflow-y: auto; padding-right: .3rem; }
+.convo {
+  max-height: 30vh;
+  max-height: 30svh;   /* iOS: vh is the toolbar-less height */
+  overflow-y: auto; padding-right: .3rem;
+}
 .msg { margin: .5rem 0; font-size: .96rem; line-height: 1.45; }
 .msg .from { font-family: Orbitron, sans-serif; font-size: .62rem; letter-spacing: .22em; color: var(--muted); text-transform: uppercase; }
 .msg.you .body { color: #eaf6ff; border-left: 2px solid var(--gold); padding-left: .6rem; }
@@ -484,6 +492,24 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
    a few hundred pixels tall, and a research result pasted into it whole
    pushes the question, the offer and everything before them off the top. */
 .offer .out { max-height: 9rem; overflow-y: auto; margin: .3rem 0 0; }
+
+/* --- schedules --- */
+.sch { display: flex; gap: .5rem; align-items: baseline; padding: .4rem 0;
+       border-bottom: 1px solid rgba(45,140,200,.1); font-size: .86rem; }
+.sch:last-child { border-bottom: 0; }
+.sch .o { flex: 1; color: var(--text); }
+.sch .o small { display: block; color: var(--muted); font-size: .72rem; letter-spacing: .03em; }
+.sch .when { font-family: Orbitron, sans-serif; font-size: .68rem; color: var(--cyan); white-space: nowrap; }
+.sch.paused .o, .sch.paused .when { opacity: .45; }
+.sch button { background: none; border: 0; color: var(--muted); cursor: pointer;
+              font: inherit; font-size: .78rem; padding: 0 .2rem; }
+.sch button:hover { color: var(--cyan); }
+.sch button.x:hover { color: var(--danger); }
+/* The list must never collapse to nothing. Inside a height-capped column
+   the panel's children have min-height: 0 so the column can scroll -- and
+   an empty list then shrank to exactly zero pixels, so "Nothing
+   scheduled" was in the DOM and invisible on screen. */
+#schList { min-height: 3.6rem; }
 
 label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--text); cursor: pointer; padding: .3rem 0; }
 </style>
@@ -751,6 +777,19 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         </div>
         <p class="note" id="taskNote">Planning costs one cheap call and runs nothing.
         You see the steps before anything spends.</p>
+      </section>
+
+      <section class="panel flexy">
+        <h2>On a schedule</h2>
+        <div class="row" style="gap:.4rem">
+          <input class="field" id="schObjective" style="min-height:0;flex:1 1 100%"
+                 placeholder="Check the Karnataka EV policy for changes" />
+          <input class="field" id="schTime" type="time" value="07:00"
+                 style="min-height:0;width:8rem" />
+          <button class="btn" id="schAdd">Add</button>
+        </div>
+        <div class="scroller" id="schList" style="margin-top:.5rem"></div>
+        <p class="note" id="schNote"></p>
       </section>
 
       <section class="panel flexy">

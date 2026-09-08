@@ -119,6 +119,23 @@ services:
       - key: MEMORY_FACTS_MAX_CHARS
         value: "2000"
 
+      # --- Work that happens without you (see docs/AGENT_FOUNDATION.md) ---
+      # Where "seven in the morning" is seven in the morning.
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: SCHEDULER_ENABLED
+        value: "true"
+      # Unattended work stops at this share of the monthly ceiling, so it
+      # can never be the thing that leaves you unable to talk to JARVIS.
+      - key: SCHEDULER_BUDGET_PERCENT
+        value: "60"
+      # The shared key for POST /v1/cron/tick, so a free pinger can wake a
+      # sleeping server at the right time. Generated once and kept, like
+      # SESSION_SECRET -- read it from Render's Environment tab when you
+      # set the pinger up. With no key the endpoint does not exist.
+      - key: CRON_KEY
+        generateValue: true
+
       # --- Budget guardrail (see docs/BUDGET.md) ---
       - key: MONTHLY_BUDGET_INR
         value: "3500"
