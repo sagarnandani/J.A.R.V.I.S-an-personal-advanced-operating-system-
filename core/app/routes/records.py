@@ -8,7 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app import audit, memory
 from app.auth import CurrentUser, get_current_user
-from app.models import AuditLogOut, ConfirmDestructive, MemoryActionResult, MemoryOut
+from app.models import (
+    AuditLogOut,
+    ConfirmDestructive,
+    MemoryActionResult,
+    MemoryOut,
+    MoneyIn,
+)
 
 # Typed, not tapped. Anything that cannot be undone asks for these words
 # in full, so erasing what JARVIS knows can never be one mis-tap on a
@@ -177,3 +183,58 @@ async def get_audit_log(
 ) -> list[AuditLogOut]:
     rows = await audit.list_recent(limit)
     return [AuditLogOut(**dict(r)) for r in rows]
+
+
+# --- money ------------------------------------------------------------------
+
+@router.get("/v1/money", include_in_schema=False)
+async def money_listing(
+    limit: int = 20, user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    from app import money
+
+    return {
+        "totals": await money.totals(),
+        "recent": await money.recent(min(max(limit, 1), 100)),
+    }
+
+
+@router.post("/v1/money", include_in_schema=False)
+async def money_add(
+    body: MoneyIn, user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    """Add a figure by hand.
+
+    Most rows arrive from what the owner says. This is for the times they
+    would rather type it, and for correcting one that was misheard.
+    """
+    from app import money
+
+    row = await money.record(
+        body.direction, body.amount_inr, body.what, body.category,
+        occurred_on=body.occurred_on, source="stated",
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=400,
+            detail="A money entry needs a direction ('in' or 'out'), an "
+                   "amount above zero, and what it was for.",
+        )
+    return row
+
+
+@router.delete("/v1/money/{event_id}", include_in_schema=False)
+async def money_remove(
+    event_id: UUID, user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    """Remove a figure outright.
+
+    Deleted rather than hidden, unlike a memory: a ledger that quietly
+    keeps a number you told it to drop is one whose totals you cannot
+    check against your own bank.
+    """
+    from app import money
+
+    if not await money.forget(event_id):
+        raise HTTPException(status_code=404, detail="No such entry.")
+    return {"ok": True}

@@ -295,6 +295,7 @@ function renderDashboard(d) {
   $("ownerLine").textContent = d.owner || "";
   $("cfgOwner").textContent = d.owner || "—";
 
+  loadMoney();
   const stopped = d.status.emergency_stop;
   $("statusText").textContent = stopped ? "STOPPED" : "ONLINE";
   $("statusText").classList.toggle("stopped", stopped);
@@ -600,6 +601,7 @@ async function start() {
     setupMic();
     // Keep the numbers honest without hammering a sleepy free-tier server.
     setInterval(refresh, 60000);
+    loadMoney();
     return;
   }
 
@@ -1178,6 +1180,56 @@ $("schList").addEventListener("click", async (e) => {
     await api(`/v1/schedules/${id}/enabled?enabled=${paused}`, { method: "POST" });
   }
   loadSchedules();
+});
+
+/* ----------------------------------------------------------------- money */
+/* What came in and what went out.
+ *
+ * Almost every row gets here by being said out loud -- "got forty
+ * thousand from the Bengaluru shoot" -- and read out of the exchange by
+ * the same pass that learns facts. This panel is where you check it, and
+ * where you remove one that was misheard: forty thousand and four
+ * thousand sound alike, and a ledger you cannot correct is one you stop
+ * trusting. */
+
+const rupees = (n) => `₹${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`;
+
+async function loadMoney() {
+  try {
+    const res = await api("/v1/money?limit=12");
+    if (!res.ok) return;
+    const { totals, recent } = await res.json();
+
+    $("moneyIn").textContent = rupees(totals.month_in);
+    $("moneyOut").textContent = rupees(totals.month_out);
+    $("moneyNet").textContent = rupees(totals.month_net);
+
+    $("moneyList").innerHTML = recent.length ? recent.map((m) => `
+      <div class="mv" data-id="${esc(m.id)}">
+        <span class="w">${esc(m.what)}<small>${esc(m.occurred_on)}${
+          m.category ? " · " + esc(m.category) : ""}</small></span>
+        <span class="a ${esc(m.direction)}">${m.direction === "in" ? "+" : "−"}${
+          esc(rupees(m.amount_inr))}</span>
+        <button title="Remove">×</button>
+      </div>`).join("")
+      : `<p class="note" style="margin:0">Nothing yet. Tell JARVIS: “got ₹40,000 from the Bengaluru shoot”.</p>`;
+
+    // Said where the figures are, not in a help page: these totals are
+    // real but partial, and a partial total read as a complete one is
+    // the worst kind of wrong number.
+    $("moneyNote").textContent = totals.entries
+      ? "Only what you have told JARVIS — there is no bank feed."
+      : "";
+  } catch (e) { /* the dashboard is still usable without it */ }
+}
+
+$("moneyList").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  const row = btn.closest("[data-id]");
+  if (!confirm("Remove this entry? Totals will change.")) return;
+  await api(`/v1/money/${row.dataset.id}`, { method: "DELETE" });
+  loadMoney();
 });
 
 start();

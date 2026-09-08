@@ -516,6 +516,24 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
    scheduled" was in the DOM and invisible on screen. */
 #schList { min-height: 3.6rem; }
 
+/* --- money --- */
+#moneyList {
+  min-height: 2.4rem;
+  max-height: 22vh;
+  max-height: 22svh;   /* iOS: vh is the toolbar-less height */
+}
+.mv { display: flex; gap: .5rem; align-items: baseline; padding: .3rem 0;
+      border-bottom: 1px solid rgba(45,140,200,.1); font-size: .84rem; }
+.mv:last-child { border-bottom: 0; }
+.mv .w { flex: 1; color: var(--text); }
+.mv .w small { display: block; color: var(--muted); font-size: .7rem; letter-spacing: .03em; }
+.mv .a { font-family: Orbitron, sans-serif; font-size: .78rem; white-space: nowrap; }
+.mv .a.in { color: var(--ok); }
+.mv .a.out { color: var(--gold); }
+.mv button { background: none; border: 0; color: var(--muted); cursor: pointer;
+             font: inherit; font-size: .8rem; padding: 0 .15rem; }
+.mv button:hover { color: var(--danger); }
+
 label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--text); cursor: pointer; padding: .3rem 0; }
 </style>
 </head>
@@ -751,6 +769,15 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
 
     <!-- RIGHT -->
     <div class="col">
+      <section class="panel flexy">
+        <h2>Money</h2>
+        <div class="stat"><span class="label">In this month</span><span class="stat-value" id="moneyIn">—</span></div>
+        <div class="stat"><span class="label">Out this month</span><span class="stat-value" id="moneyOut">—</span></div>
+        <div class="stat"><span class="label">Net</span><span class="stat-value gold" id="moneyNet">—</span></div>
+        <div class="scroller" id="moneyList" style="margin-top:.4rem"></div>
+        <p class="note" id="moneyNote"></p>
+      </section>
+
       <section class="panel flexy">
         <h2>What JARVIS knows</h2>
         <ul class="facts scroller" id="factsList"></ul>

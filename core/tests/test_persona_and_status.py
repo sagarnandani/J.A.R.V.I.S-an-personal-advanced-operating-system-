@@ -111,7 +111,10 @@ async def test_it_says_plainly_what_is_not_tracked(clean):
     so the gap is named -- in the prompt, and here.
     """
     text = await briefing(Settings())
-    assert "Money earned: NOT TRACKED AT ALL" in text
+    # With nothing recorded, the gap is named rather than left blank --
+    # a model handed a prompt with a missing figure supplies a plausible
+    # one, and money is the subject where that costs most.
+    assert "Money: nothing recorded yet" in text
     assert "never produce a figure" in text
 
 

@@ -361,14 +361,42 @@ spend against the ceiling, **tasks completed in the last 24 hours and what
 they cost**, standing schedules, and anything finished since you were last
 told — once, and then not again.
 
-Money earned still says, in those words, that nothing records income.
-That gap is named rather than left blank, because a model handed a prompt
-with a missing figure supplies a plausible one.
+Money is now real too — see below.
 
 The tasks line used to be a hardcoded "the task engine is not built". It
 went on being sent for a week after the task engine was built, and a test
 asserted that it should be. A claim about the system's own capabilities
 goes stale in silence; a query cannot.
+
+## Money
+
+The third of the three things asked for on day one. JARVIS notes amounts
+you state in figures — *"got ₹40,000 from the Bengaluru shoot"*, *"paid
+₹5,000 for the drone battery"* — and the **Money** panel on the home
+screen shows in, out and net for the month, with the recent entries.
+
+It rides on the pass that already reads each exchange for durable facts,
+so it costs no extra model call.
+
+Two rules:
+
+**Only a stated figure becomes a row.** No inferring an amount from
+context, no rounding "a few thousand" into a number, and never a figure
+JARVIS itself produced. A ledger that guesses is worse than no ledger,
+because it looks like arithmetic and gets checked against a bank
+statement that disagrees.
+
+**Every row can be undone.** Forty thousand and four thousand sound
+alike. Each entry has an × that deletes it outright — deleted, not
+hidden as a forgotten memory would be, because a ledger that quietly
+keeps a number you dropped is one whose totals you cannot check. Each
+row also links back to the exact words it was read out of.
+
+The totals are **real but partial**, and that survives into the prompt
+and onto the panel: there is no bank or invoice feed, so these are only
+what you have mentioned. A partial total read as a complete one is the
+worst kind of wrong number, and money is where that costs most. Imports
+can write to the same table later; every row records where it came from.
 
 ## What is deliberately not built
 

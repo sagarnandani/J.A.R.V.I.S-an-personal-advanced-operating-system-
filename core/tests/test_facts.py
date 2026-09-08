@@ -60,7 +60,7 @@ async def _fact(text: str, category: str = "semantic"):
     ],
 )
 def test_json_is_read_however_the_model_wraps_it(raw):
-    got, _ = _parse_reply(raw)
+    got, _, _ = _parse_reply(raw)
     assert got[0]["text"] == "Owner likes red"
 
 
@@ -69,7 +69,7 @@ def test_json_is_read_however_the_model_wraps_it(raw):
     ["not json at all", "", "{broken", "[]", "null", '{"facts": "not a list"}'],
 )
 def test_unparseable_answers_mean_nothing_learned_not_a_crash(raw):
-    assert _parse_reply(raw) == ([], [])
+    assert _parse_reply(raw) == ([], [], [])
 
 
 # --- learning --------------------------------------------------------------

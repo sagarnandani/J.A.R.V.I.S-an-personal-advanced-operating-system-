@@ -68,9 +68,31 @@ async def briefing(settings) -> str:
         + (f" ({row['tasks_failed']} failed)" if row["tasks_failed"] else "")
         + f", costing Rs.{float(row['tasks_spend'] or 0):.2f}",
         f"- Standing schedules: {row['schedules_on']}",
-        "- Money earned: NOT TRACKED AT ALL -- nothing records income. "
-        "Say so if asked; never produce a figure.",
     ]
+
+    # Money, from what the owner has actually said. The figures are real;
+    # what they are NOT is complete, and that distinction has to survive
+    # into the prompt -- "Rs.40,000 earned" read as a whole month's income
+    # would be a confident wrong answer about the one subject where that
+    # matters most.
+    from app import money
+
+    cash = await money.totals()
+    if cash["entries"]:
+        lines.append(
+            f"- Money this month, from what the owner has told you: "
+            f"Rs.{cash['month_in']:.2f} in, Rs.{cash['month_out']:.2f} out, "
+            f"net Rs.{cash['month_net']:.2f}. These cover only what he has "
+            f"mentioned -- no bank or invoice feed exists -- so give the "
+            f"figures exactly and say they are partial if he asks about "
+            f"totals. Never add anything he has not stated."
+        )
+    else:
+        lines.append(
+            "- Money: nothing recorded yet. JARVIS notes amounts the owner "
+            "states out loud ('got Rs.40,000 from the shoot'), and there is "
+            "no bank feed. Say so if asked; never produce a figure."
+        )
 
     done = await recent_work()
     if done:

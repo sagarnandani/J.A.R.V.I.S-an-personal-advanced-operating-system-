@@ -1,5 +1,5 @@
 """Request/response schemas (Pydantic) for the API."""
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -105,3 +105,17 @@ class MemoryActionResult(BaseModel):
     affected: int
     reversible: bool
     message: str
+
+
+class MoneyIn(BaseModel):
+    """A figure the owner is stating.
+
+    `direction` rather than a signed amount: a minus sign is easy to lose
+    in a sum and impossible to see in a row.
+    """
+
+    direction: str          # 'in' (received) or 'out' (spent)
+    amount_inr: Decimal
+    what: str
+    category: str | None = None
+    occurred_on: date | None = None

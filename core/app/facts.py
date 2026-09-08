@@ -83,8 +83,16 @@ Exchange:
 OWNER: {user_text}
 ASSISTANT: {reply_text}
 
+Separately, note any MONEY the owner states in actual figures -- what
+they received or what they spent. Only when they give a real amount.
+Never infer one from context, never round "a few thousand" into a number,
+and never repeat a figure the assistant itself produced. A ledger that
+guesses is worse than no ledger, because it looks like arithmetic.
+
 Reply with JSON only, no other text:
-{{"facts": [{{"text": "...", "category": "..."}}], "supersedes": ["id", ...]}}
+{{"facts": [{{"text": "...", "category": "..."}}], "supersedes": ["id", ...],
+  "money": [{{"direction": "in" or "out", "amount_inr": 40000,
+             "what": "Bengaluru shoot", "category": "client work"}}]}}
 
 category must be one of: preference, people, decision, project, task,
 semantic. An empty facts list is correct when the exchange genuinely
@@ -152,7 +160,7 @@ async def recall_facts(message: str, limit: int, max_chars: int) -> list[str]:
     return kept
 
 
-def _parse_reply(raw: str) -> tuple[list[dict], list[str]]:
+def _parse_reply(raw: str) -> tuple[list[dict], list[str], list[dict]]:
     """Read the model's JSON, forgivingly and without ever raising.
 
     Models wrap JSON in code fences, add a sentence before it, or return
@@ -173,14 +181,15 @@ def _parse_reply(raw: str) -> tuple[list[dict], list[str]]:
         data = json.loads(text)
     except (ValueError, TypeError):
         logger.warning("Fact extraction did not return JSON; skipping this one.")
-        return [], []
+        return [], [], []
 
     if not isinstance(data, dict):
-        return [], []
+        return [], [], []
 
     facts = [f for f in (data.get("facts") or []) if isinstance(f, dict) and f.get("text")]
     supersedes = [s for s in (data.get("supersedes") or []) if isinstance(s, str)]
-    return facts, supersedes
+    money = data.get("money") or []
+    return facts, supersedes, (money if isinstance(money, list) else [])
 
 
 def _normalise(text: str) -> str:
@@ -195,6 +204,28 @@ async def _retire(fact_ids: list[UUID]) -> int:
         fact_ids,
     )
     return int(result.rsplit(" ", 1)[-1])
+
+
+async def _record_money(entries: list[dict], source_memory_id: UUID) -> int:
+    """Write down what the owner said they earned or spent.
+
+    Never allowed to break fact learning, which is itself never allowed to
+    break the conversation. A dropped row costs one line in a ledger the
+    owner can add by saying it again; an exception here would cost the
+    memory of the whole exchange.
+    """
+    from app import money
+
+    written = 0
+    try:
+        for entry in money.parse(entries):
+            if await money.record(**entry, source="stated", said_in=source_memory_id):
+                written += 1
+        if written:
+            logger.info("Recorded %d money movement(s).", written)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not record money: %s", exc)
+    return written
 
 
 async def learn_from_exchange(
@@ -215,7 +246,12 @@ async def learn_from_exchange(
         known=known_block, user_text=user_text, reply_text=reply_text
     )
     result = await provider.complete(prompt)
-    facts, supersedes = _parse_reply(result.text)
+    facts, supersedes, money = _parse_reply(result.text)
+
+    # Money rides on this call rather than costing one of its own. The
+    # same pass is already reading the exchange for anything durable, and
+    # a figure the owner stated is exactly that.
+    await _record_money(money, source_memory_id)
 
     # Only ids we actually showed it. A model asked for ids will sometimes
     # invent one, and an invented id here would retire a real memory that
