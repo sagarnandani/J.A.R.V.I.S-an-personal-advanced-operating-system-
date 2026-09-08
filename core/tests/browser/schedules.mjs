@@ -48,7 +48,9 @@ ok(`a schedule reads as plain English: "${row.trim().replace(/\s+/g, ' ').slice(
 const note = await page.locator('#schNote').textContent();
 if (!/60%/.test(note) || !/twice a day/.test(note))
   fail(`the spending limits are not stated: ${note}`);
-ok('the limits on unattended spend are stated where they are set');
+if (!/asleep|awake/.test(note))
+  fail(`it does not say a sleeping server fires late: ${note}`);
+ok('the spending limits and the sleeping-server caveat are both stated');
 
 // Pausing must stop it, visibly.
 await page.locator('#schList button', { hasText: 'pause' }).click();

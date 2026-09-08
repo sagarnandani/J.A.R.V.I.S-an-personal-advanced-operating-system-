@@ -359,24 +359,10 @@ function renderDashboard(d) {
     }
   }
 
-  // activity
-  const feed = $("feed");
-  feed.innerHTML = "";
-  if (!d.activity.length) {
-    feed.innerHTML = "<li class='empty'>No activity recorded yet.</li>";
-  } else {
-    for (const a of d.activity) {
-      const when = new Date(a.at);
-      const li = document.createElement("li");
-      const risk = a.category === "high_risk" ? "high" : a.category === "medium_risk" ? "med" : "";
-      li.innerHTML =
-        `<span class="t">${pad(when.getHours())}:${pad(when.getMinutes())}</span>` +
-        `<span class="dot ${risk}"></span>` +
-        `<span class="d">${esc(describe(a))}` +
-        (a.outcome ? `<small>${esc(a.outcome)}</small>` : "") + `</span>`;
-      feed.appendChild(li);
-    }
-  }
+  // The Activity panel is gone -- a list of "Message answered · success"
+  // rows told the owner nothing they had not just watched happen. The
+  // audit log still records every one of them; GET /v1/audit reads it,
+  // and the Tasks tab shows the work that actually matters.
 }
 
 // The audit log stores machine names. Nobody should have to learn them to
@@ -421,23 +407,6 @@ function sparkline(history) {
   const first = new Date(history[0].day);
   $("sparkFrom").textContent = first.toLocaleDateString(undefined, { day: "numeric", month: "short" });
   $("sparkPeak").textContent = `peak ${peak}`;
-}
-
-function describe(a) {
-  const map = {
-    llm_message_exchange: "Message answered",
-    memory_learn: "Learned something new",
-    memory_forget: "Forgot a memory",
-    memory_restore: "Restored a memory",
-    memory_delete: "Deleted a memory",
-    memory_forget_all: "Forgot everything",
-    memory_purge: "Erased forgotten memories",
-    sign_in: "Signed in",
-    sign_in_refused_not_owner: "Refused a sign-in",
-  };
-  if (map[a.action]) return map[a.action];
-  if (a.action.startsWith("emergency_stop")) return "Emergency stop changed";
-  return a.action.replace(/_/g, " ");
 }
 
 async function refresh() {
@@ -1183,8 +1152,10 @@ $("schAdd").onclick = async () => {
     if (!res.ok) throw new Error(await problem(res));
     $("schObjective").value = "";
     $("schNote").textContent =
-      "Scheduled. It plans and runs on its own — you approve nothing at the time, " +
-      "so it stops at 60% of your monthly budget and twice a day at most.";
+      "Scheduled. It plans and runs on its own, so it stops at 60% of your " +
+      "monthly budget and twice a day at most. On this free server it fires " +
+      "when JARVIS is awake — if it was asleep at the time, it runs when you " +
+      "next open this page and says how late it was.";
     loadSchedules();
   } catch (err) {
     $("schNote").textContent = String(err.message || err);
