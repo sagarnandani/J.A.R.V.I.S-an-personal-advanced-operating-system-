@@ -288,3 +288,58 @@ async def from_speech(said: str, provider) -> str | None:
         return None
     objective = str(data.get("objective") or "").strip()
     return objective if len(objective) > 8 else None
+
+
+# --- answering out loud ----------------------------------------------------
+#
+# The first version of the spoken path asked a question and would only take
+# a button as the answer. Said aloud, "yes, go ahead" reached nothing: the
+# work never started, JARVIS never learned that it had offered, and it
+# asked again -- and again. A question asked in speech has to be
+# answerable in speech.
+#
+# Matched rather than modelled. This runs between two turns of a live
+# conversation, where a model call is a pause the owner hears, and the
+# failure mode is mild: an unrecognised answer leaves the offer standing,
+# exactly as if nothing had been said.
+
+_YES = (
+    "yes", "yeah", "yep", "yup", "ya", "sure", "ok", "okay", "please",
+    "go ahead", "go for it", "do it", "carry on", "proceed", "of course",
+    "absolutely", "definitely", "haan", "han", "ho", "houdu", "sari",
+    "theek hai", "thik hai", "kar do", "karo", "check karo", "dekho",
+)
+_NO = (
+    "no", "nope", "nah", "not now", "later", "leave it", "forget it",
+    "don't", "do not", "never mind", "nevermind", "cancel", "stop",
+    "nahi", "nako", "beda", "bedi",
+)
+
+
+def _leading_words(said: str, count: int = 6) -> str:
+    text = re.sub(r"[^\w\s]", " ", (said or "").lower())
+    return " ".join(text.split()[:count])
+
+
+def reads_as_yes(said: str) -> bool:
+    """Did the owner just agree to the thing that was offered?
+
+    Only the opening words are read. "Yes, and while you're at it..." is
+    an acceptance; a "yes" buried in the middle of a different sentence is
+    not, and treating it as one would start work nobody asked for.
+    """
+    head = _leading_words(said)
+    if not head:
+        return False
+    # No before yes: "no, don't" contains neither trap, but "not yes" and
+    # similar should never start work.
+    if any(re.match(rf"\b{re.escape(word)}\b", head) for word in _NO):
+        return False
+    return any(re.match(rf"\b{re.escape(word)}\b", head) for word in _YES)
+
+
+def reads_as_no(said: str) -> bool:
+    head = _leading_words(said)
+    return bool(head) and any(
+        re.match(rf"\b{re.escape(word)}\b", head) for word in _NO
+    )

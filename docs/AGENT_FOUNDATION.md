@@ -186,9 +186,21 @@ split in two:
 - **Gemini says it in words.** It is told that it can search and check,
   though not during this spoken turn, and to say so plainly and ask
   whether to go ahead — the way a person would offer to fetch something.
-- **JARVIS decides the button.** After the turn, it reads back what you
-  actually said and works out the objective, then puts the same offer card
-  on screen. You hear the question and press the answer.
+- **You answer out loud.** "Yes", "go ahead", "haan karo" — JARVIS reads
+  the next thing you say and starts the work. Only the opening words
+  count, so a "yes" buried in an unrelated sentence does not set anything
+  off, and anything that is neither yes nor no leaves the offer standing.
+- **JARVIS says what it found.** Results are handed back into the spoken
+  conversation, so Gemini reads them out in your language. It also says
+  "looking it up now" first, because twenty seconds of silence after "yes"
+  is indistinguishable from a system that has stopped working.
+
+The card still appears, showing what was heard and carrying the sources
+and the cost — detail that speech is a bad medium for — and you can press
+it if you would rather. It is not the mechanism. An earlier version made
+it the mechanism, and every spoken "yes" reached nothing: the work never
+started, JARVIS never learned it had offered, and it asked again, and
+again.
 
 A model call per spoken turn would be real money on a free quota, so a
 free keyword filter runs first and most turns never reach the model. It

@@ -535,6 +535,183 @@ def test_the_spoken_prompt_carries_no_written_marker(wired):
     assert "ask whether to go ahead" in instruction
 
 
+def _drain(ws, until, limit=12):
+    seen = []
+    for _ in range(limit):
+        msg = ws.receive_json()
+        seen.append(msg)
+        if msg["type"] in until:
+            break
+    return seen
+
+
+def test_saying_yes_out_loud_is_what_starts_the_work(wired, monkeypatch):
+    """The whole point, and the bug that shipped without it.
+
+    JARVIS asked out loud and would only take a button as the answer. Said
+    aloud, "yes, go ahead" reached nothing: the work never began, JARVIS
+    never learned it had offered, and it asked the same question again --
+    the loop the owner actually hit.
+    """
+    ran = []
+
+    async def fake_run(objective, requested_by):
+        ran.append((objective, requested_by))
+        return {"workflow_id": "wf-1", "status": "completed",
+                "outputs": {"research.web": "The ceiling is Rs.50,000."}}
+
+    monkeypatch.setattr("app.offer.from_speech",
+                        _async_return("find the Karnataka EV subsidy"))
+    monkeypatch.setattr("app.offer.build", _async_return(
+        {"objective": "find the Karnataka EV subsidy",
+         "cost_note": "no measurement yet", "typical_cost_inr": None}))
+    monkeypatch.setattr("app.agents.orchestrator.run", fake_run)
+
+    client, session, _, _ = wired([
+        _turn(said="check the EV subsidy", replied="Shall I look it up, sir?",
+              complete=True),
+        _turn(said="yes go ahead", replied="Looking it up now.", complete=True),
+    ])
+    _cookie(client)
+
+    with client.websocket_connect("/v1/live") as ws:
+        seen = _drain(ws, {"offer_done"}, limit=20)
+        ws.send_json({"type": "end"})
+
+    kinds = [m["type"] for m in seen]
+    assert "offer" in kinds, f"no offer was made: {kinds}"
+    assert ran == [("find the Karnataka EV subsidy", "user:" + OWNER_EMAIL)], (
+        "saying yes out loud did not start the work"
+    )
+    done = [m for m in seen if m["type"] == "offer_done"]
+    assert done and "Rs.50,000" in done[0]["summary"]
+
+
+def test_the_answer_is_put_back_into_the_spoken_conversation(wired, monkeypatch):
+    """Gemini cannot know what JARVIS did between turns.
+
+    Without handing the results back it would keep answering from its own
+    memory, or keep asking to search -- which is exactly what the owner
+    heard.
+    """
+    monkeypatch.setattr("app.offer.from_speech", _async_return("find the subsidy"))
+    monkeypatch.setattr("app.offer.build", _async_return(
+        {"objective": "find the subsidy", "cost_note": "x", "typical_cost_inr": None}))
+    monkeypatch.setattr("app.agents.orchestrator.run", _async_return(
+        {"workflow_id": "wf-1", "status": "completed",
+         "outputs": {"research.web": "The ceiling is Rs.50,000."}}))
+
+    client, session, _, _ = wired([
+        _turn(said="check the subsidy", replied="Shall I?", complete=True),
+        _turn(said="yes", replied="Looking now.", complete=True),
+    ])
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        _drain(ws, {"offer_done"}, limit=20)
+        ws.send_json({"type": "end"})
+
+    spoken_to = [
+        part.text
+        for turn in session.sent_text
+        for part in (turn.parts or [])
+        if getattr(part, "text", None)
+    ]
+    # Told to acknowledge first, because twenty seconds of silence after
+    # "yes" is indistinguishable from a system that has stopped working.
+    assert any("looking it up now" in t.lower() for t in spoken_to), spoken_to
+    # Then handed the actual result to say.
+    assert any("Rs.50,000" in t for t in spoken_to), spoken_to
+
+
+def test_declining_out_loud_runs_nothing(wired, monkeypatch):
+    ran = []
+    monkeypatch.setattr("app.offer.from_speech", _async_return("find the subsidy"))
+    monkeypatch.setattr("app.offer.build", _async_return(
+        {"objective": "find the subsidy", "cost_note": "x", "typical_cost_inr": None}))
+
+    async def fake_run(*a, **k):
+        ran.append(a)
+        return {}
+
+    monkeypatch.setattr("app.agents.orchestrator.run", fake_run)
+
+    client, _, _, _ = wired([
+        _turn(said="check the subsidy", replied="Shall I?", complete=True),
+        _turn(said="no thanks", replied="As you wish.", complete=True),
+    ])
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        seen = _drain(ws, {"offer_closed"}, limit=20)
+        ws.send_json({"type": "end"})
+
+    assert not ran
+    assert "offer_closed" in [m["type"] for m in seen]
+
+
+def test_an_unrelated_answer_leaves_the_offer_standing(wired, monkeypatch):
+    """The owner may still be thinking.
+
+    Dropping it on any other sentence would be one more thing that
+    silently did not happen; treating it as a yes would spend money on a
+    question nobody answered.
+    """
+    ran = []
+    calls = []
+
+    async def from_speech(said, provider):
+        calls.append(said)
+        return "find the subsidy"
+
+    async def fake_run(*a, **k):
+        ran.append(a)
+        return {"status": "completed", "outputs": {}}
+
+    monkeypatch.setattr("app.offer.from_speech", from_speech)
+    monkeypatch.setattr("app.offer.build", _async_return(
+        {"objective": "find the subsidy", "cost_note": "x", "typical_cost_inr": None}))
+    monkeypatch.setattr("app.agents.orchestrator.run", fake_run)
+
+    client, _, _, _ = wired([
+        _turn(said="check the subsidy", replied="Shall I?", complete=True),
+        _turn(said="what time is it", replied="Half past four.", complete=True),
+    ])
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        _drain(ws, {"turn_complete"}, limit=20)
+        _drain(ws, {"turn_complete"}, limit=20)
+        ws.send_json({"type": "end"})
+
+    assert not ran, "an unrelated sentence started the work"
+    assert calls == ["check the subsidy"], (
+        "the standing offer was re-detected instead of being answered"
+    )
+
+
+def test_work_that_fails_is_said_out_loud_not_invented(wired, monkeypatch):
+    monkeypatch.setattr("app.offer.from_speech", _async_return("find the subsidy"))
+    monkeypatch.setattr("app.offer.build", _async_return(
+        {"objective": "find the subsidy", "cost_note": "x", "typical_cost_inr": None}))
+
+    async def boom(*a, **k):
+        raise RuntimeError("quota exhausted")
+
+    monkeypatch.setattr("app.agents.orchestrator.run", boom)
+
+    client, session, _, _ = wired([
+        _turn(said="check the subsidy", replied="Shall I?", complete=True),
+        _turn(said="yes", replied="Looking.", complete=True),
+    ])
+    _cookie(client)
+    with client.websocket_connect("/v1/live") as ws:
+        seen = _drain(ws, {"offer_failed"}, limit=20)
+        ws.send_json({"type": "end"})
+
+    assert "offer_failed" in [m["type"] for m in seen]
+    spoken_to = [p.text for t in session.sent_text for p in (t.parts or [])
+                 if getattr(p, "text", None)]
+    assert any("do not invent" in t.lower() for t in spoken_to), spoken_to
+
+
 def test_a_spoken_request_puts_an_offer_on_the_screen(wired, monkeypatch):
     """The half the owner can press.
 

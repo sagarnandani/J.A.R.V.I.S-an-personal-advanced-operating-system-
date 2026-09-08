@@ -449,3 +449,54 @@ async def test_a_bad_reply_costs_a_missed_offer_and_nothing_else(clean):
 
     assert await offer.from_speech("check the latest news", Junk()) is None
     assert await offer.from_speech("check the latest news", Broken()) is None
+
+
+# --- answering out loud ---------------------------------------------------
+
+@pytest.mark.parametrize("said", [
+    "yes go ahead", "yes", "go ahead", "sure", "please do", "ok do it",
+    "haan karo", "yeah go for it", "absolutely", "proceed",
+])
+def test_agreeing_out_loud_is_understood(said):
+    """The bug this exists to stop: a question asked in speech that could
+    only be answered by a button. Said aloud, "yes, go ahead" reached
+    nothing at all, so JARVIS never learned it had offered and asked
+    again -- and again."""
+    assert offer.reads_as_yes(said) is True
+    assert offer.reads_as_no(said) is False
+
+
+@pytest.mark.parametrize("said", [
+    "no", "no thanks", "not now", "leave it", "never mind", "nahi", "cancel",
+])
+def test_declining_out_loud_is_understood(said):
+    assert offer.reads_as_no(said) is True
+    assert offer.reads_as_yes(said) is False
+
+
+@pytest.mark.parametrize("said", [
+    "what is the weather like",
+    "tell me yes or no whether that is right",
+    "the answer is probably yes but check it",
+    "",
+])
+def test_anything_else_is_neither(said):
+    """An unrecognised answer must leave the offer standing.
+
+    Guessing either way is worse than waiting: guessing yes spends money
+    on a question nobody answered, guessing no drops something the owner
+    may still be thinking about.
+    """
+    assert offer.reads_as_yes(said) is False
+    assert offer.reads_as_no(said) is False
+
+
+def test_only_the_opening_words_count():
+    """A "yes" buried mid-sentence is not an agreement.
+
+    "Tell me yes or no about this" would otherwise start work nobody
+    asked for, and the owner would hear a search beginning in the middle
+    of an unrelated question.
+    """
+    assert offer.reads_as_yes("i said yes earlier but not to that") is False
+    assert offer.reads_as_yes("yes, and while you are at it check the date") is True

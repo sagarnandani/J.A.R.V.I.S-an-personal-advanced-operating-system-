@@ -158,9 +158,13 @@ async function startLive() {
         liveState("turn");
         break;
       case "offer":
-        // JARVIS has already said out loud that it can look this up. This
-        // is the half you can press. Dispatched rather than rendered here
-        // because drawing in the conversation is app.js's job.
+      case "offer_running":
+      case "offer_done":
+      case "offer_failed":
+      case "offer_closed":
+        // JARVIS asked out loud and the owner answers out loud; these
+        // frames only keep the screen honest about what is happening.
+        // Rendering is app.js's job, so they are dispatched, not drawn.
         document.dispatchEvent(new CustomEvent("jarvis:offer", { detail: msg }));
         break;
       case "error":

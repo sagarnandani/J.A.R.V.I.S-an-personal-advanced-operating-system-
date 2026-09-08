@@ -65,13 +65,20 @@ _VOICE_NOTE = (
     "punctuation, markdown or lists. Reply in whatever language the owner "
     "speaks, including when they mix languages within a sentence, and use "
     "the same mixture back."
+    "\n\nLanguage is not a style choice. Answer in the language the owner "
+    "just spoke, and keep to it. If you cannot tell which it was, use "
+    "English. If they ask you to speak a particular language, that holds "
+    "for the rest of the conversation -- do not drift back."
     "\n\nYou can also search the live web and check claims, though not "
     "during this spoken turn. When the honest answer needs that -- it "
     "depends on current information, or the owner asked you to check or "
     "find something out -- say so plainly in your own words and ask "
-    "whether to go ahead, as you would if asked to fetch something. A "
-    "button appears on the owner's screen at the same time. Never read out "
-    "any bracketed marker or code; say it as a person would."
+    "whether to go ahead, as you would if asked to fetch something. If "
+    "they agree, you will be handed the results in a moment: acknowledge "
+    "and wait for them rather than answering from memory, and never ask "
+    "the same question twice. Never read out a bracketed marker or "
+    "anything in square brackets; those are instructions to you, not "
+    "words to say."
 )
 
 
@@ -249,6 +256,10 @@ async def live_voice(websocket: WebSocket) -> None:
         logger.warning("Live session failed: %s", exc)
         await _say(websocket, type="error", message=_explain(exc, model))
     finally:
+        # A standing offer belongs to one conversation. Left behind, the
+        # dict grows for the life of the process and a recycled id could
+        # hand somebody else's question to a later "yes".
+        _STANDING.pop(id(websocket), None)
         try:
             await websocket.close()
         except Exception:  # noqa: BLE001
@@ -360,10 +371,10 @@ async def _pump(websocket: WebSocket, session, who: dict, settings) -> bool:
             if getattr(server, "turn_complete", None):
                 spoken = "".join(said).strip()
                 await _remember(spoken, "".join(heard).strip(), who)
-                # Detached: deciding whether that was a job takes a model
-                # call, and the owner is already free to speak again. Made
-                # to wait for it, they would hear the pause.
-                _detached(_maybe_offer(websocket, spoken, settings))
+                # Detached from the turn: both the deciding and the doing
+                # take real time, and the owner is free to speak again the
+                # moment JARVIS stops. Made to wait, they hear the pause.
+                _detached(_handle_turn(websocket, session, spoken, who, settings))
                 said, heard = [], []
                 # Says "your turn" to the page. The microphone never
                 # stopped, so speaking again just continues; this only
@@ -411,6 +422,126 @@ def _detached(coro) -> None:
     task.add_done_callback(_PENDING.discard)
 
 
+# One offer at a time, per live session. A spoken conversation has one
+# thread; two open questions would make "yes" ambiguous.
+_STANDING: dict[int, str] = {}
+
+
+async def _handle_turn(
+    websocket: WebSocket, session, spoken: str, who: dict, settings
+) -> None:
+    """Decide what that turn meant: an answer to an offer, or a new one.
+
+    Answering comes first. If an offer is standing, "yes" is an answer to
+    it -- and reading it as a fresh request instead is how the first
+    version looped: it asked, heard yes, understood nothing, and asked
+    again.
+    """
+    key = id(websocket)
+    try:
+        from app import offer
+
+        standing = _STANDING.get(key)
+        if standing:
+            if offer.reads_as_yes(spoken):
+                _STANDING.pop(key, None)
+                await _act(websocket, session, standing, who, settings)
+                return
+            if offer.reads_as_no(spoken):
+                _STANDING.pop(key, None)
+                await _say(websocket, type="offer_closed", reason="declined")
+                return
+            # Something else entirely. The offer stands: the owner may
+            # still be thinking, and dropping it would be one more thing
+            # that silently did not happen.
+            return
+
+        await _maybe_offer(websocket, spoken, settings)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Could not act on what was said: %s", exc)
+
+
+async def _inject(session, text: str) -> None:
+    """Put words into the model's ear, as though the owner had said them.
+
+    This is how a search result gets spoken: Gemini has no way to know
+    what JARVIS did between turns, so it is told, and answers in its own
+    voice and the owner's own language.
+    """
+    await session.send_client_content(
+        turns=types.Content(role="user", parts=[types.Part(text=text)]),
+        turn_complete=True,
+    )
+
+
+async def _act(
+    websocket: WebSocket, session, objective: str, who: dict, settings
+) -> None:
+    """Do the thing that was agreed to, and say what came of it.
+
+    Speaking first matters. The work takes twenty or thirty seconds, and
+    silence that long after "yes" is indistinguishable from a system that
+    has stopped working -- which is exactly what it looked like.
+    """
+    from app.agents import orchestrator
+
+    await _say(websocket, type="offer_running", objective=objective)
+    await _inject(
+        session,
+        "[System: the owner just agreed to the search you offered. Say in "
+        "one short sentence that you are looking it up now, in the "
+        "language they are speaking, and then stop and wait. Do not "
+        "answer the question yet -- the results are coming.]",
+    )
+
+    try:
+        result = await orchestrator.run(
+            objective, f"user:{who.get('email') or who.get('uid')}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Live-started work failed: %s", exc)
+        await _say(websocket, type="offer_failed", message=str(exc))
+        await _inject(
+            session,
+            "[System: the search failed and there are no results. Tell the "
+            "owner plainly that you could not get an answer. Do not invent "
+            "one.]",
+        )
+        return
+
+    summary = _summarise(result)
+    await _say(websocket, type="offer_done",
+               objective=objective, workflow_id=result.get("workflow_id"),
+               summary=summary)
+
+    if result.get("status") != "completed" or not summary:
+        await _inject(
+            session,
+            "[System: the search came back with nothing usable. Say so "
+            "plainly. Never invent a figure or a source.]",
+        )
+        return
+
+    await _inject(
+        session,
+        "[System: here are the results of the search you offered. Tell the "
+        "owner what they say, in one or two sentences, in the language "
+        "they are speaking. Use only what is here -- if something was "
+        "contradicted or could not be verified, say that rather than "
+        f"smoothing it over.]\n\n{summary[:4000]}",
+    )
+
+
+def _summarise(result: dict) -> str:
+    """The workflow's outputs as something that can be read aloud."""
+    parts = []
+    for capability, output in (result.get("outputs") or {}).items():
+        if isinstance(output, dict):
+            output = output.get("summary") or output
+        parts.append(f"{capability}: {output}")
+    return "\n\n".join(str(p) for p in parts).strip()
+
+
 async def _maybe_offer(websocket: WebSocket, spoken: str, settings) -> None:
     """Offer to go and do it, when what was said asked for that.
 
@@ -431,6 +562,7 @@ async def _maybe_offer(websocket: WebSocket, spoken: str, settings) -> None:
             return
         proposal = await offer.build(objective)
         if proposal:
+            _STANDING[id(websocket)] = objective
             await _say(websocket, type="offer", **proposal)
     except Exception as exc:  # noqa: BLE001
         logger.info("Could not offer to act on what was said: %s", exc)

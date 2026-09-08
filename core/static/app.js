@@ -949,12 +949,48 @@ $("wfList").addEventListener("click", (e) => {
   if (row) { pendingPlan = null; showPlanButtons({}); watch(row.dataset.wf); }
 });
 
-// A spoken request that wanted doing. The same card as the typed path --
-// one way of showing an offer, however it was asked for.
+/* A spoken request that wanted doing.
+ *
+ * Out loud, the answer is spoken: JARVIS asked, and saying "yes" is what
+ * starts it. The card is here so you can see what was heard and press it
+ * if you would rather -- it is not the mechanism, and an earlier version
+ * that made it the mechanism left every spoken "yes" reaching nothing. */
+let voiceOffer = null;
+
 document.addEventListener("jarvis:offer", (e) => {
-  const row = addMsg("jarvis", "", null);
-  row.querySelector(".body").remove();
-  addOffer(row, e.detail);
+  const msg = e.detail;
+
+  if (msg.type === "offer") {
+    const row = addMsg("jarvis", "", null);
+    row.querySelector(".body").remove();
+    voiceOffer = addOffer(row, msg, { spoken: true });
+    return;
+  }
+  if (!voiceOffer) return;
+
+  if (msg.type === "offer_closed") {
+    voiceOffer.innerHTML = `<div class="cost">Left it. Nothing was run.</div>`;
+    voiceOffer = null;
+  } else if (msg.type === "offer_running") {
+    voiceOffer.className = "offer running";
+    voiceOffer.innerHTML = `<div class="what">${esc(msg.objective)}</div>` +
+                           `<div class="steps">Looking it up now…</div>`;
+    showOffer(voiceOffer);
+  } else if (msg.type === "offer_failed") {
+    voiceOffer.className = "offer failed";
+    voiceOffer.innerHTML = `<div class="cost">${esc(msg.message || "It did not finish.")}</div>`;
+    voiceOffer = null;
+  } else if (msg.type === "offer_done") {
+    // JARVIS is about to say this aloud; the card carries the detail --
+    // the sources, the cost -- that speech is a bad medium for.
+    voiceOffer.className = "offer done";
+    voiceOffer.innerHTML =
+      `<div class="cost" style="margin:0 0 .2rem">${esc(msg.objective)}</div>` +
+      `<div class="out">${esc(msg.summary || "Nothing came back.")}</div>`;
+    showOffer(voiceOffer);
+    voiceOffer = null;
+    refresh();
+  }
 });
 
 $("planBtn").onclick = proposePlan;
@@ -977,12 +1013,13 @@ function showOffer(box) {
   convo.scrollTop = Math.max(0, box.offsetTop - convo.offsetTop - 8);
 }
 
-function addOffer(afterEl, offer) {
+function addOffer(afterEl, offer, { spoken = false } = {}) {
   const box = document.createElement("div");
   box.className = "offer";
   box.innerHTML =
     `<div class="what">I can look this up properly: ${esc(offer.objective)}</div>` +
-    `<div class="cost">Cost: ${esc(offer.cost_note)}.</div>` +
+    `<div class="cost">Cost: ${esc(offer.cost_note)}.` +
+    (spoken ? " Just say yes — or use the buttons." : "") + `</div>` +
     `<div class="row">` +
     `<button class="btn go">Go ahead</button>` +
     `<button class="btn">No thanks</button>` +
