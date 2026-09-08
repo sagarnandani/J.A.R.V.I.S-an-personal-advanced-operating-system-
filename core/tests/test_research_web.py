@@ -265,3 +265,52 @@ async def test_the_capability_is_refused_if_its_grant_is_narrowed(clean, monkeyp
     assert row["status"] == "failed"
     assert "network" in row["failure_reason"].lower()
     assert not called, "the network was reached by an agent without the grant"
+
+
+# --- an answer with nothing behind it must say so --------------------------
+
+@pytest.mark.asyncio
+async def test_an_unsourced_answer_says_it_was_never_looked_up(monkeypatch):
+    """The failure the owner actually hit.
+
+    Grounding returned nothing, so this is the model's own recollection
+    wearing a research agent's name. The confidence already drops to 0.3 --
+    but confidence is a number in a task row, and what the owner hears is
+    the text. Unlabelled, it sounds exactly like something that was looked
+    up, and they were told two-year-old facts as a fresh finding.
+    """
+    stub_gemini(monkeypatch, SimpleNamespace(
+        text="The latest model is from 2024.", candidates=[], usage_metadata=None))
+    monkeypatch.setattr(research_web, "get_settings", lambda: SETTINGS)
+
+    result = await research_web.run(
+        Handoff(task_id=None, workflow_id=None, objective="what launched recently",
+                permissions=frozenset({Permission.NETWORK})),
+        None,
+    )
+
+    assert "could not reach any sources" in result.output
+    assert "may be out of date" in result.output
+    assert "The latest model is from 2024." in result.output, (
+        "the answer itself was thrown away rather than qualified"
+    )
+    assert result.confidence == 0.3
+    assert result.unresolved
+
+
+@pytest.mark.asyncio
+async def test_a_sourced_answer_is_left_alone(monkeypatch):
+    """The caveat must not attach itself to real research."""
+    stub_gemini(monkeypatch, fake_response(
+        text="The ceiling is Rs.50,000.",
+        sources=(("Reuters", "https://r.com/a"), ("BBC", "https://b.com/b"))))
+    monkeypatch.setattr(research_web, "get_settings", lambda: SETTINGS)
+
+    result = await research_web.run(
+        Handoff(task_id=None, workflow_id=None, objective="the subsidy",
+                permissions=frozenset({Permission.NETWORK})),
+        None,
+    )
+
+    assert result.output == "The ceiling is Rs.50,000."
+    assert not result.unresolved

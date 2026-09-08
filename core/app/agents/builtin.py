@@ -25,13 +25,25 @@ from app.config import get_settings
 SPECS = [
     AgentSpec(
         capability="general.research",
-        name="Research",
-        description="Gathers and summarises what is known about a question.",
+        name="Recall",
+        # Named and described for what it actually is. It used to say it
+        # "gathers" what is known, and to declare NETWORK it never used --
+        # so a planner looking for something that could find things out
+        # picked it, and the owner was told 2024 facts as though they had
+        # just been looked up. A capability that overstates itself in the
+        # registry is worse than one that does not exist.
+        description=(
+            "Answers from the model's own training data only. Reaches "
+            "nothing, cites nothing, and knows nothing that happened after "
+            "the model was trained. For anything current, or anything that "
+            "needs a source, use research.web instead."
+        ),
         domain="general",
-        task_types=("general", "research"),
-        permissions=frozenset({Permission.READ_MEMORY, Permission.NETWORK}),
-        # Research is broad but rarely subtle: standard is the right
-        # default, deep is available when getting it wrong is expensive.
+        # Not "research". That word is research.web's, and sharing it is
+        # how the wrong one got chosen.
+        task_types=("general", "recall"),
+        # No NETWORK. It never opened a connection in its life.
+        permissions=frozenset({Permission.READ_MEMORY}),
         model_tiers=(ModelTier.STANDARD, ModelTier.DEEP),
         status=Lifecycle.ACTIVE,
         config={"scopes": ["working", "shared"]},
@@ -64,8 +76,11 @@ SPECS = [
 ]
 
 _INSTRUCTIONS = {
-    "general.research": "Research the objective. State what is established, "
-                        "what is contested, and what you could not determine.",
+    "general.research": "Answer from what you already know. You have no "
+                        "sources and no way to look anything up, so say "
+                        "plainly when something may have changed since you "
+                        "were trained, and never present recollection as a "
+                        "finding.",
     "general.analysis": "Analyse the material provided. Give your conclusion "
                         "first, then the reasoning.",
     "general.writer": "Write the requested piece. Plain prose, no preamble.",

@@ -89,13 +89,24 @@ async def run(handoff: Handoff, choice) -> AgentResult:
     )
 
     unresolved = []
+    answer = result.answer
     if not result.sources:
+        # Grounding came back with nothing, which means this is the
+        # model's own recollection wearing a research agent's name. The
+        # confidence already drops, but confidence is a number in a task
+        # row -- the owner hears the *text*, and unlabelled it sounds
+        # exactly like something that was looked up. So the text says so.
         unresolved.append(
             "No sources were returned, so nothing here has been verified."
         )
+        answer = (
+            "I could not reach any sources for this, so what follows is "
+            "only what the model already believed -- it may be out of date "
+            "and none of it has been checked:\n\n"
+        ) + answer
 
     return AgentResult(
-        output=result.answer,
+        output=answer,
         confidence=_confidence(result),
         evidence=result.sources,
         assumptions=(

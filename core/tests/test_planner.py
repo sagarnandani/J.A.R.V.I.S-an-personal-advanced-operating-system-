@@ -386,13 +386,19 @@ async def test_an_objective_nothing_can_take_fails_with_the_reason(clean, monkey
 # --- what the fallback picks ------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_the_fallback_does_not_pick_a_specialist(clean, monkeypatch):
-    """Alphabetical order is not a decision.
+async def test_the_fallback_picks_something_that_can_actually_find_out(
+    clean, monkeypatch
+):
+    """The bug this test used to cause.
 
-    The registry lists capabilities by name, so the untouched fallback
-    handed every unplanned objective to whatever sorted first -- which,
-    once factcheck.claims existed, was a fact-checker being asked to
-    research things it had no claims for.
+    It asserted the fallback should prefer domain == "general", which
+    sounds sensible and is exactly backwards: the general-domain agents
+    answer purely from training data. So "what launched this week?" was
+    answered from two years ago, with no sources and nothing to say that
+    nothing had been looked up.
+
+    The fallback runs when nothing is known about the objective. What
+    matters then is whether the agent can reach the world at all.
     """
     from app.agents.capabilities import factcheck_claims, research_web
 
@@ -406,10 +412,32 @@ async def test_the_fallback_does_not_pick_a_specialist(clean, monkeypatch):
     assert plan.source == "direct"
     assert plan.steps[0].capability != "factcheck.claims"
     spec = await registry.resolve(plan.steps[0].capability)
-    assert spec.domain == "general", (
-        "the fallback reached for a specialist when it knew nothing about "
-        "the objective"
+    assert spec.tools or Permission.NETWORK in spec.permissions, (
+        f"the fallback picked {spec.capability}, which cannot reach "
+        f"anything -- it would answer an unclassified question from "
+        f"training data and call it research"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_capability_that_cannot_reach_the_web_does_not_claim_to(clean):
+    """general.research declared NETWORK and never opened a connection.
+
+    That is not a tidiness point. The planner reads permissions to decide
+    what an agent can do, so a permission nobody uses is a claim that
+    misroutes real work -- and the owner is told stale facts as though
+    they had just been fetched.
+    """
+    await builtin.install()
+
+    spec = await registry.resolve("general.research")
+    assert Permission.NETWORK not in spec.permissions
+    assert not spec.tools
+    assert "research" not in spec.task_types, (
+        "it shares the word with research.web, which is how the wrong one "
+        "gets chosen"
+    )
+    assert "research.web" in spec.description
 
 
 @pytest.mark.asyncio

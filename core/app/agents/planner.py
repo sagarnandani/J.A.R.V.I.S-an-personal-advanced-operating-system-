@@ -38,7 +38,7 @@ import re
 from dataclasses import dataclass, field
 
 from app.agents import registry
-from app.agents.schemas import Step
+from app.agents.schemas import Permission, Step
 from app.config import get_settings
 
 logger = logging.getLogger("jarvis.agents.planner")
@@ -249,13 +249,19 @@ async def _direct(objective: str) -> Plan:
         return Plan(source="none", reasoning="No routable capability can take this.")
 
     # Ranked, because the registry's own order is alphabetical and that is
-    # not a decision. This fallback runs precisely when nothing is known
-    # about the objective, so it wants the most general agent available,
-    # and among those the one whose job is finding things out -- which is
-    # the useful first move on a question nobody has classified.
+    # not a decision. This fallback runs when nothing is known about the
+    # objective, so it wants whichever agent can actually go and find out:
+    # one with a tool, then one that may reach the network.
+    #
+    # An earlier version ranked by domain == "general" and picked a
+    # capability that answers purely from training data -- so a question
+    # about this week was answered from two years ago, with no sources and
+    # no sign that nothing had been looked up. Preferring the general
+    # domain sounds sensible and is exactly backwards: for an unclassified
+    # question, being able to reach the world is the thing that matters.
     def rank(spec):
-        return (0 if spec.domain == "general" else 1,
-                0 if "research" in spec.task_types else 1,
+        return (0 if spec.tools else 1,
+                0 if Permission.NETWORK in spec.permissions else 1,
                 spec.capability)
 
     chosen = sorted(candidates, key=rank)[0]

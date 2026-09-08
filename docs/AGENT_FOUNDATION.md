@@ -70,8 +70,19 @@ about an overspend afterwards is an audit trail, not a budget.
 
 ## What exists now
 
-Three mock capabilities that prove the machinery — `general.research`,
-`general.analysis`, `general.writer` — and two real ones:
+Three capabilities that answer from the model alone — `general.research`,
+`general.analysis`, `general.writer` — and two that reach the world:
+
+A word on the first three, because one of them caused a real failure.
+`general.research` was described as "gathers and summarises what is known"
+and declared the NETWORK permission. It gathers nothing: it is a single
+model call with no way to reach anything. The planner reads descriptions
+and permissions to decide who runs, so it picked that one for a question
+about this week and answered it from training data — no sources, and
+nothing on screen to say nothing had been looked up. It is now named
+Recall, says plainly that it reaches nothing, and holds no permission it
+does not use. A capability that overstates itself in the registry is
+worse than one that does not exist.
 
 **`research.web`** answers a question from live web sources and returns
 the pages it relied on. It uses Gemini's own Google Search grounding, so
@@ -81,6 +92,13 @@ It was built first on purpose. It holds NETWORK, spends real money, calls
 a service outside our control, and can fail in ways nobody scripted —
 which exercises permissions, cost, failure handling and telemetry against
 reality rather than against a mock that always cooperates.
+
+When grounding returns no sources at all, the answer itself now says so
+before anything else: what follows is the model's own recollection, may
+be out of date, and has not been checked. The confidence already dropped
+to 0.3 in those cases, but a confidence is a number in a task row and
+what the owner hears is the text — unlabelled, recollection sounds
+exactly like research.
 
 Its confidence is **computed, not asserted**: from how many independent
 sources supported the answer, never above 0.85. A model asked to rate its
