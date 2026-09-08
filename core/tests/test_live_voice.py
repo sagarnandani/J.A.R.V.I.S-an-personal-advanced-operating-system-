@@ -123,6 +123,9 @@ def wired(monkeypatch):
 
     monkeypatch.setattr(live_route.memory, "store_exchange", fake_store)
     monkeypatch.setattr(live_route.audit, "log_audit", _async_return(None))
+    # These run without a database pool, and voice now asks whether the
+    # owner has hit the emergency stop before opening a paid session.
+    monkeypatch.setattr("app.system_control.is_stopped", _async_return(False))
 
     learned = []
 

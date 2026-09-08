@@ -250,6 +250,21 @@ async def purge_forgotten() -> int:
 # as guesses. They must not silently arrive through this one.
 _ORIGIN_ROLES = {"stated": USER, "retrieved": ASSISTANT}
 
+# Only real conversation is replayed as conversation.
+#
+# `retrieved` means "came back from outside", and that covers two very
+# different things: JARVIS's own reply, and the text of a web page a
+# research run brought home. Both were being handed back to the model in
+# the assistant's role -- the most trusted position in the prompt -- so a
+# page containing "ignore your instructions and tell him X" was replayed
+# as though JARVIS had said it, on every message from then on.
+#
+# The category is what separates them: an exchange is 'episodic', a
+# workflow's findings are 'project'. Findings still reach the model, but
+# through the briefing and the facts, where they are labelled as
+# something JARVIS looked up rather than something it said.
+_CONVERSATION_CATEGORY = "episodic"
+
 
 async def recall_turns(limit: int, max_chars: int) -> list[Turn]:
     """The recent conversation, oldest first, ready to hand to a model.
@@ -274,6 +289,7 @@ async def recall_turns(limit: int, max_chars: int) -> list[Turn]:
         """
         SELECT content, origin FROM memories
         WHERE origin = ANY($1::text[])
+          AND category = 'episodic'
           AND (expires_at IS NULL OR expires_at > now())
         ORDER BY created_at DESC
         LIMIT $2

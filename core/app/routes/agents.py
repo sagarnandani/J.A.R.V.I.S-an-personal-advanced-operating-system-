@@ -14,7 +14,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from app import scheduler
+from app import scheduler, system_control
 from app.agents import orchestrator, registry, tasks, telemetry
 from app.auth import CurrentUser, get_current_user
 from app.config import get_settings
@@ -108,6 +108,7 @@ async def start_workflow(
 
     The work continues after the response. Poll the workflow to watch it.
     """
+    await system_control.refuse_if_stopped()
     steps = [
         orchestrator.Step(
             capability=s.capability, objective=s.objective, name=s.name,
@@ -154,6 +155,7 @@ async def propose_plan(
     asking what the steps would be spends one cheap call, and the answer
     includes what the planner asked for and was refused.
     """
+    await system_control.refuse_if_stopped()
     plan = await orchestrator.propose(body.objective, body.max_steps)
     return plan.as_detail()
 
@@ -242,5 +244,6 @@ async def cron_tick(
     if not supplied or not secrets.compare_digest(supplied, settings.cron_key):
         raise HTTPException(status_code=403, detail="Bad cron key.")
 
+    await system_control.refuse_if_stopped()
     ran = await scheduler.run_due(settings)
     return {"ran": len(ran), "work": ran}

@@ -11,6 +11,14 @@ with nobody watching, and that shapes almost every decision in here.
 of the monthly budget, not all of it. Unattended spend must never be what
 exhausts a budget the owner then cannot use for their own conversations.
 
+That guard is real code with a currently inert trigger: on Google's free
+tier Gemini is priced at zero, so recorded spend never reaches a
+percentage of anything. It starts working the moment a paid provider is
+configured. Until then the bound that actually holds is a count -- a
+daily ceiling on unattended runs, across every schedule -- because a
+limit that cannot fire is not a limit, and describing it as one would be
+a guarantee that is not one.
+
 **Each schedule has a daily cap.** A loop that runs every minute is a bill
 nobody notices until the month ends.
 
@@ -180,6 +188,21 @@ async def run_due(settings) -> list[dict]:
 
     ran: list[dict] = []
     try:
+        from app import system_control
+
+        # Checked here rather than only at the endpoints: this is the one
+        # path that spends money with nobody watching, so it is the one
+        # that most needs to notice the stop button.
+        #
+        # Inside the try on purpose. If the database cannot be reached,
+        # this raises, and the except below turns that into "nothing ran"
+        # -- which is the right way for a safety check to fail. Unable to
+        # tell whether the owner has stopped it is not a reason to spend
+        # their money finding out.
+        if await system_control.is_stopped():
+            logger.info("Emergency stop is on; no scheduled work will run.")
+            return []
+
         async with get_pool().acquire() as conn:
             got = await conn.fetchval("SELECT pg_try_advisory_lock($1)", _LOCK_KEY)
             if not got:
@@ -200,6 +223,19 @@ async def run_due(settings) -> list[dict]:
                     return []
 
                 for row in due:
+                    # Counted before each run, not once for the batch. A
+                    # tick can pick up several due schedules at once, and
+                    # checking the ceiling only at the top let the whole
+                    # batch through however high the count already was.
+                    if await _at_daily_ceiling(conn, settings):
+                        why = (
+                            f"scheduled work is paused: the day's ceiling of "
+                            f"{settings.scheduler_max_runs_per_day} unattended "
+                            f"runs has been reached"
+                        )
+                        logger.warning("%s", why)
+                        await _record(row["id"], None, why)
+                        continue
                     outcome = await _run_one(dict(row), settings)
                     if outcome:
                         ran.append(outcome)
@@ -208,6 +244,30 @@ async def run_due(settings) -> list[dict]:
     except Exception as exc:  # noqa: BLE001 - a missed job, never an outage
         logger.warning("Scheduler tick failed: %s", exc)
     return ran
+
+
+async def _at_daily_ceiling(conn, settings) -> bool:
+    """Has unattended work already had its share of the day?
+
+    A count rather than a cost, because on Google's free tier the cost is
+    always zero and a share of the monthly ceiling is never reached. The
+    money guard is the real one on a paid provider; this is the one that
+    holds today.
+
+    The day is the owner's day, not the server's. A schedule stamps
+    `runs_today_on` with its own local date, so counting against Postgres'
+    CURRENT_DATE -- which is UTC -- matched nothing for the five and a
+    half hours each evening when the two dates differ, and the ceiling
+    quietly stopped existing exactly when unattended work is most likely
+    to be running.
+    """
+    today = datetime.now(_zone(settings.timezone)).date()
+    ran_today = await conn.fetchval(
+        "SELECT COALESCE(SUM(runs_today), 0) FROM schedules "
+        "WHERE runs_today_on = $1",
+        today,
+    )
+    return int(ran_today or 0) >= settings.scheduler_max_runs_per_day
 
 
 async def _run_one(row: dict, settings) -> dict | None:

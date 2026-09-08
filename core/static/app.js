@@ -1154,10 +1154,12 @@ $("schAdd").onclick = async () => {
     if (!res.ok) throw new Error(await problem(res));
     $("schObjective").value = "";
     $("schNote").textContent =
-      "Scheduled. It plans and runs on its own, so it stops at 60% of your " +
-      "monthly budget and twice a day at most. On this free server it fires " +
-      "when JARVIS is awake — if it was asleep at the time, it runs when you " +
-      "next open this page and says how late it was.";
+      "Scheduled. It runs on its own: twice a day at most, and no more than " +
+      "20 unattended runs a day in total. (The 60%-of-budget limit only " +
+      "bites once you are on a paid model — Gemini's free tier records ₹0, " +
+      "so a share of your ceiling is never reached.) On this free server it " +
+      "fires when JARVIS is awake; if it was asleep, it runs when you next " +
+      "open this page and says how late it was.";
     loadSchedules();
   } catch (err) {
     $("schNote").textContent = String(err.message || err);

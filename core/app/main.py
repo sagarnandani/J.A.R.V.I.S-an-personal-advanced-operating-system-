@@ -183,7 +183,19 @@ def _warn_if_spend_is_untracked(settings) -> None:
         )
 
 
-app = FastAPI(title="JARVIS Core", version="0.1.0-stage0", lifespan=lifespan)
+# Interactive docs only in DEV_MODE.
+#
+# Every endpoint behind them needs the owner's cookie, so listing them is
+# not a way in -- but a public page advertising /v1/memories/forget-all
+# and /v1/memories/purge on a personal system is surface with no purpose.
+# It also names the version, which is a free hint to anyone looking.
+_dev = get_settings().dev_mode
+app = FastAPI(
+    title="JARVIS Core", version="0.1.0-stage0", lifespan=lifespan,
+    docs_url="/docs" if _dev else None,
+    redoc_url="/redoc" if _dev else None,
+    openapi_url="/openapi.json" if _dev else None,
+)
 
 settings = get_settings()
 app.add_middleware(

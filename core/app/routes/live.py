@@ -207,6 +207,31 @@ async def live_voice(websocket: WebSocket) -> None:
         output_audio_transcription=types.AudioTranscriptionConfig(),
     )
 
+    # Before a session is opened, not after: connecting spends quota, and
+    # an owner who has hit the stop button has not agreed to spend any.
+    from app import system_control
+
+    try:
+        stopped = await system_control.is_stopped()
+    except Exception as exc:  # noqa: BLE001
+        # The opposite choice from the scheduler's, and for a reason: a
+        # person is standing here with their finger on the microphone. A
+        # database blip should not turn voice into a dead button with a
+        # baffling message, and if they had hit the stop they would
+        # remember. Unattended work gets the stricter answer because
+        # nobody is there to notice it was wrong.
+        logger.warning("Could not read the emergency stop: %s", exc)
+        stopped = False
+
+    if stopped:
+        await _say(
+            websocket, type="error",
+            message="JARVIS is stopped (Emergency Stop is on). Turn it off "
+                    "in Settings to use voice again.",
+        )
+        await websocket.close()
+        return
+
     client = genai.Client(api_key=settings.gemini_api_key)
     model = settings.live_model or LIVE_MODEL
     voice = settings.live_voice or DEFAULT_VOICE

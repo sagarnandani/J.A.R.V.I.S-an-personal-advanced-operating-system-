@@ -202,6 +202,17 @@ class Settings(BaseSettings):
     # never be what exhausts a budget the owner then cannot use.
     scheduler_budget_percent: int = 60
 
+    # A hard ceiling on unattended runs per day, across every schedule.
+    #
+    # This exists because the budget guard above cannot fire on Google's
+    # free tier: Gemini is priced at zero here, so recorded spend is
+    # always Rs.0 and a percentage of the ceiling is never reached. The
+    # money guard is real and starts working the moment a paid provider is
+    # configured -- but until then a count is the only bound there is, and
+    # calling the percentage a safety limit while it can never trigger
+    # would be a guarantee that is not one.
+    scheduler_max_runs_per_day: int = 20
+
     # Shared secret for POST /v1/cron/tick, so something outside can wake
     # a sleeping free-tier server on time. Empty disables the endpoint --
     # an unauthenticated trigger for paid work is not something to leave
