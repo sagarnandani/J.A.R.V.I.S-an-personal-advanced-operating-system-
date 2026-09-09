@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from app import scheduler, system_control
-from app.agents import orchestrator, registry, tasks, telemetry
+from app.agents import approvals, orchestrator, registry, tasks, telemetry
 from app.auth import CurrentUser, get_current_user
 from app.config import get_settings
 
@@ -70,6 +70,10 @@ class WorkflowIn(BaseModel):
 class PlanIn(BaseModel):
     objective: str
     max_steps: int | None = None
+
+
+class DecisionIn(BaseModel):
+    reason: str | None = None
 
 
 class ScheduleIn(BaseModel):
@@ -247,3 +251,117 @@ async def cron_tick(
     await system_control.refuse_if_stopped()
     ran = await scheduler.run_due(settings)
     return {"ran": len(ran), "work": ran}
+
+
+# --- approving what is waiting ---------------------------------------------
+
+@router.get("/v1/approvals", include_in_schema=False)
+async def approvals_waiting(
+    user: CurrentUser = Depends(get_current_user)
+) -> list[dict]:
+    """Everything sitting on your desk, and what each one is waiting for."""
+    return await approvals.waiting()
+
+
+@router.post("/v1/approvals/{task_id}/approve", include_in_schema=False)
+async def approve(
+    task_id: UUID, body: DecisionIn,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """Say yes, and let the work continue.
+
+    The task goes back in the queue rather than being run from here, so
+    it passes through the same checks it stopped at. Approving one task is
+    not approving a category: the decision is recorded against this task
+    and no other.
+    """
+    await system_control.refuse_if_stopped()
+
+    row = await tasks.get(task_id)
+    if row is None or row["status"] != "waiting_approval":
+        raise HTTPException(
+            status_code=404,
+            detail="Nothing is waiting for approval on that task.",
+        )
+
+    category = _category_of(row)
+    decision = await approvals.decide(
+        task_id, category, "approved", f"user:{user.email or user.uid}",
+        reason=body.reason,
+        # What the owner was looking at. An approval history is only
+        # evidence if it records the thing that was approved.
+        saw={"objective": row["objective"], "capability": row["capability"],
+             "asked": row["failure_reason"], "result": row["result"]},
+    )
+    if decision is None:
+        raise HTTPException(
+            status_code=409, detail="That has already been decided."
+        )
+
+    await approvals.resume(task_id)
+    await telemetry.record(
+        "approval_granted", workflow_id=row["workflow_id"], task_id=task_id,
+        capability=row["capability"],
+        detail={"category": category, "by": f"user:{user.email or user.uid}"},
+    )
+    if row["workflow_id"]:
+        _run_detached(row["workflow_id"])
+    return {"ok": True, "resumed": True, "category": category}
+
+
+@router.post("/v1/approvals/{task_id}/reject", include_in_schema=False)
+async def reject(
+    task_id: UUID, body: DecisionIn,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """Say no. The task is cancelled, not failed.
+
+    Nothing went wrong -- you decided against it -- and the metrics read
+    very differently for the two. A rejection rate says something about
+    the work; a failure rate says something about the system.
+    """
+    row = await tasks.get(task_id)
+    if row is None or row["status"] != "waiting_approval":
+        raise HTTPException(
+            status_code=404,
+            detail="Nothing is waiting for approval on that task.",
+        )
+
+    category = _category_of(row)
+    if await approvals.decide(
+        task_id, category, "rejected", f"user:{user.email or user.uid}",
+        reason=body.reason,
+        saw={"objective": row["objective"], "capability": row["capability"],
+             "asked": row["failure_reason"], "result": row["result"]},
+    ) is None:
+        raise HTTPException(status_code=409, detail="That has already been decided.")
+
+    await approvals.abandon(task_id, body.reason or "You decided against it.")
+    await telemetry.record(
+        "approval_refused", workflow_id=row["workflow_id"], task_id=task_id,
+        capability=row["capability"],
+        detail={"category": category, "reason": body.reason},
+    )
+    if row["workflow_id"]:
+        await orchestrator.advance(row["workflow_id"], max_waves=1)
+    return {"ok": True, "cancelled": True}
+
+
+def _category_of(task: dict) -> str:
+    """Which approval category this task stopped on.
+
+    Read back from the permissions the task declared, so it matches
+    whatever the runtime actually stopped at. Defaulting to 'publishing'
+    would quietly file a spending decision under the wrong heading, and
+    the approval history is meant to be evidence.
+    """
+    from app.agents.schemas import ALWAYS_APPROVED, Permission
+
+    for name in (task.get("constraints") or {}).get("permissions", []):
+        try:
+            category = ALWAYS_APPROVED.get(Permission(name))
+        except ValueError:
+            continue
+        if category:
+            return category
+    return "publishing"

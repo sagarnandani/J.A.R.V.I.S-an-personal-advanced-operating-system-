@@ -95,10 +95,10 @@ async def test_a_fresh_database_gets_the_whole_schema(blank):
 
     assert applied == [
         "001_init.sql", "002_agent_foundation.sql", "003_schedules.sql",
-        "004_money.sql",
+        "004_money.sql", "005_approvals_and_shadow_cost.sql",
     ], "migrations must run in filename order"
     tables = await _tables(blank)
-    for expected in ("memories", "tasks", "audit_log", "approvals", "schedules", "money_events",
+    for expected in ("memories", "tasks", "audit_log", "approvals", "schedules", "money_events", "task_approvals",
                      "system_control", "agents", "workflows",
                      "agent_events", "agent_metrics"):
         assert expected in tables, f"{expected} is missing"

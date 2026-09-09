@@ -13,7 +13,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app import audit, facts, memory, offer, status, system_control
 from app.auth import CurrentUser, get_current_user
-from app.budget import estimate_cost_inr
+from app.budget import estimate_cost_inr, estimate_shadow_inr
 from app.config import Settings, get_settings
 from app.llm import get_provider
 from app.models import MessageRequest, MessageResponse, Offer
@@ -129,6 +129,12 @@ async def send_message(
     cost_inr = estimate_cost_inr(
         result.input_tokens, result.output_tokens, settings, provider=result.provider
     )
+    # What it would have cost on a paid model. Never reported as spend --
+    # it exists so "cost Rs.0, therefore return infinite" stops being the
+    # only thing the economics can say.
+    shadow_inr = estimate_shadow_inr(
+        result.input_tokens, result.output_tokens, settings, provider=result.provider
+    )
 
     # Recording the exchange and recording the audit row have nothing to
     # say to each other, so they go at once. Everything here happens after
@@ -143,6 +149,7 @@ async def send_message(
             approved_by=None,  # auto-approved: 'drafting'/'research' default to auto
             outcome=outcome,
             cost=cost_inr,
+            shadow_cost=shadow_inr,
         ),
     )
 

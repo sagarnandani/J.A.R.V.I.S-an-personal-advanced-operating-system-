@@ -52,16 +52,27 @@ async def policy_for(category: str) -> str:
     return row["default_policy"] if row else "ask_every_time"
 
 
-async def require_approval(spec: AgentSpec, needed: Permission) -> None:
+async def require_approval(
+    spec: AgentSpec, needed: Permission, task_id=None
+) -> None:
     """Raise ApprovalRequired if the owner has to be asked first.
 
     Unknown categories default to asking. A permission introduced later
     with no policy row should stop and ask rather than proceed silently,
     which is the safe direction to be wrong in.
+
+    `task_id` is what makes a resumed task able to get past here. The
+    approval is recorded against that exact task, so answering yes to one
+    post is not answering yes to publishing -- and without the id, a
+    resumed task would stop at the same gate for ever.
     """
+    from app.agents import approvals
+
     check(spec, needed)
     category = ALWAYS_APPROVED.get(needed)
     if category is None:
+        return
+    if await approvals.granted(task_id, category):
         return
     if await policy_for(category) != "auto":
         raise ApprovalRequired(

@@ -69,6 +69,52 @@ class BudgetSnapshot:
     note: str
 
 
+def shadow_rates(provider: str, settings: Settings) -> tuple[Decimal, Decimal]:
+    """(input, output) USD per 1M tokens, as if the provider were paid.
+
+    The real rates say Gemini costs nothing, which is true and useless:
+    every ratio built on it comes out as "cost zero, therefore return
+    infinite". These give the comparisons something to work with.
+
+    Never money. Never added to a bill. Only ever used to compare one
+    piece of work against another.
+    """
+    if provider == "claude":
+        return (
+            settings.shadow_claude_input_usd_per_1m,
+            settings.shadow_claude_output_usd_per_1m,
+        )
+    if provider == "gemini":
+        return (
+            settings.shadow_gemini_input_usd_per_1m,
+            settings.shadow_gemini_output_usd_per_1m,
+        )
+    # The mock adapter computes nothing, so there is nothing to shadow.
+    return (Decimal("0"), Decimal("0"))
+
+
+def estimate_shadow_inr(
+    tokens_in: int, tokens_out: int, settings: Settings, *, provider: str
+) -> Decimal:
+    """What this call would have cost on a paid equivalent."""
+    inp, out = shadow_rates(provider, settings)
+    usd = (Decimal(tokens_in) * inp + Decimal(tokens_out) * out) / Decimal(1_000_000)
+    return (usd * settings.usd_to_inr_rate).quantize(Decimal("0.0001"))
+
+
+async def get_month_shadow_inr() -> Decimal:
+    """Economic compute consumed this month. Not money.
+
+    Reported beside real spend so the owner can see both:
+    "Actual AI spend: Rs.0. Estimated economic compute: Rs.184."
+    """
+    row = await fetchrow(
+        "SELECT COALESCE(SUM(shadow_cost), 0) AS total FROM audit_log "
+        "WHERE date_trunc('month', created_at) = date_trunc('month', now())"
+    )
+    return Decimal(row["total"] if row else 0)
+
+
 async def get_month_spend_inr() -> Decimal:
     now = datetime.now(timezone.utc)
     row = await fetchrow(

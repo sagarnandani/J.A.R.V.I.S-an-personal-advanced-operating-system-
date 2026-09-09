@@ -265,6 +265,27 @@ class Settings(BaseSettings):
     price_gemini_input_usd_per_1m: Decimal = Decimal("0.00")
     price_gemini_output_usd_per_1m: Decimal = Decimal("0.00")
 
+    # --- Shadow pricing -------------------------------------------------
+    #
+    # What the same computation would reasonably cost on a paid
+    # equivalent. Never billed, never reported as money spent.
+    #
+    # Gemini's free tier is genuinely free, so its real price is zero --
+    # which makes every cost ratio in the media economics arithmetic on
+    # nothing. A shadow rate gives those comparisons something to work
+    # with. Set centrally here rather than in any agent, so one edit
+    # re-prices the whole system and no capability can quietly disagree
+    # about what a token is worth.
+    #
+    # These track published paid rates for the nearest equivalent model.
+    # Being consistent matters more than being exact: they are used to
+    # compare workflows against each other, not to predict an invoice.
+    shadow_gemini_input_usd_per_1m: Decimal = Decimal("0.30")
+    shadow_gemini_output_usd_per_1m: Decimal = Decimal("2.50")
+    # Claude is already paid, so its shadow rate is its real one.
+    shadow_claude_input_usd_per_1m: Decimal = Decimal("2.00")
+    shadow_claude_output_usd_per_1m: Decimal = Decimal("10.00")
+
     # --- CORS ---
     # Stage 0 has no real client yet, only the test console, so this
     # defaults wide open. Auth (not CORS) is what actually protects the

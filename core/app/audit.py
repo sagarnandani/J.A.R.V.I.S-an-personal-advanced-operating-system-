@@ -22,14 +22,16 @@ async def log_audit(
     outcome: str | None = None,
     cost: Decimal | None = None,
     approved_by: str | None = None,
+    shadow_cost: Decimal | None = None,
 ) -> UUID:
     if category not in VALID_CATEGORIES:
         raise ValueError(f"Unknown audit category: {category!r}")
 
     row = await fetchrow(
         """
-        INSERT INTO audit_log (actor, action, category, approved_by, outcome, cost)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO audit_log (actor, action, category, approved_by, outcome,
+                               cost, shadow_cost)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id
         """,
         actor,
@@ -38,6 +40,7 @@ async def log_audit(
         approved_by,
         outcome,
         cost,
+        shadow_cost,
     )
     assert row is not None
     return row["id"]

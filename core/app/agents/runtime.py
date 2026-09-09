@@ -76,7 +76,7 @@ async def run_task(task_id: UUID) -> bool:
     try:
         needed = {Permission(p) for p in (task["constraints"] or {}).get("permissions", [])}
         for perm in needed:
-            await permissions.require_approval(spec, perm)
+            await permissions.require_approval(spec, perm, task_id)
 
         budget = task["budget_cost"] and Decimal(task["budget_cost"])
         estimate = budget or Decimal("0.5")
@@ -138,7 +138,13 @@ async def run_task(task_id: UUID) -> bool:
         spent = result.cost_inr or cost.price(
             result.tokens_in, result.tokens_out, choice.provider, settings
         )
-        await cost.charge(task_id, workflow_id, spent)
+        # What it would have cost on a paid model, recorded beside what it
+        # actually cost. On a free tier the real figure is zero and true;
+        # this is the one that makes workflows comparable.
+        shadow = cost.shadow(
+            result.tokens_in, result.tokens_out, choice.provider, settings
+        )
+        await cost.charge(task_id, workflow_id, spent, shadow)
         await tasks.complete(task_id, {"output": result.output,
                                        "evidence": result.evidence,
                                        "assumptions": result.assumptions,
@@ -152,11 +158,12 @@ async def run_task(task_id: UUID) -> bool:
             capability=capability, cost_inr=spent, duration_ms=elapsed,
             detail={"confidence": result.confidence, "model": choice.model,
                     "tokens_in": result.tokens_in, "tokens_out": result.tokens_out,
-                    "unresolved": result.unresolved},
+                    "shadow_inr": float(shadow), "unresolved": result.unresolved},
         )
         await _measure(capability, spec.id, task_id, {
             "success": 1, "confidence": result.confidence,
             "latency_ms": elapsed, "cost_inr": float(spent),
+            "shadow_inr": float(shadow),
             "attempts": task["attempts"] + 1,
         })
         return True
