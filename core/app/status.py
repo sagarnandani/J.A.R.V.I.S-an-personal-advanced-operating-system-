@@ -94,6 +94,23 @@ async def briefing(settings) -> str:
             "no bank feed. Say so if asked; never produce a figure."
         )
 
+    # Content the owner has to decide on. Only when there is some: a line
+    # saying "nothing is waiting" every single day is how a briefing
+    # teaches its reader to skim past it.
+    try:
+        from app.media import records as pieces
+
+        waiting = await pieces.waiting()
+    except Exception:  # noqa: BLE001 - a briefing must not fail on a panel
+        waiting = []
+    if waiting:
+        titles = "; ".join(str(p["title"] or p["topic"]) for p in waiting[:3])
+        lines.append(
+            f"- Media waiting for the owner's decision: {len(waiting)} piece(s) "
+            f"— {titles}. Nothing has been published; approving is his to do "
+            f"on the Media tab."
+        )
+
     done = await recent_work()
     if done:
         lines.append("- Work finished since the owner was last here:")

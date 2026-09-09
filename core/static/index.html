@@ -452,6 +452,75 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 .wf .s.ready, .wf .s.approved { color: var(--ok); }
 .wf .s.producing, .wf .s.needs_you { color: var(--gold); }
 .wf .s.declined, .wf .s.stopped, .wf .s.rejected, .wf .s.discarded { color: var(--muted); }
+/* --- the org tree ---
+   An indented list, not a drawn graph. A box-and-line diagram of a
+   hundred agents is a picture nobody can read on a phone, needs pan and
+   zoom to be usable at all, and turns into spaghetti the moment a
+   specialist reports somewhere unexpected. An indented tree collapses,
+   searches, scrolls, and stays readable at five agents or five hundred. */
+.tree { font-size: .9rem; }
+.node {
+  display: flex; align-items: baseline; gap: .5rem; cursor: pointer;
+  padding: .3rem .4rem; border: 1px solid transparent; border-left: 2px solid transparent;
+}
+.node:hover { background: rgba(72,200,255,.06); }
+.node.selected { border-color: var(--edge-soft); border-left-color: var(--cyan); background: rgba(72,200,255,.1); }
+.node .twist {
+  width: .8rem; flex: none; color: var(--muted); font-size: .7rem;
+  transition: transform .12s;
+}
+.node .twist.open { transform: rotate(90deg); }
+.node .twist.leaf { visibility: hidden; }
+.node .nm { color: var(--text); flex: none; }
+/* The four levels, told apart by weight and colour rather than by boxes
+   and badges. The hierarchy has to be obvious at a glance without the
+   page turning into an admin panel. */
+.node.orchestrator .nm { font-family: Orbitron, sans-serif; font-size: .8rem; letter-spacing: .09em; color: var(--cyan); }
+.node.coordinator .nm { font-family: Orbitron, sans-serif; font-size: .74rem; letter-spacing: .07em; color: var(--gold); }
+.node.governance .nm { color: #c9a6ff; font-style: italic; }
+.node .rl {
+  color: var(--muted); font-size: .78rem; flex: 1 1 auto; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.node .dot {
+  width: .5rem; height: .5rem; border-radius: 50%; flex: none;
+  background: var(--muted); align-self: center;
+}
+/* Working is the only one that moves, and slowly. A tree where every
+   node pulses is a tree nobody can read. */
+.node .dot.working { background: var(--gold); animation: breathe 2.2s ease-in-out infinite; }
+.node .dot.waiting { background: var(--gold); }
+.node .dot.queued  { background: var(--cyan-dim); }
+.node .dot.idle    { background: rgba(111,147,173,.5); }
+@keyframes breathe { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.node .lc {
+  font-family: Orbitron, sans-serif; font-size: .58rem; letter-spacing: .07em;
+  text-transform: uppercase; flex: none; color: var(--muted);
+}
+.node .lc.degraded, .node .lc.watch { color: var(--gold); }
+.node .lc.disabled, .node .lc.retired, .node .lc.off { color: var(--danger); }
+.node .lc.experimental { color: #c9a6ff; }
+.node .lc.ok { color: var(--ok); }
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; }
+.chipbtn {
+  background: transparent; border: 1px solid var(--edge-soft); color: var(--muted);
+  font: inherit; font-size: .7rem; letter-spacing: .06em; text-transform: uppercase;
+  font-family: Orbitron, sans-serif; padding: .2rem .5rem; cursor: pointer;
+}
+.chipbtn.on { color: var(--cyan); border-color: var(--cyan); background: rgba(72,200,255,.1); }
+.kv { display: flex; gap: .5rem; font-size: .82rem; padding: .18rem 0; }
+.kv .k { color: var(--muted); flex: 0 0 8.5rem; }
+.kv .v { color: var(--text); flex: 1; word-break: break-word; }
+.sect {
+  font-family: Orbitron, sans-serif; font-size: .64rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--cyan-dim); margin: .8rem 0 .3rem;
+  border-bottom: 1px solid rgba(45,140,200,.16); padding-bottom: .2rem;
+}
+.perm { font-size: .82rem; padding: .12rem 0; }
+.perm .y { color: var(--ok); }
+.perm .n { color: var(--muted); }
+.perm .tag { color: var(--gold); font-size: .68rem; letter-spacing: .05em; }
+.unknown { color: var(--muted); font-style: italic; }
 .opp { border-left-color: var(--gold); cursor: pointer; }
 .opp:hover { border-color: var(--cyan); }
 .opp .score { float: right; font-family: Orbitron, sans-serif; font-size: .68rem; color: var(--gold); }
@@ -490,6 +559,25 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
   #tasksView .col:first-child > .panel.flexy .scroller {
     max-height: 34vh;
     max-height: 34svh;
+  }
+}
+
+/* The Agents view is two panels side by side on a landscape screen: the
+   tree, and whichever agent is selected. Both fill their column and
+   scroll inside themselves, so the page itself never scrolls and the
+   tree stays put while you read a detail panel. Same svh rather than vh
+   as the Tasks view, for the same iOS reason. */
+#agentsView { align-content: start; }
+@media (min-width: 900px) {
+  #agentsView { grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.35fr); }
+  #agentsView .col { min-height: 0; }
+  #agentsView .col > .panel.flexy {
+    flex: 1; display: flex; flex-direction: column; min-height: 0;
+  }
+  #agentsView #orgTree, #agentsView #agentDetail {
+    flex: 1; min-height: 0;
+    max-height: 62vh;
+    max-height: 62svh;
   }
 }
 
@@ -580,6 +668,7 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
       <nav class="nav" id="nav">
   <button data-view="home" class="active" title="Home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg><span>Home</span></button>
   <button data-view="tasks" title="Tasks" aria-label="Tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 5h11M9 12h11M9 19h11"/><path d="M4 5l1.2 1.2L7.5 4"/><path d="M4 12l1.2 1.2L7.5 10"/><path d="M4 19l1.2 1.2L7.5 17"/></svg><span>Tasks</span></button>
+  <button data-view="agents" title="Agents" aria-label="Agents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="4.5" r="2.2"/><circle cx="5.5" cy="18" r="2.2"/><circle cx="18.5" cy="18" r="2.2"/><path d="M12 6.7v3.6M5.5 15.8v-2.2h13v2.2M12 10.3v3.3"/></svg><span>Agents</span></button>
   <button data-view="media" title="Media" aria-label="Media"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="2.5" y="5" width="19" height="14" rx="2"/><path d="M10 9.5l5 2.5-5 2.5z"/></svg><span>Media</span></button>
   <button id="fsBtn" title="Full screen" aria-label="Full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
   <button data-view="settings" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.2A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.2A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 7 2.6h.1A1.6 1.6 0 0 0 8.2 1.1V1a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H23a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1.4z" transform="scale(.86) translate(2 2)"/></svg><span>Settings</span></button>
@@ -850,6 +939,52 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         <p class="note" id="planWhy" style="margin-top:0"></p>
         <div class="scroller" id="planSteps"></div>
         <p class="note" id="planRejected"></p>
+      </section>
+    </div>
+  </div>
+
+  <!-- AGENTS (hidden until its tab is chosen)
+
+       Everything on this page is generated from the Agent Registry. There
+       is no list of agents in the HTML and no drawn diagram: an agent
+       registered, reassigned, degraded or retired shows up here on the
+       next load, because the tree is the registry rather than a picture
+       of it. -->
+  <div class="grid hidden" id="agentsView" style="margin-top:clamp(.6rem,1.6vw,1rem)">
+    <div class="col">
+      <section class="panel">
+        <h2>The organisation</h2>
+        <div class="row" style="gap:.4rem">
+          <input class="field" id="agentSearch" style="min-height:0;flex:1 1 8rem"
+                 placeholder="Search name, capability or domain" />
+          <button class="btn" id="expandAll">Expand</button>
+          <button class="btn" id="collapseAll">Collapse</button>
+        </div>
+        <div class="chips" id="agentFilters" style="margin-top:.5rem">
+          <button class="chipbtn on" data-filter="all">All</button>
+          <button class="chipbtn" data-filter="working">Working</button>
+          <button class="chipbtn" data-filter="experimental">Experimental</button>
+          <button class="chipbtn" data-filter="degraded">Degraded</button>
+          <button class="chipbtn" data-filter="disabled">Disabled</button>
+        </div>
+        <p class="note" id="orgCounts"></p>
+      </section>
+
+      <section class="panel flexy">
+        <div class="scroller tree" id="orgTree">
+          <p class="empty">Reading the registry…</p>
+        </div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel flexy">
+        <h2 id="agentName">Choose an agent</h2>
+        <p class="note" id="agentRole" style="margin-top:0"></p>
+        <div class="scroller" id="agentDetail">
+          <p class="empty">Everything here comes from the registry and the
+          task record. Nothing is hand-maintained.</p>
+        </div>
       </section>
     </div>
   </div>

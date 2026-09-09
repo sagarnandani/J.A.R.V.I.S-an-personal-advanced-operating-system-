@@ -104,6 +104,34 @@ async def list_agents(
     ]
 
 
+@router.get("/v1/org", include_in_schema=False)
+async def org_tree(user: CurrentUser = Depends(get_current_user)) -> dict:
+    """The whole organisation, generated from the registry.
+
+    Nothing here is drawn by hand. An agent registered, reassigned,
+    degraded or retired changes this answer on the next request, which is
+    the only way a chart of a living system stays true.
+    """
+    from app.agents import org
+
+    return await org.tree()
+
+
+@router.get("/v1/org/{node_id}", include_in_schema=False)
+async def org_node(
+    node_id: str,
+    user: CurrentUser = Depends(get_current_user),
+    settings=Depends(get_settings),
+) -> dict:
+    """One node in full: who it is, what it may do, how it has gone."""
+    from app.agents import org
+
+    found = await org.detail(node_id, settings)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No such agent.")
+    return found
+
+
 @router.post("/v1/workflows", include_in_schema=False)
 async def start_workflow(
     body: WorkflowIn, user: CurrentUser = Depends(get_current_user)

@@ -518,6 +518,56 @@ Tapping an opportunity starts a production, which runs five agents and
 several minutes behind the request, so the tab polls rather than holding
 the connection open.
 
+## Seeing the organisation — the Agents tab
+
+One page that answers three questions at a glance: what agents exist, who
+reports to whom, and what each one does. One click further: is it
+healthy, what is it doing, what can it reach, what is it costing, and how
+has it been going.
+
+**Nothing on that page is maintained by hand.** There is no list of
+agents in the HTML and no drawn diagram. `/v1/org` reads the registry,
+the task rows and the metrics, and the page renders whatever comes back —
+so an agent registered, reassigned, degraded or retired appears, moves or
+changes colour on the next load. A chart somebody has to remember to
+update is a chart that is wrong within a month, and wrong quietly.
+
+Two nodes are not agents, and the page says so rather than pretending:
+
+- **JARVIS** is the orchestrator. It plans, routes and settles, holds no
+  capability, and is not in the registry.
+- **A supervisor nobody registered** — `media.director`, say — is a
+  recipe and a set of gates. It appears so the reporting line is visible,
+  its panel opens a domain summary rather than agent metrics, and the
+  first line of that panel is "Not an agent".
+
+Inventing registry rows for either would put things in the registry that
+cannot run, and the registry is what the runtime routes on.
+
+**An indented tree, not a box-and-line graph.** A drawn org chart looks
+impressive at nine agents and is an unreadable tangle at ninety: it needs
+pan and zoom on a phone and shrinks text until it cannot be read. An
+indented tree collapses, searches and scrolls, and reads the same at any
+size. Above twenty agents it opens collapsed to the first level, and a
+search reveals matches inside shut branches rather than merely filtering
+what is already open.
+
+**Blanks where nothing is measured.** Success rate, latency, confidence,
+failures and refusals are all recorded on every run, so those are real.
+Correction rate and quality score are not recorded anywhere, so the panel
+names them as unmeasured instead of showing a zero. And an agent that has
+run twice is reported as unproven rather than given a success rate — two
+runs and one failure is two runs, not a 50% failure rate, and reporting
+it as a rate would have you retiring a capability over a bad afternoon.
+
+**Both cost figures, never added.** Billed today, billed over thirty
+days, at paid rates over thirty days, and per task. Same rule as
+everywhere else.
+
+**There is no create-agent button, on purpose.** A new capability is
+written, reviewed, registered as experimental and only then activated.
+Agents are not made in production by tapping something.
+
 ## What is deliberately not built
 
 **Publishing.** Nothing connects to YouTube, Instagram or anywhere else.

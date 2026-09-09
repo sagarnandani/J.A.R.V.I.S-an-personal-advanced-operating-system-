@@ -36,7 +36,7 @@ for (const [w, h, label, shot] of [[1180, 820, 'iPad landscape', process.argv[2]
              activityGone: !document.getElementById('feed') };
   });
   const bad = [];
-  for (const view of ['home', 'tasks', 'media', 'settings']) {
+  for (const view of ['home', 'tasks', 'agents', 'media', 'settings']) {
     const b = r.seen[view];
     if (!b) { bad.push(`no ${view} button at all`); continue; }
     if (!b.onScreen) bad.push(`the ${view} button is off screen`);

@@ -57,6 +57,22 @@ DATABASE_URL=... python tests/browser/seed_media.py
 node tests/browser/media_tab.mjs media.png    # scan → read → approve
 ```
 
+The Agents page needs one agent left mid-task, because a check server
+never catches a real one in flight:
+
+```bash
+DATABASE_URL=... python tests/browser/seed_busy_agent.py
+node tests/browser/agents_page.mjs agents.png agents-phone.png
+```
+
+`agents_page.mjs` fetches `/v1/org` itself and compares the page against
+it, so a page that had drifted from the registry — an agent shown that
+was retired, or one missing that was registered — fails here rather than
+being discovered months later. It also checks that JARVIS and a
+coordinator are presented as what they are rather than as agents, that
+unmeasured figures are named as unmeasured, and that there is no
+create-agent button.
+
 `media_tab.mjs` fakes only the scan's *answer*, at the network boundary,
 since a real scout needs an API key this server does not have. Everything
 else is real: the ranked queue, the piece list, the script with its

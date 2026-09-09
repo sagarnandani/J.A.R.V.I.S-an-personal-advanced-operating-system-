@@ -172,3 +172,30 @@ async def test_finished_work_is_reported_once_and_then_not_again(clean):
 
     await mark_seen()
     assert "check the subsidy" not in await briefing(Settings())
+
+
+@pytest.mark.asyncio
+async def test_a_piece_waiting_for_a_decision_reaches_the_briefing(clean):
+    """The owner should not have to remember to open the Media tab.
+
+    Only when something is actually waiting, though. A line saying
+    "nothing is waiting" every single morning is how a briefing teaches
+    its reader to skim past it.
+    """
+    quiet = await briefing(Settings())
+    assert "Media waiting" not in quiet
+
+    workflow = await clean.fetchval(
+        "INSERT INTO workflows (objective, requested_by) "
+        "VALUES ('Media: a topic','user:owner') RETURNING id")
+    await clean.execute(
+        "INSERT INTO content_pieces (workflow_id, topic, brand, state, title) "
+        "VALUES ($1,'a topic','ai_media','ready','The benchmark everyone quotes')",
+        workflow)
+    try:
+        text = await briefing(Settings())
+        assert "Media waiting for the owner's decision: 1 piece(s)" in text
+        assert "The benchmark everyone quotes" in text
+        assert "Nothing has been published" in text
+    finally:
+        await clean.execute("DELETE FROM content_pieces; DELETE FROM workflows;")

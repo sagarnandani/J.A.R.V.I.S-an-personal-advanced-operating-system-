@@ -504,8 +504,8 @@ function explain(status, detail) {
 // In the landscape layout every panel is on screen at once, so "go to
 // memory" had nothing to go to. Home and Settings remain; full screen is
 // genuinely useful for leaving this up on a spare monitor.
-const VIEWS = { home: null, tasks: "tasksView", media: "mediaView",
-                settings: "settingsView" };
+const VIEWS = { home: null, tasks: "tasksView", agents: "agentsView",
+                media: "mediaView", settings: "settingsView" };
 const homeGrid = () => document.querySelector(".grid");
 
 function showView(name) {
@@ -515,6 +515,7 @@ function showView(name) {
   }
   if (name === "tasks") { loadWorkflows(); loadSchedules(); }
   if (name === "media") { loadBrands(); loadPieces(); }
+  if (name === "agents") loadOrg();
 }
 
 $("nav").addEventListener("click", (e) => {
@@ -1490,3 +1491,287 @@ async function decidePiece(decision) {
 
 $("approveBtn").onclick = () => decidePiece("approve");
 $("discardPieceBtn").onclick = () => decidePiece("discard");
+
+/* -------------------------------------------------------------- agents */
+/* The organisation, drawn from the registry.
+ *
+ * There is no list of agents in this file. Every node comes from
+ * /v1/org, which reads the Agent Registry and the task record, so an
+ * agent registered, reassigned, degraded or retired changes this page
+ * without anybody editing it. That is the whole point: a hand-maintained
+ * diagram is out of date the first time the system changes and nobody
+ * notices for a month.
+ *
+ * An indented tree rather than a drawn graph, deliberately. Boxes and
+ * lines look impressive at nine agents and become an unreadable tangle at
+ * ninety, need pan and zoom on a phone, and shrink text until it cannot
+ * be read. An indented tree collapses, searches and scrolls, and reads
+ * the same at any size. */
+
+let orgRoot = null;
+let orgSelected = null;
+const orgOpen = new Set();          // ids whose children are showing
+let orgFilter = "all";
+let orgQuery = "";
+let orgPoll = null;
+
+// Above this many agents the tree opens collapsed to the first level.
+// Small systems should show everything; large ones should not dump two
+// hundred rows on you and call it an overview.
+const COLLAPSE_ABOVE = 20;
+
+async function loadOrg() {
+  try {
+    const res = await api("/v1/org");
+    if (!res.ok) return;
+    const data = await res.json();
+    orgRoot = data.root;
+
+    if (!orgOpen.size) {
+      orgOpen.add(orgRoot.id);
+      const many = (data.counts.agents || 0) > COLLAPSE_ABOVE;
+      if (!many) openEverything(orgRoot);
+      else for (const c of orgRoot.children) if (c.children.length) orgOpen.add(c.id);
+    }
+
+    const c = data.counts;
+    $("orgCounts").textContent =
+      `${c.agents} agents · ${c.working} working · ${c.waiting} waiting · ` +
+      `${c.idle} idle` +
+      (c.degraded ? ` · ${c.degraded} degraded` : "") +
+      (c.experimental ? ` · ${c.experimental} experimental` : "") +
+      (c.disabled ? ` · ${c.disabled} disabled` : "");
+
+    drawOrg();
+    if (orgSelected) showAgent(orgSelected);
+
+    // Kept current while you are looking at it, and only while you are.
+    // "What is this agent doing right now" is the question the page
+    // exists to answer, and an answer from when the tab was opened is
+    // not an answer to it.
+    clearTimeout(orgPoll);
+    if (!$("agentsView").classList.contains("hidden")) {
+      orgPoll = setTimeout(loadOrg, c.working || c.waiting ? 6000 : 20000);
+    }
+  } catch (e) { /* the page is still readable without a refresh */ }
+}
+
+function openEverything(node) {
+  if (node.children.length) orgOpen.add(node.id);
+  node.children.forEach(openEverything);
+}
+
+function matches(node) {
+  const q = orgQuery.trim().toLowerCase();
+  const hitQ = !q || [node.name, node.id, node.domain, node.role]
+    .some((f) => (f || "").toLowerCase().includes(q));
+  const hitF =
+    orgFilter === "all" ? true :
+    orgFilter === "working" ? node.state === "working" :
+    node.lifecycle === orgFilter;
+  // A coordinator is a heading, not a match: it stays whenever anything
+  // below it stays, and is never a result in its own right.
+  return hitQ && (hitF || node.kind === "coordinator" || node.kind === "orchestrator");
+}
+
+function keep(node) {
+  return matches(node) || node.children.some(keep);
+}
+
+function drawOrg() {
+  if (!orgRoot) return;
+  const searching = orgQuery.trim() || orgFilter !== "all";
+  const rows = [];
+
+  const walk = (node, depth) => {
+    if (searching && !keep(node)) return;
+    // Searching reveals: a match three levels down is useless if the
+    // branch holding it is shut.
+    const open = searching || orgOpen.has(node.id);
+    const kids = node.children.length;
+    rows.push(`
+      <div class="node ${esc(node.kind)}${orgSelected === node.id ? " selected" : ""}"
+           data-node="${esc(node.id)}" style="padding-left:${.4 + depth * .95}rem">
+        <span class="twist ${kids ? (open ? "open" : "") : "leaf"}" data-twist="${esc(node.id)}">▶</span>
+        <span class="nm">${esc(node.name)}</span>
+        <span class="rl">${esc(node.role || "")}</span>
+        <span class="dot ${esc(node.state)}" title="${esc(node.state)}"></span>
+        <span class="lc ${esc(node.lifecycle === "active" ? node.health : node.lifecycle)}">${
+          esc(node.lifecycle === "active" ? node.state : node.lifecycle)}</span>
+      </div>`);
+    if (open) node.children.forEach((child) => walk(child, depth + 1));
+  };
+
+  walk(orgRoot, 0);
+  $("orgTree").innerHTML = rows.length ? rows.join("")
+    : `<p class="empty">Nothing matches.</p>`;
+}
+
+$("orgTree").addEventListener("click", (e) => {
+  const twist = e.target.closest("[data-twist]");
+  if (twist) {
+    const id = twist.dataset.twist;
+    if (orgOpen.has(id)) orgOpen.delete(id); else orgOpen.add(id);
+    drawOrg();
+    return;
+  }
+  const row = e.target.closest("[data-node]");
+  if (row) { orgSelected = row.dataset.node; drawOrg(); showAgent(orgSelected); }
+});
+
+$("agentSearch").addEventListener("input", (e) => { orgQuery = e.target.value; drawOrg(); });
+$("expandAll").onclick = () => { if (orgRoot) { openEverything(orgRoot); drawOrg(); } };
+$("collapseAll").onclick = () => { orgOpen.clear(); if (orgRoot) orgOpen.add(orgRoot.id); drawOrg(); };
+$("agentFilters").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-filter]");
+  if (!chip) return;
+  orgFilter = chip.dataset.filter;
+  [...$("agentFilters").querySelectorAll(".chipbtn")].forEach(
+    (b) => b.classList.toggle("on", b === chip));
+  drawOrg();
+});
+
+const kv = (k, v) => `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`;
+const unknown = (why) => `<span class="unknown">${esc(why)}</span>`;
+// The ledger rounds to whole rupees; an agent's cost is often a
+// fraction of one, so this section needs two decimal places.
+const costInr = (n) => `Rs.${Number(n || 0).toFixed(2)}`;
+const percent = (n) => (n === null || n === undefined ? null : `${Math.round(n * 100)}%`);
+
+async function showAgent(id) {
+  try {
+    const res = await api(`/v1/org/${encodeURIComponent(id)}`);
+    if (!res.ok) return;
+    const d = await res.json();
+
+    $("agentName").textContent = d.identity.name;
+    $("agentRole").textContent = d.role;
+
+    $("agentDetail").innerHTML =
+      (d.summary ? domainSummary(d) : agentBody(d));
+  } catch (e) { /* leave whatever was on screen */ }
+}
+
+/* JARVIS itself and any coordinator: a board-level summary rather than a
+   pretend agent with pretend metrics. */
+function domainSummary(d) {
+  const s = d.summary;
+  let html = `<div class="sect">Identity</div>` +
+    kv("Id", esc(d.identity.id)) +
+    (d.identity.domain ? kv("Domain", esc(d.identity.domain)) : "") +
+    kv("Registered agent", d.identity.routable ? "yes" : "no — this is not a model call");
+
+  html += `<div class="sect">Right now</div>` +
+    kv("Agents below", s.agents) +
+    kv("Working", s.working) +
+    kv("Idle", s.idle ?? "—") +
+    (s.waiting ? kv("Waiting on you", s.waiting) : "") +
+    (s.degraded ? kv("Degraded", s.degraded) : "") +
+    kv("Tasks today", s.tasks_today + (s.failed_today ? ` (${s.failed_today} failed)` : "")) +
+    kv("Success rate, 30 days", percent(s.success_rate) ?? unknown("not enough runs yet"));
+
+  html += `<div class="sect">Cost, 30 days</div>` +
+    kv("Billed", costInr(s.spend_30d_inr)) +
+    kv("At paid rates", costInr(s.shadow_30d_inr)) +
+    `<p class="note">Two figures, never added. The first is money that was
+     actually charged; the second is what the same work would have cost on
+     a paid model, which is the only one that compares two pieces of work
+     while the first is zero.</p>`;
+
+  if (d.reports && d.reports.length) {
+    html += `<div class="sect">Reports</div>` + d.reports.map((r) =>
+      kv(r.name, `${esc(r.state || "")} · ${esc(r.lifecycle)}`)).join("");
+  }
+  return html;
+}
+
+function agentBody(d) {
+  const i = d.identity, p = d.performance, e = d.economics, a = d.activity;
+
+  let html = `<div class="sect">Identity</div>` +
+    kv("Capability", esc(i.capability)) +
+    kv("Agent id", esc(i.agent_id || "—")) +
+    kv("Domain", esc(i.domain || "—")) +
+    kv("Reports to", esc(i.supervisor || "JARVIS")) +
+    kv("Version", `v${i.version}`) +
+    kv("Lifecycle", `${esc(i.lifecycle)}${i.routable ? "" : " — not routable"}`);
+
+  if (d.responsibilities.length) {
+    html += `<div class="sect">Responsibilities</div>` +
+      d.responsibilities.map((r) => `<div class="perm">• ${esc(r)}</div>`).join("");
+  }
+
+  html += `<div class="sect">Models</div>` +
+    kv("Asks for", d.models.tiers.map(esc).join(", ")) +
+    kv("Which is, today", d.models.allowed.map((m) => `${esc(m.tier)}: ${esc(m.model)}`).join("<br>")) +
+    kv("Last used", d.models.recent
+        ? `${esc(d.models.recent.model)} (${esc(d.models.recent.tier)})`
+        : unknown("has not run yet")) +
+    `<p class="note">An agent asks for a tier, never a model name. What a
+     tier means today comes from configuration, so a provider retiring a
+     name changes one setting rather than every agent.</p>`;
+
+  html += `<div class="sect">Permissions</div>` +
+    d.permissions.can.map((c) =>
+      `<div class="perm"><span class="y">✓</span> ${esc(c.what)}` +
+      (c.needs_approval ? ` <span class="tag">still needs your yes</span>` : "") +
+      `</div>`).join("") +
+    d.permissions.cannot.map((c) =>
+      `<div class="perm"><span class="n">✕</span> ${esc(c.what)}` +
+      (c.never_delegated ? ` <span class="tag">never delegated to any agent</span>` : "") +
+      `</div>`).join("");
+
+  html += `<div class="sect">How it has gone (30 days)</div>` +
+    (p.runs
+      ? kv("Runs", p.runs) +
+        kv("Succeeded", p.enough_to_judge
+            ? percent(p.success_rate)
+            : `${percent(p.success_rate)} ${unknown("— too few runs to mean much")}`) +
+        (p.failures ? kv("Failures", p.failures) : "") +
+        (p.refusals ? kv("Refused", p.refusals) : "") +
+        kv("Average confidence", p.avg_confidence === null ? unknown("not recorded")
+            : p.avg_confidence.toFixed(2)) +
+        kv("Average time", p.avg_latency_ms === null ? unknown("not recorded")
+            : `${(p.avg_latency_ms / 1000).toFixed(1)}s when it succeeds`)
+      : kv("Runs", unknown("has not run in the last 30 days"))) +
+    `<p class="note">Correction rate and quality score are not shown because
+     nothing measures them yet. A blank is safer than an estimate.</p>`;
+
+  html += `<div class="sect">What it costs</div>` +
+    kv("Billed today", costInr(e.spend_today_inr)) +
+    kv("Billed, 30 days", costInr(e.spend_30d_inr)) +
+    kv("At paid rates, 30 days", costInr(e.shadow_30d_inr)) +
+    kv("Per task", e.spend_per_task_inr === null
+        ? unknown("no finished tasks yet")
+        : `${costInr(e.spend_per_task_inr)} billed · ${costInr(e.shadow_per_task_inr)} at paid rates`);
+
+  html += `<div class="sect">Activity</div>`;
+  if (a.current.length) {
+    html += a.current.map((t) =>
+      kv("Working on", esc(t.objective)) +
+      kv("Task", esc(t.task_id)) +
+      (t.workflow_objective ? kv("Part of", esc(t.workflow_objective)) : "") +
+      kv("Started", t.started_at ? new Date(t.started_at).toLocaleTimeString() : "—") +
+      kv("Model", esc(t.model || "choosing")) +
+      kv("Budget", t.budget_inr === null ? "workflow default" : costInr(t.budget_inr))
+    ).join("");
+  } else {
+    html += kv("Right now", "idle");
+  }
+  if (a.queued.length) html += kv("Queued", a.queued.length);
+  if (a.recent.length) {
+    html += `<div class="sect">Recently</div>` + a.recent.map((t) =>
+      `<div class="perm">${t.status === "completed" ? "✓" : "✕"} ${esc(t.objective)}` +
+      `<span class="unknown"> — ${esc(t.status)}${
+        t.finished_at ? ", " + new Date(t.finished_at).toLocaleString() : ""}</span></div>`
+    ).join("");
+  }
+  if (a.last_failure) {
+    html += kv("Last failure", esc(a.last_failure.failure_reason || "—"));
+  }
+
+  html += `<p class="note">No agent is created from this page. A new
+   capability is written, reviewed, registered as experimental and only
+   then activated — agents are not made in production with a button.</p>`;
+  return html;
+}
