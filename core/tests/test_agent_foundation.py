@@ -6,6 +6,7 @@ a fake agent that returns a known result is the clearest way to show the
 machinery around it behaved.
 """
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -515,3 +516,67 @@ async def test_K2_expensive_workflows_can_be_found_after_the_fact(clean):
         "ORDER BY spend_inr DESC"
     )
     assert rows and rows[0]["objective"] == "Costly"
+
+
+# --- Test L: a gate can stop a graph part-way through ----------------------
+
+@pytest.mark.asyncio
+async def test_L_a_gate_stops_the_rest_of_the_plan(clean):
+    """Some steps invalidate the ones after them.
+
+    A verification step that finds a claim false makes the writing that
+    depends on it worthless, and running it anyway costs real money to
+    produce something that has to be thrown away. The gate is asked
+    between waves; it decides, it never runs anything.
+    """
+    ran = []
+
+    def recorder(name):
+        async def fn(handoff, choice):
+            ran.append(name)
+            return AgentResult(output=f"{name} done", tokens_in=1, tokens_out=1)
+        return fn
+
+    await install("general.research", recorder("research"))
+    await install("general.analysis", recorder("analysis"))
+    await install("general.writer", recorder("writer"))
+
+    async def stop_after_the_first(workflow_id):
+        return "the first step made the rest pointless" if ran else None
+
+    result = await orchestrator.run(
+        "Three steps, stopped after one", "user:owner",
+        steps=[
+            orchestrator.Step("general.research", "One", name="a"),
+            orchestrator.Step("general.analysis", "Two", name="b", after=("a",)),
+            orchestrator.Step("general.writer", "Three", name="c", after=("b",)),
+        ],
+        gate=stop_after_the_first,
+    )
+
+    assert ran == ["research"], "the gate did not stop anything"
+    rows = await tasks.workflow_tasks(UUID(result["workflow_id"]))
+    statuses = {r["capability"]: r["status"] for r in rows}
+    assert statuses["general.analysis"] == "cancelled"
+    assert statuses["general.writer"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_L2_a_gate_that_never_objects_changes_nothing(clean):
+    """The default path must behave exactly as it did without a gate."""
+    await install("general.research")
+    await install("general.analysis")
+
+    async def never(workflow_id):
+        return None
+
+    result = await orchestrator.run(
+        "Two steps", "user:owner",
+        steps=[
+            orchestrator.Step("general.research", "One", name="a"),
+            orchestrator.Step("general.analysis", "Two", name="b", after=("a",)),
+        ],
+        gate=never,
+    )
+    assert result["status"] == "completed"
+    assert result["tasks"] == {"completed": 2}

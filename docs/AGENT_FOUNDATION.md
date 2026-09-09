@@ -398,10 +398,139 @@ what you have mentioned. A partial total read as a complete one is the
 worst kind of wrong number, and money is where that costs most. Imports
 can write to the same table later; every row records where it came from.
 
+## Saying yes to something that is waiting
+
+A task that needs approval stops at `waiting_approval` and says what it
+wants and why. Answering it writes a row in `task_approvals` — which task,
+which category, who decided, and **what they were shown when they
+decided**. That last field is the point: an approval history is only
+evidence if it records the thing that was approved, rather than merely
+that something was.
+
+Approving re-queues the task and lets the workflow carry on. It does not
+run anything itself, and it does not approve a *category* — the decision
+is recorded against that one task and no other, so "yes to this" never
+quietly becomes "yes to these from now on". Rejecting cancels the task
+and everything depending on it, as **cancelled**, not failed: nothing
+went wrong, you decided against it, and a rejection rate says something
+about the work where a failure rate says something about the system.
+
+The same rows are what a later, more autonomous stage would have to stand
+on. "This workflow has passed twenty times unedited" is a query over
+them.
+
+## The Media Company
+
+Four capabilities and a recipe, on the same foundation as everything
+else. Nothing here is a second engine: the media agents run through
+`runtime.run_task` like any other capability, which is why permissions,
+budgets, cost attribution and telemetry hold for them without being
+re-implemented.
+
+**`media.scout`** looks for developments worth making something about and
+returns a short ranked queue with a reason for each. Ranking is the
+product: anyone can list what happened today, and the value is in saying
+which two are worth spending research money on. Saturation counts
+*against* a story, so a heavily covered one needs a much better angle to
+earn the same money as a fresh one. An empty queue is a correct answer.
+
+**`media.strategy`** decides whether researched material should become
+content at all. Its most valuable answer is no, and the whole reason it
+is a separate agent from the writer is that a writer asked whether to
+write always says yes. By the time it runs, the research has already been
+paid for — which is exactly the pressure that makes a system publish weak
+work, and how a content spam factory starts. A decline ends the workflow
+*cleanly*, recorded as a decision rather than a failure.
+
+**`media.script`** writes the piece, in the voice of whichever of the two
+brands the strategy chose, and every factual line carries the claim it
+rests on. That citation requirement is also the anti-plagiarism
+mechanism: a script built line by line from verified claims cannot be a
+lightly rewritten transcript. Its confidence falls with each line it
+could not tie to the research, so weak work arrives at review already
+flagged.
+
+**`media.review`** is the gate, and it is the only agent in the system
+with **no permissions at all** — no network, no memory, nothing. Give it
+the network and it starts researching instead of judging; give it memory
+and it starts agreeing with the house view. It is also the only
+capability routed to the deep tier first, because a weak gate is worse
+than no gate: it produces a stamp.
+
+The reviewer **fails closed**, in three ways that all came from asking
+what a bad day looks like. A verdict it cannot read is a *revise*, not a
+pass. A "pass" that also lists things that must be fixed is a revise. A
+"pass" that lists claims the evidence does not support is a revise. Left
+open, each of those is a route by which weak work acquires approval.
+
+### The two brands
+
+`app/media/brands.py` holds both voices as data, and both the writer and
+the reviewer read the same copy. If each held its own, the reviewer would
+drift from the writer and start rejecting work for breaking a rule the
+writer never had.
+
+### The gates
+
+`media.director` decides what graph to run and what its results mean. It
+commands no agents — the orchestrator does that — so there is still
+exactly one path by which an agent executes.
+
+Four outcomes, and only one of them is "ready":
+
+- **stopped** — verification contradicted a claim the piece would have
+  rested on. This one stops the run *mid-flight*, through a gate the
+  orchestrator asks between waves, so the strategy, script and review
+  never happen. Checking afterwards would have been a label rather than a
+  gate: by then the script exists and has been paid for.
+- **declined** — the strategist decided against it. Recorded as a
+  completed workflow, because it is a decision, not a fault.
+- **rejected** / **needs_you** — editorial refused it, or a single
+  revision still did not fix it. The revision loop is bounded at one: a
+  reviewer and a writer left alone will argue until the budget is gone.
+- **ready** — passed review, and waiting for you.
+
+**Nothing in the chain can publish.** No capability holds `PUBLISH`, the
+furthest anything reaches on its own is `ready`, and the only thing that
+moves a piece past that is your finger on a button. Approving records
+that you said yes; it sends nothing anywhere.
+
+### The content record
+
+One row per piece in `content_pieces`, written when production starts and
+updated when it settles. The workflow stays the record of what happened;
+this is the record of what exists. Written *before* the first model call
+on purpose: a run that dies halfway leaves a piece stuck at `producing`,
+which somebody can see, rather than nothing at all, which nobody can.
+
+Each row carries **two cost figures that are never added together**.
+`spend_inr` is money that was actually billed. `shadow_inr` is what the
+same work would have cost on a paid equivalent. On the free tier the
+first is zero and true, and the second is the only figure that makes two
+pieces comparable — so the panel shows both, side by side, and calls the
+second one what it is.
+
+### Using it — the Media tab
+
+Three columns: what might be worth making, what is being made, and
+whatever is waiting on you. A scan looks and ranks and writes nothing.
+Tapping an opportunity starts a production, which runs five agents and
+several minutes behind the request, so the tab polls rather than holding
+the connection open.
+
 ## What is deliberately not built
 
-**Approval resumption.** A task that needs your approval waits correctly
-and says why; resuming it is currently manual.
+**Publishing.** Nothing connects to YouTube, Instagram or anywhere else.
+A piece that is approved is approved, and that is where the system stops.
+
+**Asset generation.** No thumbnails, voice-over or video. The script
+names a thumbnail concept; making it is still yours.
+
+**Autonomous publishing (Stage 2 and 3).** The approval history in
+`task_approvals` and the outcome of every piece in `content_pieces` are
+the evidence a later stage would have to stand on. Without that record it
+would be a switch somebody flips on faith, which is the version of this
+that ends in a correction to publish.
 
 **Distributed execution.** Waves run in-process. A restart mid-workflow
 leaves tasks marked `running` — visible, but not yet automatically

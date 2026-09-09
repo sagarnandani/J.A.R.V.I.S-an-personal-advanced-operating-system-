@@ -23,6 +23,7 @@ from app.routes import (
     health,
     live,
     login,
+    media,
     message,
     records,
 )
@@ -215,6 +216,7 @@ app.include_router(dashboard.router)
 app.include_router(live.router)
 app.include_router(admin.router)
 app.include_router(agents.router)
+app.include_router(media.router)
 
 # The Stage 0 test console (plain HTML/JS) -- see /core/static/README for
 # what this is and isn't. Mounted last so it doesn't shadow API routes.

@@ -504,7 +504,8 @@ function explain(status, detail) {
 // In the landscape layout every panel is on screen at once, so "go to
 // memory" had nothing to go to. Home and Settings remain; full screen is
 // genuinely useful for leaving this up on a spare monitor.
-const VIEWS = { home: null, tasks: "tasksView", settings: "settingsView" };
+const VIEWS = { home: null, tasks: "tasksView", media: "mediaView",
+                settings: "settingsView" };
 const homeGrid = () => document.querySelector(".grid");
 
 function showView(name) {
@@ -513,6 +514,7 @@ function showView(name) {
     if (id) $(id).classList.toggle("hidden", view !== name);
   }
   if (name === "tasks") { loadWorkflows(); loadSchedules(); }
+  if (name === "media") { loadBrands(); loadPieces(); }
 }
 
 $("nav").addEventListener("click", (e) => {
@@ -1235,3 +1237,256 @@ $("moneyList").addEventListener("click", async (e) => {
 });
 
 start();
+
+/* -------------------------------------------------------------- media */
+/* The media company, on one screen.
+ *
+ * Three columns and one rule: nothing on this page publishes anything.
+ * A scan looks, a production runs five agents and stops at a package,
+ * and the only thing that moves a piece past "ready" is the owner's
+ * finger on a button.
+ *
+ * Both cost figures are shown side by side and never added. On the free
+ * tier the real one is zero and true, and the shadow one is the only
+ * thing that makes two pieces comparable -- showing one without the
+ * other would be either useless or misleading. */
+
+let mediaBrandsLoaded = false;
+let openPieceId = null;
+let mediaPoll = null;
+
+async function loadBrands() {
+  if (mediaBrandsLoaded) return;
+  try {
+    const res = await api("/v1/media/brands");
+    if (!res.ok) return;
+    const rows = await res.json();
+    $("mediaBrand").innerHTML = rows
+      .map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`)
+      .join("");
+    mediaBrandsLoaded = true;
+  } catch (e) { /* the select stays empty; the server still defaults */ }
+}
+
+$("scanBtn").onclick = async () => {
+  const theme = $("mediaTheme").value.trim();
+  if (!theme) { $("scanNote").textContent = "Say what to look at."; return; }
+
+  $("scanBtn").disabled = true;
+  $("scanNote").textContent = "Looking…";
+  $("oppList").innerHTML = `<p class="empty">Searching and ranking…</p>`;
+  try {
+    const res = await api("/v1/media/scan", {
+      method: "POST",
+      body: JSON.stringify({ theme, brand: $("mediaBrand").value || undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "The scan would not start.");
+    watchScan(data.workflow_id);
+  } catch (e) {
+    $("scanNote").textContent = e.message;
+    $("oppList").innerHTML = `<p class="empty">Nothing scanned.</p>`;
+    $("scanBtn").disabled = false;
+  }
+};
+
+function watchScan(workflowId) {
+  let tries = 0;
+  const tick = async () => {
+    tries += 1;
+    try {
+      const res = await api(`/v1/media/scan/${workflowId}`);
+      if (!res.ok) throw new Error("Lost track of the scan.");
+      const data = await res.json();
+
+      if (data.state === "running" || data.state === "planning") {
+        // Bounded, so a scan that never finishes shows as a stuck scan
+        // rather than a page that polls for ever.
+        if (tries > 60) throw new Error("The scan is taking too long. It may still finish — check Pieces later.");
+        setTimeout(tick, 3000);
+        return;
+      }
+
+      $("scanBtn").disabled = false;
+      renderOpportunities(data);
+    } catch (e) {
+      $("scanBtn").disabled = false;
+      $("scanNote").textContent = e.message;
+    }
+  };
+  tick();
+}
+
+function renderOpportunities(data) {
+  const found = data.opportunities || [];
+  if (!found.length) {
+    // A finished scan with an empty queue is an answer. Saying nothing
+    // here is how "nothing was worth covering" reads as "it broke".
+    $("oppList").innerHTML = `<p class="empty">${
+      data.nothing_worth_covering
+        ? "Nothing found worth spending research money on. That is a result."
+        : esc(data.reason || "The scan did not finish.")
+    }</p>`;
+    $("scanNote").textContent = "";
+    return;
+  }
+
+  $("scanNote").textContent = `${found.length} worth a look.`;
+  $("oppList").innerHTML = found.map((o, i) => `
+    <div class="step opp" data-opp="${i}">
+      <span class="score">${(o.score ?? 0).toFixed(2)}</span>
+      <div class="cap">${esc(o.brand || "ai_media")}</div>
+      <div class="obj">${esc(o.title || "")}</div>
+      <div class="meta">${esc(o.why_now || "")}</div>
+      <div class="meta">${esc(o.reason_to_exist || "")}</div>
+      <div class="meta" style="color:var(--cyan-dim)">Tap to make this</div>
+    </div>`).join("");
+
+  $("oppList").dataset.found = JSON.stringify(found);
+}
+
+$("oppList").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-opp]");
+  if (!card) return;
+  let found = [];
+  try { found = JSON.parse($("oppList").dataset.found || "[]"); } catch (err) {}
+  const opportunity = found[Number(card.dataset.opp)];
+  if (opportunity) startProduction(opportunity.title, opportunity.brand);
+});
+
+async function startProduction(topic, brand) {
+  $("scanNote").textContent = `Making: ${topic}`;
+  try {
+    const res = await api("/v1/media/produce", {
+      method: "POST",
+      body: JSON.stringify({ topic, brand: brand || $("mediaBrand").value || undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "It would not start.");
+    if (data.piece_id) openPieceId = data.piece_id;
+    loadPieces();
+  } catch (e) {
+    $("scanNote").textContent = e.message;
+  }
+}
+
+const PIECE_WORDS = {
+  producing: "being made", ready: "waiting for you", needs_you: "needs you",
+  declined: "decided against", stopped: "stopped on a false claim",
+  rejected: "rejected by review", approved: "approved by you",
+  discarded: "discarded", failed: "did not finish",
+};
+
+async function loadPieces() {
+  try {
+    const [res, econRes] = await Promise.all([
+      api("/v1/media/pieces?limit=20"),
+      api("/v1/media/economics?days=30"),
+    ]);
+    if (!res.ok) return;
+    const rows = await res.json();
+
+    $("pieceList").innerHTML = rows.length ? rows.map((p) => `
+      <div class="wf" data-piece="${esc(p.id)}">
+        <span class="o">${esc(p.title || p.topic)}</span>
+        <span class="s ${esc(p.state)}">${esc(PIECE_WORDS[p.state] || p.state)}</span>
+      </div>`).join("")
+      : `<p class="empty">Nothing made yet.</p>`;
+
+    if (econRes.ok) {
+      const e = await econRes.json();
+      $("econNote").textContent =
+        `${e.pieces} in 30 days · ${e.approved} approved · ${e.not_made} decided against · ` +
+        `Rs.${e.spend_inr.toFixed(2)} billed · Rs.${e.shadow_inr.toFixed(2)} at paid rates`;
+    }
+
+    // Something still running means the list is not final. Polled rather
+    // than pushed because a production takes minutes and the phone may
+    // well be locked for most of them.
+    const busy = rows.some((p) => p.state === "producing");
+    clearTimeout(mediaPoll);
+    if (busy && !$("mediaView").classList.contains("hidden")) {
+      mediaPoll = setTimeout(loadPieces, 5000);
+    }
+    if (openPieceId) showPiece(openPieceId);
+  } catch (e) { /* the panel is still usable without its list */ }
+}
+
+$("pieceList").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-piece]");
+  if (row) { openPieceId = row.dataset.piece; showPiece(openPieceId); }
+});
+
+async function showPiece(pieceId) {
+  try {
+    const res = await api(`/v1/media/pieces/${pieceId}`);
+    if (!res.ok) return;
+    const p = await res.json();
+
+    $("pieceTitle").textContent = p.title || p.topic;
+    $("pieceState").textContent =
+      `${PIECE_WORDS[p.state] || p.state}${p.reason ? " — " + p.reason : ""}`;
+
+    const pack = p.package || {};
+    const sections = pack.sections || [];
+    const review = p.review || {};
+
+    let body = "";
+    if (pack.hook) body += `<div class="beat"><div class="name">Hook</div><div class="out">${esc(pack.hook)}</div></div>`;
+    if (sections.length) {
+      body += sections.map((s) => `
+        <div class="beat">
+          <div class="name">${esc(s.beat || "")}</div>
+          <div class="out">${esc(s.text || "")}</div>
+          ${(s.cites || []).map((c) => `<span class="src">rests on: ${esc(c)}</span>`).join("")}
+        </div>`).join("");
+    }
+    if (pack.thumbnail_concept) {
+      body += `<div class="beat"><div class="name">Thumbnail</div><div class="out">${esc(pack.thumbnail_concept)}</div></div>`;
+    }
+    if (review.must_fix && review.must_fix.length) {
+      body += `<div class="beat"><div class="name">The reviewer says fix</div>` +
+              review.must_fix.map((m) => `<div class="out">• ${esc(m)}</div>`).join("") +
+              `</div>`;
+    }
+    if (review.unsupported_claims && review.unsupported_claims.length) {
+      body += `<div class="beat"><div class="name">Not supported by the research</div>` +
+              review.unsupported_claims.map((m) => `<div class="out">• ${esc(m)}</div>`).join("") +
+              `</div>`;
+    }
+    if (!body) {
+      body = `<p class="empty">${esc(p.reason || "Nothing was written.")}</p>`;
+    }
+
+    body += `<div class="cost" style="margin-top:.5rem">Rs.${Number(p.spend_inr).toFixed(2)} billed · ` +
+            `Rs.${Number(p.shadow_inr).toFixed(2)} at paid rates</div>`;
+    $("pieceBody").innerHTML = body;
+
+    // Only a piece that is actually waiting gets buttons. Offering a
+    // decision on something already decided is how a second tap looks
+    // like it did nothing.
+    const decidable = p.state === "ready" || p.state === "needs_you";
+    $("pieceButtons").classList.toggle("hidden", !decidable);
+    $("pieceNote").textContent = decidable
+      ? "Approving records your decision. It does not publish anything — nothing here can."
+      : (p.decided_by ? `You decided this on ${new Date(p.decided_at).toLocaleString()}.` : "");
+  } catch (e) { /* leave whatever was on screen */ }
+}
+
+async function decidePiece(decision) {
+  if (!openPieceId) return;
+  $("approveBtn").disabled = $("discardPieceBtn").disabled = true;
+  try {
+    const res = await api(`/v1/media/pieces/${openPieceId}/${decision}`, { method: "POST" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      $("pieceNote").textContent = data.detail || "That could not be decided.";
+    }
+  } finally {
+    $("approveBtn").disabled = $("discardPieceBtn").disabled = false;
+    loadPieces();
+  }
+}
+
+$("approveBtn").onclick = () => decidePiece("approve");
+$("discardPieceBtn").onclick = () => decidePiece("discard");

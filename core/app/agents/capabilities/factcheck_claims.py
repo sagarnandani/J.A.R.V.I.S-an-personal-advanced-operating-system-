@@ -46,12 +46,31 @@ from app.config import get_settings
 
 logger = logging.getLogger("jarvis.capabilities.factcheck")
 
-SUPPORTED = "supported"          # sources back it
-CONTRADICTED = "contradicted"    # sources say otherwise
-DISPUTED = "disputed"            # sources do not agree with each other
-UNVERIFIED = "unverified"        # nothing found either way
+# Eight, not two.
+#
+# Forcing a claim into TRUE or FALSE is how a fact-checking piece
+# manufactures certainty it does not have -- and "there is not enough
+# reliable evidence yet" is a legitimate conclusion, often the most useful
+# one. Every verdict below describes a different relationship between a
+# claim and the evidence, and collapsing them loses exactly the nuance
+# the audience is being promised.
+SUPPORTED = "supported"              # sources state it
+MOSTLY_SUPPORTED = "mostly_supported"  # broadly right, details off
+MISLEADING = "misleading"            # technically true, framed to deceive
+MISSING_CONTEXT = "missing_context"  # true as far as it goes, and it does not go far
+OUTDATED = "outdated"                # was true, has been overtaken
+DISPUTED = "disputed"                # sources genuinely disagree
+CONTRADICTED = "contradicted"        # sources state the opposite
+UNVERIFIED = "unverified"            # nothing found either way
 
-VERDICTS = (SUPPORTED, CONTRADICTED, DISPUTED, UNVERIFIED)
+VERDICTS = (
+    SUPPORTED, MOSTLY_SUPPORTED, MISLEADING, MISSING_CONTEXT,
+    OUTDATED, DISPUTED, CONTRADICTED, UNVERIFIED,
+)
+
+# Verdicts that mean a piece cannot be built on this claim as stated.
+# Read by the media workflow, which stops rather than writing around one.
+LOAD_BEARING_FAILURES = (CONTRADICTED,)
 
 # How many claims one task will check. A ten-claim research answer would
 # otherwise mean ten searches, and on a free tier that is the difference
@@ -108,14 +127,22 @@ _CHECK_PROMPT = """\
 Check the following claim against current sources.
 
 Reply in exactly this form:
-VERDICT: SUPPORTED or CONTRADICTED or DISPUTED or UNVERIFIED
+VERDICT: one of SUPPORTED, MOSTLY_SUPPORTED, MISLEADING, MISSING_CONTEXT, OUTDATED, DISPUTED, CONTRADICTED, UNVERIFIED
 WHY: one sentence, naming what the sources actually say
 
-Use SUPPORTED only if sources state it. Use CONTRADICTED if sources state
-the opposite. Use DISPUTED if sources genuinely disagree with each other.
-Use UNVERIFIED if you cannot find sources addressing it -- absence of
-evidence is not evidence, and guessing here is the one unforgivable
-answer.
+- SUPPORTED        sources state it
+- MOSTLY_SUPPORTED broadly right, but a detail or figure is off
+- MISLEADING       technically true, framed so a reader draws a false conclusion
+- MISSING_CONTEXT  true as far as it goes, and what is left out changes the meaning
+- OUTDATED         was true, has since been overtaken
+- DISPUTED         reliable sources genuinely disagree
+- CONTRADICTED     sources state the opposite
+- UNVERIFIED       you cannot find sources addressing it
+
+Do not force a claim into a stronger verdict than the evidence supports.
+Absence of evidence is not evidence, and guessing here is the one
+unforgivable answer. "There is not enough reliable evidence yet" is a
+legitimate conclusion.
 
 Claim: {claim}
 """
@@ -192,6 +219,10 @@ def _read_verdict(text: str, sources: list[str]) -> str:
     return verdict
 
 
+_FIRM = {SUPPORTED, CONTRADICTED, OUTDATED}
+_QUALIFIED = {MOSTLY_SUPPORTED, MISLEADING, MISSING_CONTEXT, DISPUTED}
+
+
 def _claim_confidence(verdict: str, sources: list[str]) -> float:
     """How good this particular check was, from what it rested on.
 
@@ -203,7 +234,10 @@ def _claim_confidence(verdict: str, sources: list[str]) -> float:
     if verdict == UNVERIFIED:
         return 0.2
     support = min(len(sources), 4) / 4          # 0.25 .. 1.0
-    firmness = 0.5 if verdict == DISPUTED else 1.0
+    # A qualified verdict is a judgement about framing, not a fact that
+    # sources either state or contradict, so it carries less weight even
+    # when equally well sourced.
+    firmness = 1.0 if verdict in _FIRM else 0.6
     return round(0.3 + 0.6 * support * firmness, 2)
 
 

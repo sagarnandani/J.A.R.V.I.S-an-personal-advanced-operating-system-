@@ -12,7 +12,7 @@ import pytest
 import pytest_asyncio
 
 from app import db as db_module
-from app.migrate import apply_pending
+from app.migrate import _migrations_dir, apply_pending
 
 
 @pytest.fixture(autouse=True)
@@ -93,12 +93,17 @@ async def _tables(blank) -> set[str]:
 async def test_a_fresh_database_gets_the_whole_schema(blank):
     applied = await apply_pending(blank.pool)
 
-    assert applied == [
-        "001_init.sql", "002_agent_foundation.sql", "003_schedules.sql",
-        "004_money.sql", "005_approvals_and_shadow_cost.sql",
-    ], "migrations must run in filename order"
+    # Compared against the directory rather than a list written out here.
+    # A hard-coded list means every new migration fails this test once,
+    # for no reason, and the fix is to paste the filename in -- which
+    # teaches you to edit the assertion rather than read it.
+    on_disk = sorted(f.name for f in _migrations_dir().glob("*.sql"))
+    assert applied == on_disk, "every migration, in filename order"
+    assert applied[0] == "001_init.sql"
+
     tables = await _tables(blank)
-    for expected in ("memories", "tasks", "audit_log", "approvals", "schedules", "money_events", "task_approvals",
+    for expected in ("memories", "tasks", "audit_log", "approvals", "schedules",
+                     "money_events", "task_approvals", "content_pieces",
                      "system_control", "agents", "workflows",
                      "agent_events", "agent_metrics"):
         assert expected in tables, f"{expected} is missing"

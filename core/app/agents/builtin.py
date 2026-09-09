@@ -149,8 +149,10 @@ async def install() -> None:
     # -- a broken capability should be a missing capability, not a system
     # that will not start.
     from app.agents.capabilities import factcheck_claims, research_web
+    from app.media import review, script, scout, strategy
 
-    for module in (research_web, factcheck_claims):
+    for module in (research_web, factcheck_claims,
+                   scout, strategy, script, review):
         try:
             await module.install()
         except Exception as exc:  # noqa: BLE001

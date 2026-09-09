@@ -18,13 +18,17 @@ dependency ordering without a workflow engine, and the "ask again" is a
 database query, so it is correct even if two of these run at once.
 """
 import asyncio
+from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from uuid import UUID
 
 from app.agents import planner, runtime, tasks, telemetry
 from app.agents.schemas import Step, TaskStatus
 
-__all__ = ["Step", "advance", "plan", "propose", "run", "start"]
+__all__ = ["Gate", "Step", "advance", "plan", "propose", "run", "start"]
+
+# Asked between waves. Returns a reason to stop, or None to carry on.
+Gate = Callable[[UUID], Awaitable[str | None]]
 
 
 async def propose(objective: str, max_steps: int | None = None) -> planner.Plan:
@@ -120,13 +124,23 @@ async def start(
     return workflow_id
 
 
-async def advance(workflow_id: UUID, max_waves: int = 20) -> dict:
-    """Run the graph until nothing more can run.
+async def advance(
+    workflow_id: UUID, max_waves: int = 20, gate: Gate | None = None
+) -> dict:
+    """Run the graph until nothing more can run, or a gate says stop.
 
     Bounded by waves, not by time. An unbounded loop here is how a
     dependency cycle or a task that re-queues itself turns into a process
     that never returns, and the bound makes that visible as a stuck
     workflow rather than a hung server.
+
+    `gate` is asked between waves whether the rest of the graph should
+    still happen. It exists because some workflows have a step whose
+    answer invalidates everything after it -- verification finding that a
+    claim is false, say -- and letting the remaining steps run anyway
+    means paying for work built on something known to be wrong. A gate
+    decides, it never runs anything, so there is still exactly one path
+    by which an agent executes.
     """
     waves = 0
     while waves < max_waves:
@@ -140,6 +154,18 @@ async def advance(workflow_id: UUID, max_waves: int = 20) -> dict:
         await asyncio.gather(
             *(runtime.run_task(t["id"]) for t in ready), return_exceptions=True
         )
+
+        if gate is not None:
+            stop = await gate(workflow_id)
+            if stop:
+                # Cancelled, not failed. Nothing broke: what was learned
+                # in this wave made the rest of the plan wrong.
+                await tasks.cancel_workflow(workflow_id, stop)
+                await telemetry.record(
+                    "workflow_gated", workflow_id=workflow_id,
+                    detail={"reason": stop, "wave": waves},
+                )
+                break
 
     return await _settle(workflow_id, waves)
 
@@ -241,7 +267,8 @@ async def run(
     requested_by: str,
     steps: list[Step] | None = None,
     budget_inr: Decimal | None = None,
+    gate: Gate | None = None,
 ) -> dict:
     """Plan and execute. The ordinary entry point."""
     workflow_id = await start(objective, requested_by, steps, budget_inr)
-    return await advance(workflow_id)
+    return await advance(workflow_id, gate=gate)

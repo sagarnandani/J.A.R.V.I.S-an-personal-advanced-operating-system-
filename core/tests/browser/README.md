@@ -45,7 +45,24 @@ node tests/browser/ios_viewport_height.mjs    # the iOS 100vh trap
 node tests/browser/stale_script.mjs           # a deploy that half-arrives
 node tests/browser/offer_in_chat.mjs          # ask in chat, work happens
 node tests/browser/voice_offer.mjs            # ask aloud, work happens
+node tests/browser/nav_and_layout.mjs         # every tab, three sizes
+node tests/browser/money.mjs                  # the ledger, in and out
 ```
+
+The Media tab needs two seeded pieces, because the mock provider cannot
+write a script or a review:
+
+```bash
+DATABASE_URL=... python tests/browser/seed_media.py
+node tests/browser/media_tab.mjs media.png    # scan → read → approve
+```
+
+`media_tab.mjs` fakes only the scan's *answer*, at the network boundary,
+since a real scout needs an API key this server does not have. Everything
+else is real: the ranked queue, the piece list, the script with its
+citations, both cost figures, and the approve button — including that a
+piece already decided on offers no way to decide again, and that a piece
+the strategist declined is not shown as a failure.
 
 `offer_in_chat.mjs` injects a marked reply at the network boundary,
 because the mock provider cannot decide to mark a message. Everything
