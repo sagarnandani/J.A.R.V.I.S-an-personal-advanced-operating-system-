@@ -626,3 +626,100 @@ async def _jarvis_detail(settings) -> dict:
                      "lifecycle": c["lifecycle"], "state": c["state"]}
                     for c in whole["root"]["children"]],
     }
+
+
+# --- what JARVIS should know about itself ----------------------------------
+
+# How many capabilities to name before summarising the rest. A roster is
+# useful because it is short; two hundred lines of it in every system
+# prompt would cost money on every message and bury the rest of the
+# briefing.
+ROSTER_LIMIT = 24
+
+
+def _one_line(spec: AgentSpec, limit: int = 110) -> str:
+    """The first sentence of a description, or a short slice of it."""
+    text = " ".join((spec.description or spec.name).split())
+    first = text.split(". ")[0].rstrip(".")
+    return first if len(first) <= limit else first[: limit - 1].rstrip() + "…"
+
+
+async def roster() -> list[str]:
+    """What JARVIS is made of, for JARVIS's own system prompt.
+
+    This exists because of a plain failure: asked whether it knew about
+    the agents that had been built for it, JARVIS said no. It was right to
+    -- nothing had ever told it. It knew its own spending and its own
+    schedules, and nothing at all about its own capabilities, so it
+    answered the question from the model's training data, which of course
+    has never heard of any of this.
+
+    Generated rather than written down, for the same reason as the Agents
+    page: a hand-kept paragraph describing the system is wrong within a
+    month and wrong quietly.
+
+    The split matters as much as the list. A capability JARVIS can start
+    from a conversation and one that only runs as a step inside a
+    supervised chain are different things to offer, and telling the owner
+    it will "make a video" when the chain is started from a tab would be a
+    promise it cannot keep.
+    """
+    try:
+        specs = await registry.find(routable_only=False)
+    except Exception as exc:  # noqa: BLE001 - a briefing must not fail on this
+        logger.warning("Could not read the registry for the roster: %s", exc)
+        return []
+    if not specs:
+        return []
+
+    routable = [s for s in specs if s.status in (Lifecycle.ACTIVE, Lifecycle.DEGRADED)]
+    standalone = [s for s in routable if not s.supervisor]
+    supervised: dict[str, list[AgentSpec]] = {}
+    for spec in routable:
+        if spec.supervisor:
+            supervised.setdefault(spec.supervisor, []).append(spec)
+    inactive = [s for s in specs if s not in routable]
+
+    lines = [
+        f"- Your own capabilities, read from the agent registry just now "
+        f"({len(routable)} active). Having a capability is not the same as "
+        f"having used it, and none of these has run unless the task figures "
+        f"above say so:"
+    ]
+
+    shown = 0
+    for spec in sorted(standalone, key=lambda s: s.capability)[:ROSTER_LIMIT]:
+        lines.append(f"    * {spec.capability} — {spec.name}: {_one_line(spec)}")
+        shown += 1
+
+    for boss, team in sorted(supervised.items()):
+        lines.append(
+            f"    * {_title(boss)} coordinates a chain of "
+            f"{len(team)} capabilities, which run as steps of that chain "
+            f"rather than on their own — started from the Media tab, not "
+            f"from a conversation:"
+        )
+        for spec in sorted(team, key=lambda s: s.capability)[:ROSTER_LIMIT]:
+            lines.append(f"        - {spec.capability} — {spec.name}: {_one_line(spec)}")
+            shown += 1
+
+    if shown < len(routable):
+        lines.append(f"    * and {len(routable) - shown} more.")
+
+    if inactive:
+        lines.append(
+            "    * Registered but not routable right now: "
+            + ", ".join(f"{s.capability} ({s.status.value})" for s in inactive[:8])
+        )
+
+    # Computed, not asserted. If a capability ever does hold PUBLISH this
+    # line changes by itself, which is the only way it stays true.
+    can_publish = [s.capability for s in routable if Permission.PUBLISH in s.permissions]
+    lines.append(
+        "    * None of them can publish anything: no registered capability "
+        "holds the publish permission."
+        if not can_publish else
+        "    * Can publish externally (and still needs your approval each "
+        "time): " + ", ".join(can_publish)
+    )
+    return lines

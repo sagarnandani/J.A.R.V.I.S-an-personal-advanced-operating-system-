@@ -94,6 +94,21 @@ async def briefing(settings) -> str:
             "no bank feed. Say so if asked; never produce a figure."
         )
 
+    # What JARVIS is made of. Read from the registry every time rather
+    # than written down anywhere, because a hand-kept description of the
+    # system is wrong within a month and wrong quietly.
+    #
+    # This is here because of a plain failure: asked whether it knew about
+    # the agents built for it, JARVIS said no -- correctly, since nothing
+    # had ever told it. It knew its spending and its schedules and nothing
+    # about itself.
+    try:
+        from app.agents import org
+
+        lines.extend(await org.roster())
+    except Exception:  # noqa: BLE001 - a briefing must not fail on this
+        pass
+
     # Content the owner has to decide on. Only when there is some: a line
     # saying "nothing is waiting" every single day is how a briefing
     # teaches its reader to skim past it.

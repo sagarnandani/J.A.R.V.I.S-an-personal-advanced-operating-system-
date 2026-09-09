@@ -199,3 +199,30 @@ async def test_a_piece_waiting_for_a_decision_reaches_the_briefing(clean):
         assert "Nothing has been published" in text
     finally:
         await clean.execute("DELETE FROM content_pieces; DELETE FROM workflows;")
+
+
+@pytest.mark.asyncio
+async def test_the_briefing_tells_jarvis_what_it_is_made_of(clean):
+    """Asked about its own agents, JARVIS said it had none.
+
+    It knew its spending and its schedules and nothing about itself, so
+    it answered from training data. The roster reaches it the same way
+    every other measured figure does.
+    """
+    from app.agents import registry
+    from app.agents.schemas import AgentSpec, Lifecycle, ModelTier, Permission
+
+    await clean.execute("DELETE FROM agents")
+    await registry.register(AgentSpec(
+        capability="research.web", name="Web research",
+        description="Answers from live web sources.",
+        task_types=("research",), permissions=frozenset({Permission.NETWORK}),
+        model_tiers=(ModelTier.STANDARD,), status=Lifecycle.ACTIVE,
+    ))
+    try:
+        text = await briefing(Settings())
+        assert "research.web" in text
+        assert "read from the agent registry" in text
+        assert "not the same as having used it" in text
+    finally:
+        await clean.execute("DELETE FROM agents")

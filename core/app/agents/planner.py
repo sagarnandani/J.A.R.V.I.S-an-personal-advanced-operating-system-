@@ -113,6 +113,24 @@ Reply with JSON only, no other text:
 """
 
 
+def _plannable(specs):
+    """The capabilities a plan may name.
+
+    A capability that reports to a supervisor is a step in a chain that
+    the supervisor assembles, not a free-standing thing to route to. The
+    media chain is the case that made this necessary: `media.script` is
+    registered with the writing task type, so a plan for "write something
+    about X" could name it alone -- producing an uncited script with no
+    research behind it, no verification, and no editorial review. Every
+    gate that chain exists for, skipped, by a plan that looked reasonable.
+
+    Chains are started by their coordinator with explicit steps, and
+    explicit steps never come through here, so nothing is lost by
+    excluding them.
+    """
+    return [s for s in specs if not s.supervisor]
+
+
 def _catalogue(specs) -> str:
     """What the planner is allowed to know about its options.
 
@@ -289,7 +307,7 @@ async def propose(objective: str, *, max_steps: int | None = None) -> Plan:
         plan.rejected.append("autonomous planning is switched off (PLANNER_ENABLED)")
         return plan
 
-    specs = await registry.find()
+    specs = _plannable(await registry.find())
     if not specs:
         return Plan(source="none", reasoning="The registry has no routable agents.")
 

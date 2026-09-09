@@ -518,6 +518,43 @@ Tapping an opportunity starts a production, which runs five agents and
 several minutes behind the request, so the tab polls rather than holding
 the connection open.
 
+## JARVIS knowing what JARVIS is
+
+Asked whether it knew about the agents built for it, JARVIS said no. It
+was right to: nothing had ever told it. The briefing gave it its own
+spending, its own schedules and its own finished work, and said nothing
+at all about its own capabilities — so it answered the question from the
+model's training data, which has of course never heard of any of this.
+
+So the briefing now carries a roster, generated from the registry on
+every message, exactly like every other measured figure in it. It names
+each active capability and what it is for, and it makes three
+distinctions that matter:
+
+- **What it can start from a conversation, and what it cannot.** A
+  capability that reports to a supervisor runs as a step of that
+  supervisor's chain, started from the Media tab. Saying "I'll make you a
+  video" when the chain is started from a tab would be a promise it
+  cannot keep.
+- **Having a capability is not having used it.** The roster says so in
+  words, because a list of what exists read as a list of what has
+  happened is the same class of error as an invented figure.
+- **What nothing can do.** "No registered capability holds the publish
+  permission" is computed, not asserted, so it stops being said the
+  moment it stops being true.
+
+### The gate this closed
+
+The same failure had a second half. `media.script` is registered with the
+writing task type, so a plan for "write me a script about X" could name
+it on its own: no research, no verification, no editorial review, and an
+uncited script at the end of it — every gate that chain exists for,
+skipped by a plan that looked perfectly reasonable.
+
+The planner's catalogue now excludes any capability that reports to a
+supervisor. Chains are started by their coordinator with explicit steps,
+and explicit steps never go through the planner, so nothing is lost.
+
 ## Seeing the organisation — the Agents tab
 
 One page that answers three questions at a glance: what agents exist, who

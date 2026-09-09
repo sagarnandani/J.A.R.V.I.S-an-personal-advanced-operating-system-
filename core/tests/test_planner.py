@@ -76,10 +76,16 @@ async def test_a_valid_plan_becomes_steps(clean, monkeypatch):
     assert [s.capability for s in plan.steps] == ["general.research", "general.writer"]
     assert plan.steps[1].after == ("research",)
     assert plan.reasoning == "Facts first, prose second."
-    # The catalogue is the registry's, not the model's imagination.
-    registered = {s.capability for s in await registry.find()}
-    assert registered
-    assert all(c in seen["prompt"] for c in registered)
+    # The catalogue is the registry's, not the model's imagination -- and
+    # only the part of it a plan may name. A capability that reports to a
+    # supervisor is a step in that supervisor's chain, not something to
+    # route to on its own.
+    registered = await registry.find()
+    standalone = {s.capability for s in registered if not s.supervisor}
+    supervised = {s.capability for s in registered if s.supervisor}
+    assert standalone
+    assert all(c in seen["prompt"] for c in standalone)
+    assert not any(c in seen["prompt"] for c in supervised)
     assert "system.shell" not in seen["prompt"]
 
 
@@ -449,3 +455,27 @@ async def test_a_specialist_is_not_offered_general_work(clean):
     general = {s.capability for s in await registry.find(task_type="general")}
 
     assert "factcheck.claims" not in general
+
+
+@pytest.mark.asyncio
+async def test_a_plan_cannot_reach_into_a_supervised_chain(clean, monkeypatch):
+    """The gates are worth nothing if a plan can step around them.
+
+    `media.script` is registered with the writing task type, so "write
+    something about X" could have produced a single script step: no
+    research, no verification, no editorial review, and an uncited script
+    at the end of it. The plan would have looked perfectly reasonable.
+    """
+    await builtin.install()
+    seen = stub_planner_model(monkeypatch, plan_json(
+        step("w", "media.script", "Write a script about EVs")))
+
+    plan = await planner.propose("Write me a script about Indian EV sales")
+
+    assert "media.script" not in seen["prompt"], (
+        "a chain step was offered to the planner"
+    )
+    assert all(s.capability != "media.script" for s in plan.steps), (
+        "a plan reached into a supervised chain"
+    )
+    assert plan.rejected, "naming something outside the catalogue must be recorded"

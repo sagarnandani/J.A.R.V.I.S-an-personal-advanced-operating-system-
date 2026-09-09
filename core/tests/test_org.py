@@ -389,3 +389,84 @@ async def test_the_max_spend_of_an_agent_is_shown_because_it_bounds_it(clean):
     detail = await org.detail("bounded", SETTINGS)
     assert detail["limits"]["max_cost_inr"] == 6.0
     assert any("6.00" in r for r in detail["responsibilities"])
+
+
+# --- JARVIS knowing what JARVIS is -----------------------------------------
+
+@pytest.mark.asyncio
+async def test_jarvis_is_told_what_it_is_made_of(clean):
+    """The reported failure, as a test.
+
+    Asked whether it knew about the agents built for it, JARVIS said no.
+    It was right to: nothing had ever told it. It knew its spending and
+    its schedules and nothing at all about its own capabilities, so it
+    answered from the model's training data, which has never heard of any
+    of this.
+    """
+    await install("research.web", name="Web research",
+                  description="Answers a question from live web sources. "
+                              "Returns the pages it relied on.")
+    await install("media.script", name="Script and story", domain="media",
+                  supervisor="media.director",
+                  description="Turns a verified brief into an original script.")
+
+    lines = "\n".join(await org.roster())
+
+    assert "research.web" in lines and "Web research" in lines
+    assert "media.script" in lines
+    assert "Media Director" in lines, "the reporting line is part of the answer"
+
+
+@pytest.mark.asyncio
+async def test_an_empty_registry_produces_no_roster_rather_than_a_claim(clean):
+    assert await org.roster() == []
+
+
+@pytest.mark.asyncio
+async def test_the_roster_separates_what_can_be_started_from_a_conversation(clean):
+    """Telling the owner it will "make a video" when the chain is started
+    from a tab would be a promise it cannot keep."""
+    await install("solo.one", name="Solo")
+    await install("chain.step", name="Step", supervisor="chain.boss")
+
+    lines = await org.roster()
+    text = "\n".join(lines)
+
+    boss_line = next(l for l in lines if "coordinates a chain" in l)
+    assert "not\n" not in boss_line
+    assert "rather than on their own" in boss_line
+    assert "Media tab" in boss_line
+    # The standalone one is listed above, without that caveat.
+    solo = next(l for l in lines if "solo.one" in l)
+    assert lines.index(solo) < lines.index(boss_line)
+    assert "chain.step" in text
+
+
+@pytest.mark.asyncio
+async def test_the_roster_says_nothing_can_publish_and_means_it(clean):
+    """Computed from the registry, so it stops being true the moment it
+    stops being true."""
+    await install("harmless")
+    assert any("None of them can publish" in l for l in await org.roster())
+
+    await install("loud", permissions=frozenset({Permission.PUBLISH}))
+    lines = await org.roster()
+    assert not any("None of them can publish" in l for l in lines)
+    assert any("loud" in l and "needs your approval" in l for l in lines)
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_capability_is_not_offered_as_something_it_can_do(clean):
+    await install("shelved", status=Lifecycle.DISABLED)
+    lines = "\n".join(await org.roster())
+    assert "not routable right now" in lines
+    assert "shelved (disabled)" in lines
+
+
+@pytest.mark.asyncio
+async def test_the_roster_does_not_claim_the_capabilities_have_been_used(clean):
+    """A list of what exists read as a list of what has happened would be
+    the same class of error as a made-up figure."""
+    await install("untried")
+    lines = "\n".join(await org.roster())
+    assert "not the same as having used it" in lines
