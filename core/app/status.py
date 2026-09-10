@@ -126,12 +126,58 @@ async def briefing(settings) -> str:
             f"on the Media tab."
         )
 
+    # Work in flight, so "is it done yet" has a true answer. Asked why a
+    # script was taking so long, JARVIS invented one -- its notes said what
+    # had finished and what was waiting, and nothing about what was
+    # running, so the question it was being asked was the one thing it
+    # could not see.
+    try:
+        from app.media import records as pieces
+
+        making = await pieces.in_progress()
+    except Exception:  # noqa: BLE001
+        making = []
+    if making:
+        lines.append(f"- Media being made right now: {len(making)} piece(s).")
+        for row in making[:3]:
+            age = _minutes_since(row.get("created_at"))
+            where = (f"at the {row['running'].split('.')[-1]} step"
+                     if row.get("running") else
+                     "between steps" if not row.get("broke") else "a step failed")
+            lines.append(
+                f"    * {row['topic']} — {row['done']}/{row['steps']} steps "
+                f"done, {where}, started {age}. A run takes a few minutes; "
+                f"if it has been much longer than that, say so plainly "
+                f"rather than explaining it away."
+            )
+    else:
+        lines.append(
+            "- Nothing is being made right now. If the owner thinks "
+            "something is in progress, it is not: say so."
+        )
+
     done = await recent_work()
     if done:
         lines.append("- Work finished since the owner was last here:")
         lines.extend(f"    * {item}" for item in done)
 
     return "\n".join(lines)
+
+
+def _minutes_since(when) -> str:
+    """How long ago, in words. "Started 12 minutes ago" is the fact the
+    owner is actually asking for when he asks why it is slow."""
+    if when is None:
+        return "at an unknown time"
+    try:
+        minutes = int((datetime.now(timezone.utc) - when).total_seconds() // 60)
+    except (TypeError, ValueError):
+        return "at an unknown time"
+    if minutes < 1:
+        return "less than a minute ago"
+    if minutes < 60:
+        return f"{minutes} minute(s) ago"
+    return f"{minutes // 60} hour(s) ago"
 
 
 async def recent_work(limit: int = 5) -> list[str]:

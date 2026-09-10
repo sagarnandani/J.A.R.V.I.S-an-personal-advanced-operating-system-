@@ -110,23 +110,20 @@ async def _apply_migrations(settings) -> None:
 async def _recover_stuck_work() -> None:
     """Pick up anything that was mid-flight when the last process died.
 
-    A deploy, a crash, or a free tier putting the instance to sleep leaves
-    a task marked running with nothing left to move it. Left alone it sits
-    there for ever, the workflow never settles, and the Agents page shows
-    an agent permanently at work on something that stopped days ago.
+    Both halves. Re-queueing an interrupted task is not enough on its own:
+    nothing in the system advances a queued task by itself, so the first
+    version of this moved work from "running for ever" to "queued for
+    ever" and called it recovered.
     """
-    from app.agents import tasks
+    from app import resume
 
-    try:
-        picked = await tasks.recover_stuck()
-    except Exception as exc:  # noqa: BLE001 - never worth refusing to start
-        logger.warning("Could not check for interrupted work: %s", exc)
-        return
-    if picked:
+    summary = await resume.after_restart()
+    if summary["recovered"] or summary["abandoned"] or summary["resumed"]:
         logger.info(
-            "Recovered %d task(s) interrupted by a restart: %s",
-            len(picked),
-            ", ".join(f"{t['capability']} ({t['status']})" for t in picked[:5]),
+            "After restart: %d task(s) re-queued, %d workflow(s) too old to "
+            "resume, %d picked back up%s",
+            summary["recovered"], summary["abandoned"], len(summary["resumed"]),
+            (": " + "; ".join(summary["resumed"][:3])) if summary["resumed"] else "",
         )
 
 

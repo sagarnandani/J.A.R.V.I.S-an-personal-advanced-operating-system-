@@ -95,3 +95,40 @@ def test_a_dropped_offer_is_said_out_loud_not_only_logged():
 def test_an_unknown_kind_still_says_something():
     out = claims.nothing_registered("Right.", "teleport")
     assert "nothing has started" in out
+
+
+# --- the third person, and the invented excuse -----------------------------
+#
+# The first version of this list caught the first person, so the model
+# moved to the third. Asked why a script was slow, it said the work was in
+# process and that some topics take longer to research. Neither sentence
+# contains the word "I", and both were about work that was not happening.
+
+@pytest.mark.parametrize("said", [
+    "It's in process, sir.",
+    "The script is being prepared.",
+    "That research is under way.",
+    "Still working on it.",
+    "It should be ready shortly.",
+    "It's almost ready.",
+    "Some topics take longer to research.",
+    "This one takes more time than usual.",
+])
+def test_work_described_without_saying_who_is_doing_it_is_still_a_claim(said):
+    corrected, why = claims.correct(said, offered=False)
+    assert why is not None, f"not caught: {said!r}"
+    assert claims.CORRECTION in corrected
+
+
+def test_the_guard_stays_quiet_when_something_really_is_running():
+    """Once the status notes carry work in progress, "it is still being
+    researched" is a report rather than a fabrication -- and a guard that
+    corrected it would be the one telling the untruth."""
+    said = "It's still being researched, sir."
+
+    caught, why = claims.correct(said, offered=False, in_flight=False)
+    assert why is not None and claims.CORRECTION in caught
+
+    left, why = claims.correct(said, offered=False, in_flight=True)
+    assert why is None
+    assert left == said

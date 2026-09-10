@@ -50,6 +50,25 @@ _CLAIMS: tuple[tuple[str, str], ...] = (
     (r"\b(?:one moment|just a (?:moment|second|minute)|"
      r"give me a (?:moment|second|minute)|bear with me|hold on)\b",
      "asking the owner to wait"),
+    # "It's in process", "still working on it", "it's underway". The first
+    # version of this list caught the first person and the model moved to
+    # the third: asked why a script was slow, it said the work was in
+    # progress and that some topics take longer to research. Neither
+    # sentence contains "I".
+    (r"\b(?:in process|in progress|under way|underway|being (?:worked|"
+     r"prepared|drafted|written|researched|generated))\b",
+     "work said to be under way"),
+    (r"\b(?:still )?(?:working|running) on (?:it|that|this)\b",
+     "work said to be under way"),
+    (r"\b(?:almost|nearly) (?:ready|done|finished)\b",
+     "work said to be nearly done"),
+    (r"\b(?:shortly|any moment now|in a (?:few|couple of) minutes)\b",
+     "promising something soon"),
+    # The worst of them: an explanation invented for work that is not
+    # happening. "Some topics take longer to research" is a reason given
+    # for a delay that does not exist.
+    (r"\b(?:take[sn]?|taking) (?:a bit )?longer\b", "explaining a delay"),
+    (r"\btake[sn]? (?:more|some) time\b", "explaining a delay"),
     # "it's on the Media tab", "you'll find it on your screen"
     (r"\b(?:on|in|under) the media tab\b", "pointing at the Media tab"),
     (r"\bon (?:your|the) screen\b", "pointing at a screen"),
@@ -85,15 +104,20 @@ def unbacked(reply: str) -> str | None:
     return None
 
 
-def correct(reply: str, *, offered: bool) -> tuple[str, str | None]:
+def correct(reply: str, *, offered: bool, in_flight: bool = False) -> tuple[str, str | None]:
     """Add the honest sentence, if one is needed.
 
-    `offered` is the whole test. With an offer on screen, "I'll look that
-    up" is a true statement about a button the owner is looking at. With
-    no offer, it is a description of something that is not going to
-    happen.
+    Two ways a claim can be true, and the guard must stay quiet for both.
+
+    `offered` -- there is a card on screen, so "I'll look that up" is a
+    statement about a button the owner is looking at.
+
+    `in_flight` -- something genuinely is running. Once JARVIS's status
+    notes carry work in progress, "it is still being researched" stops
+    being a fabrication and becomes a report, and a guard that corrected
+    it would be the one lying.
     """
-    if offered or not reply:
+    if offered or in_flight or not reply:
         return reply, None
 
     why = unbacked(reply)

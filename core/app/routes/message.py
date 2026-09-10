@@ -72,8 +72,20 @@ async def send_message(
         except Exception:  # noqa: BLE001 - a briefing is never worth a failure
             return ""
 
-    stopped, history, known_facts, status_line = await asyncio.gather(
-        system_control.is_stopped(), _recall(), _facts(), _status()
+    # Is anything actually running? The guard below needs to know, because
+    # "it is still being researched" is a fabrication when nothing is and
+    # a plain report when something is, and correcting the second would
+    # make the guard the one telling the untruth.
+    async def _in_flight() -> bool:
+        try:
+            from app.media import records as pieces
+
+            return bool(await pieces.in_progress())
+        except Exception:  # noqa: BLE001
+            return False
+
+    stopped, history, known_facts, status_line, in_flight = await asyncio.gather(
+        system_control.is_stopped(), _recall(), _facts(), _status(), _in_flight()
     )
 
     if stopped:
@@ -127,7 +139,7 @@ async def send_message(
         # not going to happen. The prompt says not to; this is what
         # catches it when the prompt does not.
         reply_text, _claimed = claims.correct(
-            reply_text, offered=proposal is not None
+            reply_text, offered=proposal is not None, in_flight=in_flight
         )
 
     # Provenance: the user's own words are 'stated'. JARVIS's reply is

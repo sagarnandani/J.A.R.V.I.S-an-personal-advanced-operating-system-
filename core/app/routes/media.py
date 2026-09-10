@@ -163,6 +163,18 @@ async def piece(
     row = await records.get(piece_id)
     if row is None:
         raise HTTPException(status_code=404, detail="No such piece.")
+
+    # Which step it has reached. Without this, a piece being made shows as
+    # "being made" and nothing else, so a run that has stalled looks
+    # exactly like one that is working -- which is how ten minutes of
+    # nothing became a question rather than something visible.
+    if row.get("workflow_id"):
+        row["steps"] = [
+            {"capability": t["capability"], "status": t["status"],
+             "started_at": t["started_at"], "finished_at": t["finished_at"],
+             "failure_reason": t["failure_reason"]}
+            for t in await tasks.workflow_tasks(row["workflow_id"])
+        ]
     return row
 
 

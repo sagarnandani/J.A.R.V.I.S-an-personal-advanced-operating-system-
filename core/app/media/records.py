@@ -131,6 +131,34 @@ async def waiting() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def in_progress() -> list[dict]:
+    """Pieces being made right now, and which step each has reached.
+
+    JARVIS was asked why a script was taking so long and invented an
+    answer -- "some topics take longer to research" -- because it had no
+    idea whether anything was running at all. Its status notes carried
+    finished work and work waiting on the owner, and nothing about work in
+    flight, so the one question it could not answer was the one being
+    asked.
+    """
+    rows = await fetch(
+        """
+        SELECT c.id, c.topic, c.brand, c.created_at,
+               count(t.id) FILTER (WHERE t.status = 'completed')  AS done,
+               count(t.id)                                        AS steps,
+               max(t.capability) FILTER (WHERE t.status = 'running') AS running,
+               bool_or(t.status = 'failed')                       AS broke
+          FROM content_pieces c
+          LEFT JOIN tasks t ON t.workflow_id = c.workflow_id
+         WHERE c.state = 'producing'
+         GROUP BY c.id
+         ORDER BY c.created_at DESC
+         LIMIT 10
+        """
+    )
+    return [dict(r) for r in rows]
+
+
 async def economics(days: int = 30) -> dict:
     """What the last month of making things actually cost.
 

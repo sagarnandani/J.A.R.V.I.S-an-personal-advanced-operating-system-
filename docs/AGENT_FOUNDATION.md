@@ -466,6 +466,21 @@ replies gets ignored, and then it is worse than nothing, so the tests
 check the sentences that must be caught and an equal number that must be
 left alone.
 
+The first version of that list caught the first person, so the model
+moved to the third. Asked why a script was slow, it said the work was in
+process and that some topics take longer to research. Neither sentence
+contains the word "I", and the second is the worst kind: an explanation
+invented for a delay that does not exist.
+
+The guard also stays quiet when something genuinely is running. Once the
+briefing carries work in flight — how many steps done, which one it is
+on, how long ago it started — "it is still being researched" is a report
+rather than a fabrication, and correcting it would make the guard the one
+telling the untruth. Supplying the fact matters more than forbidding the
+invention: JARVIS had no way to see work in progress at all, which is why
+the one question it was being asked was the one thing it could not
+answer.
+
 **A dropped offer is no longer silent.** When the model marks work and
 the registry cannot take it, that used to be a server log line and
 nothing else: the owner read a sentence saying work was coming, saw no
@@ -787,13 +802,26 @@ that ends in a correction to publish.
 **Distributed execution.** Waves run in-process, so a workflow belongs to
 whichever instance started it.
 
-Work interrupted by a restart *is* recovered now. A task is marked
-`running` before the model call and `completed` after, so a deploy, a
-crash or a free tier going to sleep in between used to leave it running
-for ever: nothing moved it, the workflow never settled, and the Agents
-page showed that agent permanently at work on something that stopped days
-ago. Startup re-queues anything that has been running longer than fifteen
-minutes, or fails it with a reason when its attempts are gone. The age
-threshold is what makes this safe if a second instance ever exists —
-without it, restarting one would re-queue work another was actively
-doing.
+Work interrupted by a restart *is* recovered now, and it took two goes to
+get right. A task is marked `running` before the model call and
+`completed` after, so a deploy or a crash in between used to leave it
+running for ever.
+
+The first fix re-queued it. That was half the job and it made the symptom
+quieter rather than fixing it: nothing in the system advances a queued
+task on its own, so the work moved from running for ever to queued for
+ever. From outside it was identical — a script asked for, said to be in
+progress, and still not there ten minutes later.
+
+So `app/resume.py` does both halves at startup. Re-queue the task, then
+actually run the workflow it belongs to. A media workflow goes back
+through the Director rather than the orchestrator, because advancing the
+graph alone would finish the steps and leave the content record at
+`producing` for ever: the gates and the outcome live in the Director's
+settle step.
+
+Two bounds, because this spends real money without being asked. Only work
+touched in the last six hours is resumed, and only five at a time. Older
+work is marked failed with a reason — a workflow from three days ago
+quietly starting up on a restart is a worse surprise than one that says
+it was interrupted.

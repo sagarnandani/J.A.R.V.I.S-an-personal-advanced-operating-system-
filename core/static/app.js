@@ -1665,6 +1665,26 @@ async function showPiece(pieceId) {
     const review = p.review || {};
 
     let body = "";
+    // The steps first while it is being made, because that is the whole
+    // question at that point. A piece that shows only "being made" looks
+    // identical whether it is working or has stalled.
+    if (p.state === "producing" && (p.steps || []).length) {
+      const done = p.steps.filter((s) => s.status === "completed").length;
+      const started = p.created_at ? new Date(p.created_at) : null;
+      const mins = started ? Math.round((Date.now() - started) / 60000) : null;
+      body += `<div class="beat"><div class="name">${done} of ${p.steps.length} steps` +
+              (mins !== null ? ` · started ${mins} min ago` : "") + `</div>` +
+              p.steps.map((s) =>
+                `<div class="step ${esc(s.status)}">` +
+                `<div class="cap">${esc(s.capability)}</div>` +
+                `<div class="meta">${esc(s.status)}` +
+                (s.failure_reason ? ` — ${esc(s.failure_reason)}` : "") +
+                `</div></div>`).join("") + `</div>`;
+      if (mins !== null && mins > 5) {
+        body += `<p class="note">A run normally takes a few minutes. This one
+                 has not, so something is likely stuck rather than slow.</p>`;
+      }
+    }
     if (pack.hook) body += `<div class="beat"><div class="name">Hook</div><div class="out">${esc(pack.hook)}</div></div>`;
     if (sections.length) {
       body += sections.map((s) => `

@@ -259,3 +259,36 @@ def test_the_spoken_prompt_says_an_accent_is_not_a_language():
 
     assert "An accent is not a language" in _VOICE_NOTE
     assert "English" in _VOICE_NOTE
+
+
+@pytest.mark.asyncio
+async def test_the_briefing_says_what_is_being_made_right_now(clean):
+    """Asked why a script was taking so long, JARVIS invented an answer.
+
+    Its notes carried finished work and work waiting on the owner, and
+    nothing at all about work in flight -- so the one question it was
+    being asked was the one thing it could not see.
+    """
+    quiet = await briefing(Settings())
+    assert "Nothing is being made right now" in quiet
+
+    workflow = await clean.fetchval(
+        "INSERT INTO workflows (objective, requested_by, status) "
+        "VALUES ('Media: a topic','user:owner','running') RETURNING id")
+    await clean.execute(
+        "INSERT INTO tasks (workflow_id, objective, capability, status) "
+        "VALUES ($1,'research it','research.web','running')", workflow)
+    await clean.execute(
+        "INSERT INTO content_pieces (workflow_id, topic, brand, state) "
+        "VALUES ($1,'the benchmark everyone quotes','ai_media','producing')",
+        workflow)
+    try:
+        text = await briefing(Settings())
+        assert "Media being made right now: 1 piece(s)" in text
+        assert "the benchmark everyone quotes" in text
+        assert "steps done" in text
+        assert "started" in text, "no elapsed time, which is what he asked for"
+        assert "say so plainly rather than explaining it away" in text
+    finally:
+        await clean.execute(
+            "DELETE FROM content_pieces; DELETE FROM tasks; DELETE FROM workflows;")
