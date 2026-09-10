@@ -77,9 +77,19 @@ _VOICE_NOTE = (
     "said once, plainly. When something is wrong, be direct and level "
     "rather than alarmed."
     "\n\nLanguage is not a style choice. Answer in the language the owner "
-    "just spoke, and keep to it. If you cannot tell which it was, use "
-    "English. If they ask you to speak a particular language, that holds "
-    "for the rest of the conversation -- do not drift back."
+    "just spoke, and keep to it. If they ask you to speak a particular "
+    "language, that holds for the rest of the conversation -- do not "
+    "drift back."
+    # He speaks English with an Indian accent, in Karnataka, and JARVIS
+    # started answering him in Kannada. An accent is not a language, and
+    # guessing from one is how a spoken reply becomes unintelligible to
+    # the person who just spoke.
+    "\n\nAn accent is not a language. The owner speaks English with an "
+    "Indian accent; that is English, and you answer in English. Switch "
+    "only when the WORDS he used are in another language, not because of "
+    "how he sounds, not because of where he is, and not because an "
+    "earlier conversation was in another language. When you are not "
+    "certain, English is the answer."
     "\n\nYou can also search the live web and check claims, though not "
     "during this spoken turn. When the honest answer needs that -- it "
     "depends on current information, or the owner asked you to check or "
@@ -525,9 +535,11 @@ async def _act(
     await _inject(
         session,
         "[System: the owner just agreed to the search you offered. Say in "
-        "one short sentence that you are looking it up now, in the "
-        "language they are speaking, and then stop and wait. Do not "
-        "answer the question yet -- the results are coming.]",
+        "one short sentence that you are looking it up now, in the same "
+        "language his own words were in -- English unless he actually "
+        "spoke another language, never guessed from his accent -- and "
+        "then stop and wait. Do not answer the question yet: the "
+        "results are coming.]",
     )
 
     try:
@@ -561,8 +573,9 @@ async def _act(
     await _inject(
         session,
         "[System: here are the results of the search you offered. Tell the "
-        "owner what they say, in one or two sentences, in the language "
-        "they are speaking. Use only what is here -- if something was "
+        "owner what they say, in one or two sentences, in the same "
+        "language his own words were in -- English unless he actually "
+        "spoke another language. Use only what is here -- if something was "
         "contradicted or could not be verified, say that rather than "
         f"smoothing it over.]\n\n{summary[:4000]}",
     )

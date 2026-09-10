@@ -437,6 +437,60 @@ error as inventing a figure, and it needed saying just as explicitly.
 Nothing is shown in the conversation itself. The finished piece lives on
 the Media tab, and the chat answer carries a link that opens it there.
 
+## Saying it did something it did not do
+
+Three reports in one week, all the same failure. JARVIS said it was
+displaying a script on screen. It said a piece was waiting on the Media
+tab. It said it was fetching the latest information, then answered from
+training data that had never heard of the thing being asked about.
+
+Each time the model knew a capability existed, could not reach it from a
+conversation, and described using it. The prompt was told not to. That
+helped and was not enough, for two reasons worth writing down.
+
+**A rule about finished actions does not cover the present continuous.**
+The first version said not to claim it had shown, sent or generated
+anything. The model switched tense. "I'm fetching the latest" and "give
+me a minute" are the same lie, and both reached the owner.
+
+**A prompt is advice, not a mechanism.** So `app/claims.py` checks the
+reply before it reaches the owner and adds one honest sentence after a
+claim nothing backs. Two rules keep the guard from becoming its own
+problem: it only ever **adds**, never rewriting or deleting the model's
+words, and it only fires when **no offer accompanies the reply** — with a
+card on screen, "I'll look that up" is a true statement about a button
+the owner is looking at.
+
+The patterns are deliberately narrow. A guard that fires on ordinary
+replies gets ignored, and then it is worse than nothing, so the tests
+check the sentences that must be caught and an equal number that must be
+left alone.
+
+**A dropped offer is no longer silent.** When the model marks work and
+the registry cannot take it, that used to be a server log line and
+nothing else: the owner read a sentence saying work was coming, saw no
+card, and had nothing on screen saying why. It is now said in the reply,
+and for a media request it says explicitly that the Media tab will stay
+empty.
+
+**It does not draft the content itself either.** Asked for a script, it
+wrote one in the chat window. A draft written there has had no research,
+nothing verified, no citations and nobody reviewing it, which is the
+whole reason the media chain exists — so writing one is not a helpful
+shortcut, it is the failure the chain was built to prevent.
+
+### An accent is not a language
+
+The owner speaks English with an Indian accent, in Karnataka, and the
+spoken path started answering him in Kannada before a search. Two things
+caused it. The standing instruction said to answer in the language he
+speaks, and the injection sent at the moment of acknowledgement asked for
+a fresh language choice at exactly the point the model was least certain.
+
+Both now say the same thing: switch only when the **words** were in
+another language, never from an accent, a location, or an earlier
+conversation. When uncertain, English.
+
 ## Saying yes to something that is waiting
 
 A task that needs approval stops at `waiting_approval` and says what it

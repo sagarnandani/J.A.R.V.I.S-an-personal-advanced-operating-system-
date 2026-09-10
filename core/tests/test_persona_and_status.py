@@ -226,3 +226,36 @@ async def test_the_briefing_tells_jarvis_what_it_is_made_of(clean):
         assert "not the same as having used it" in text
     finally:
         await clean.execute("DELETE FROM agents")
+
+
+# --- rules added after JARVIS described work it had not done ---------------
+
+def test_the_prompt_forbids_narrating_work_in_progress():
+    """The first version of this rule named finished actions, and the
+    model switched tense. "I'm fetching the latest" and "give me a
+    minute" are the same lie in the present continuous."""
+    from app.llm.base import JARVIS_SYSTEM_PROMPT as prompt
+
+    lowered = prompt.lower()
+    for phrase in ("searching", "fetching", "ask the owner to wait",
+                   "media tab", "on screen"):
+        assert phrase in lowered, f"nothing rules out {phrase!r}"
+
+
+def test_the_prompt_forbids_drafting_the_content_in_the_reply():
+    """He asked for a script and it wrote one in the chat window. An
+    uncited draft with no research and no review is what the media chain
+    exists to prevent, so writing one here defeats it."""
+    from app.llm.base import JARVIS_SYSTEM_PROMPT as prompt
+
+    assert "Do not write the content itself" in prompt
+    assert "nobody reviewing it" in prompt
+
+
+def test_the_spoken_prompt_says_an_accent_is_not_a_language():
+    """He speaks English with an Indian accent and JARVIS answered in
+    Kannada."""
+    from app.routes.live import _VOICE_NOTE
+
+    assert "An accent is not a language" in _VOICE_NOTE
+    assert "English" in _VOICE_NOTE

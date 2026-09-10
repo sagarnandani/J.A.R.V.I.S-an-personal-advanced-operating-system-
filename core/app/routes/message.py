@@ -11,7 +11,7 @@ import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from app import audit, facts, memory, offer, status, system_control
+from app import audit, claims, facts, memory, offer, status, system_control
 from app.auth import CurrentUser, get_current_user
 from app.budget import estimate_cost_inr, estimate_shadow_inr
 from app.config import Settings, get_settings
@@ -115,9 +115,20 @@ async def send_message(
     reply_text, objective, kind = offer.split(result.text)
     proposal = await offer.build(objective, kind) if objective else None
     if objective and proposal is None:
-        # Marked, but nothing registered can take it. Dropped quietly --
-        # an offer JARVIS cannot honour is worse than none.
+        # Marked, but nothing registered can take it. It used to be
+        # dropped quietly, which meant the owner read a sentence saying
+        # work was coming, saw no card, and had nothing on screen telling
+        # them why. Logged AND said.
         logger.info("Ignoring an offer nothing can act on: %s", objective[:120])
+        reply_text = claims.nothing_registered(reply_text, kind)
+    else:
+        # A reply that claims to be searching, drafting or displaying
+        # something, with no offer behind it, is describing work that is
+        # not going to happen. The prompt says not to; this is what
+        # catches it when the prompt does not.
+        reply_text, _claimed = claims.correct(
+            reply_text, offered=proposal is not None
+        )
 
     # Provenance: the user's own words are 'stated'. JARVIS's reply is
     # content that came back from the model -- 'retrieved' -- never

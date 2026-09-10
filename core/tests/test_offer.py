@@ -322,12 +322,21 @@ async def test_a_marked_message_still_answers_when_nothing_can_act(chat, clean):
 
     Dropping the answer because the offer could not be honoured would
     turn a missing extra into a broken conversation.
+
+    What the owner is NOT left with is silence about it. This test used to
+    assert the reply came through untouched, which is how the owner ended
+    up reading a sentence about work that was coming, seeing no card, and
+    having nothing on screen to say why.
     """
     chat.reply_with("Best I have is 8%.\n[[JARVIS_CAN_DO: check the real figure]]")
 
     body = (await chat.client.post("/v1/message", json={"text": "rate?"})).json()
-    assert body["reply"] == "Best I have is 8%."
+    assert body["reply"].startswith("Best I have is 8%."), "the answer was lost"
     assert body["offer"] is None
+    assert "nothing has started" in body["reply"], (
+        "a dropped offer was silent again"
+    )
+    assert "JARVIS_CAN_DO" not in body["reply"], "the marker reached the owner"
 
 
 # --- the spoken path ------------------------------------------------------
