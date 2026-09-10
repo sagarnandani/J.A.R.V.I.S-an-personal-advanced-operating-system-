@@ -501,6 +501,19 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 .node .lc.disabled, .node .lc.retired, .node .lc.off { color: var(--danger); }
 .node .lc.experimental { color: #c9a6ff; }
 .node .lc.ok { color: var(--ok); }
+/* Work in flight, on the main screen. Gold while it is running, red once
+   it has been going longer than a run should take -- the difference
+   between slow and stuck is the whole point of showing it. */
+.live { display: flex; gap: .5rem; align-items: baseline; padding: .35rem 0;
+        border-bottom: 1px solid rgba(45,140,200,.1); font-size: .85rem; }
+.live:last-child { border-bottom: 0; }
+.live .who { font-family: Orbitron, sans-serif; font-size: .64rem;
+             letter-spacing: .06em; color: var(--cyan); flex: none; }
+.live .what { flex: 1; color: var(--text); overflow: hidden;
+              text-overflow: ellipsis; white-space: nowrap; }
+.live .when { font-size: .72rem; color: var(--muted); flex: none; }
+.live.stalled .when { color: var(--danger); }
+.live.stalled .who { color: var(--gold); }
 .chips { display: flex; flex-wrap: wrap; gap: .3rem; }
 .chipbtn {
   background: transparent; border: 1px solid var(--edge-soft); color: var(--muted);
@@ -882,6 +895,18 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         <div class="stat"><span class="label">Net</span><span class="stat-value gold" id="moneyNet">—</span></div>
         <div class="scroller" id="moneyList" style="margin-top:.4rem"></div>
         <p class="note" id="moneyNote"></p>
+      </section>
+
+      <!-- Hidden until something is actually running, and then it is the
+           first thing on the right-hand column. This is not the Activity
+           feed that was removed: that listed "message answered - success"
+           after the fact, which told you nothing you had not just
+           watched. This shows only work in flight, which is the one thing
+           that was impossible to see. -->
+      <section class="panel flexy hidden" id="nowPanel">
+        <h2>Right now</h2>
+        <div class="scroller" id="nowList"></div>
+        <p class="note" id="nowNote"></p>
       </section>
 
       <section class="panel flexy">

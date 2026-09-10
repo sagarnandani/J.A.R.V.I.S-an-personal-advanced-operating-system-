@@ -132,3 +132,68 @@ def test_the_guard_stays_quiet_when_something_really_is_running():
     left, why = claims.correct(said, offered=False, in_flight=True)
     assert why is None
     assert left == said
+
+
+# --- naming the machinery, which is the thing they all had in common -------
+#
+# Enumerating phrasings turned into whack-a-mole. The guard caught the
+# first person, so the model used the third. It caught "in progress", so
+# the model said the Media Director was working on it. What every one of
+# those sentences has in common is that it names a part of the system and
+# says that part is doing something.
+
+@pytest.mark.parametrize("said", [
+    "The Media Director is working on it now.",
+    "The chain is running; the script will follow.",
+    "Your workflow has started, sir.",
+    "media.script is drafting it.",
+    "The agents are busy with that.",
+])
+def test_saying_a_part_of_the_system_is_at_work_is_a_claim(said):
+    corrected, why = claims.correct(said, offered=False)
+    assert why is not None, f"not caught: {said!r}"
+    assert claims.CORRECTION in corrected
+
+
+@pytest.mark.parametrize("said", [
+    "The scout, the strategist and the reviewer are the media agents.",
+    "The Media Director is a recipe rather than an agent.",
+    "You have three unfinished priorities today.",
+    "There are nine capabilities registered.",
+    "I can put that together properly if you like.",
+])
+def test_naming_the_machinery_without_claiming_it_is_busy_is_fine(said):
+    """The owner asks what agents exist. Naming them is not a claim."""
+    corrected, why = claims.correct(said, offered=False)
+    assert why is None, f"fired on an ordinary reply: {said!r}"
+    assert corrected == said
+
+
+# --- the fact under the claim ---------------------------------------------
+
+def test_the_true_state_goes_under_a_reply_about_the_machinery():
+    """A fact rather than a judgement. Deciding whether a sentence is a
+    lie is unreliable; saying what is running is never wrong."""
+    state = "Nothing is running, and no piece of content has ever been started."
+
+    said = claims.with_state("The Media Director is working on it.", state)
+    assert said.endswith(state)
+    assert said.startswith("The Media Director is working on it.")
+
+    # Not bolted onto every reply, only the ones that talk about it.
+    plain = "Sneha's birthday is on the fourth."
+    assert claims.with_state(plain, state) == plain
+    assert claims.with_state("", state) == ""
+    assert claims.with_state("The chain is running.", "") == "The chain is running."
+
+
+def test_the_fact_attaches_even_where_the_correction_cannot_reach():
+    """"The reviewer is going over it" is in no verb list and never will
+    be -- enumerating them was whack-a-mole. The fact underneath it still
+    says nothing is running."""
+    state = "Nothing is running."
+    said = "The reviewer is going over it."
+
+    _, why = claims.correct(said, offered=False)
+    assert why is None, "the correction is deliberately stricter than this"
+    assert claims.with_state(said, state).endswith(state)

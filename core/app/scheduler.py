@@ -315,7 +315,32 @@ async def loop(settings) -> None:
         try:
             await asyncio.sleep(TICK_SECONDS)
             await run_due(settings)
+            await _pick_up_stalled_work()
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
             logger.warning("Scheduler loop error: %s", exc)
+
+
+async def _pick_up_stalled_work() -> None:
+    """Restart work that stopped without finishing, while awake.
+
+    Recovery ran only at startup, which meant a run that died mid-flight
+    -- an unhandled error in a detached task, a dropped connection to the
+    model -- stayed stuck until the next deploy. The owner's experience
+    was a piece that said it was being made and stayed that way for hours.
+
+    The threshold inside `recover_stuck` is fifteen minutes, far longer
+    than any step legitimately takes, so this cannot interrupt work that
+    is genuinely running.
+    """
+    from app import resume
+
+    try:
+        summary = await resume.after_restart()
+    except Exception as exc:  # noqa: BLE001 - a tick must never die of this
+        logger.warning("Could not pick up stalled work: %s", exc)
+        return
+    if summary["recovered"] or summary["resumed"]:
+        logger.info("Picked up stalled work: %d re-queued, %d restarted.",
+                    summary["recovered"], len(summary["resumed"]))

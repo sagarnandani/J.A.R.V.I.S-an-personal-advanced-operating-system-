@@ -1744,6 +1744,67 @@ async function decidePiece(decision) {
 $("approveBtn").onclick = () => decidePiece("approve");
 $("discardPieceBtn").onclick = () => decidePiece("discard");
 
+/* ----------------------------------------------------------- right now */
+/* What is actually happening, on the screen the owner is already looking
+ * at.
+ *
+ * The question that could not be answered was "is anything running at
+ * all". JARVIS said the Media Director was working on it; there was no
+ * script; and from outside there was no way to tell whether nothing had
+ * started or something had stalled. This is that answer, refreshed while
+ * anything is in flight and hidden entirely when nothing is -- a panel
+ * that says "nothing" all day is a panel you stop reading. */
+
+let nowPoll = null;
+
+async function loadNow() {
+  try {
+    const res = await api("/v1/activity");
+    if (!res.ok) return;
+    const live = await res.json();
+
+    const rows = [
+      ...live.pieces.map((p) => ({
+        who: "media", what: `${p.topic} — ${p.done}/${p.steps} steps`,
+        when: p.since, stalled: p.stalled, piece: p.id,
+      })),
+      ...live.running.map((t) => ({
+        who: (t.capability || "").split(".").pop(),
+        what: t.objective, when: t.since, stalled: t.stalled,
+      })),
+      ...live.queued.map((t) => ({
+        who: (t.capability || "").split(".").pop(),
+        what: t.objective, when: "waiting", stalled: false,
+      })),
+    ];
+
+    $("nowPanel").classList.toggle("hidden", !rows.length);
+    if (rows.length) {
+      $("nowList").innerHTML = rows.map((r) => `
+        <div class="live${r.stalled ? " stalled" : ""}"${
+          r.piece ? ` data-now-piece="${esc(r.piece)}"` : ""}>
+          <span class="who">${esc(r.who || "?")}</span>
+          <span class="what">${esc(r.what || "")}</span>
+          <span class="when">${esc(r.when)}</span>
+        </div>`).join("");
+      $("nowNote").textContent = live.stalled
+        ? "Longer than a run should take. This is stuck, not slow — it will " +
+          "be picked back up within a minute or two, or you can start it again."
+        : "";
+    }
+
+    clearTimeout(nowPoll);
+    nowPoll = setTimeout(loadNow, rows.length ? 5000 : 20000);
+  } catch (e) { /* the dashboard is fine without it */ }
+}
+
+$("nowList").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-now-piece]");
+  if (row) openMediaPiece(row.dataset.nowPiece);
+});
+
+loadNow();
+
 /* -------------------------------------------------------------- agents */
 /* The organisation, drawn from the registry.
  *

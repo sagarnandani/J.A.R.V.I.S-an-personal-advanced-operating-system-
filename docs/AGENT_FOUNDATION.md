@@ -437,6 +437,63 @@ error as inventing a figure, and it needed saying just as explicitly.
 Nothing is shown in the conversation itself. The finished piece lives on
 the Media tab, and the chat answer carries a link that opens it there.
 
+## Right now
+
+One query, one answer, used by both the screen and the conversation.
+
+It exists because the same question kept being unanswerable. The owner
+asked for a script, was told the Media Director was working on it, and
+there was no script — and neither of us could tell whether nothing had
+ever started or something had started and stalled. Every fix before this
+one was a guess at which, and each addressed a different half of a thing
+nobody could see.
+
+`app/activity.py` answers it: what is running, what is queued, what is
+being made and how far it got, how long each has been that way, and
+whether that is long enough to call it stuck rather than slow. Two
+answers that look alike and are not: **nothing is running** and **nothing
+has ever been started**. Only the second says the request never got
+through.
+
+The **Right now** panel puts that on the home screen, above the fold,
+where the conversation already is. It is not the Activity feed that was
+removed — that listed finished work after the fact and told the owner
+nothing they had not just watched. This shows only work in flight, and it
+hides itself completely when there is none, because a panel that says
+"nothing" all day is one you stop reading.
+
+The conversation gets the same figures. A reply that mentions the
+machinery has the true state attached underneath it, so a claim and the
+fact that contradicts it sit one line apart.
+
+### Why a fact, not just a guard
+
+The guard that catches false claims had become whack-a-mole. It caught
+the first person, so the model used the third. It caught "in progress",
+so the model said the Media Director was working on it. Each round of
+patterns bought a few days.
+
+What every one of those sentences had in common is that it **names a part
+of the system and says that part is doing something**, so the guard now
+looks for those two signals together rather than for phrases. Naming the
+Media Director is fine on its own — the owner asks what agents exist — and
+so is the word "working".
+
+But the stronger half is the fact rather than the accusation. Deciding
+whether a sentence is a lie needs a judgement the server cannot make
+reliably. Stating what is actually running needs no judgement, is never
+wrong, and covers the phrasings no pattern will ever reach. So the
+correction stays strict, requiring both signals, and the state line
+attaches on the mention alone.
+
+### Stalled work no longer waits for a deploy
+
+Recovery ran only at startup, so a run that died mid-flight stayed stuck
+until the next deploy. The scheduler tick now picks up stalled work every
+minute as well. The fifteen-minute threshold inside it is far longer than
+any step legitimately takes, so it cannot interrupt work that is really
+running.
+
 ## Saying it did something it did not do
 
 Three reports in one week, all the same failure. JARVIS said it was

@@ -104,6 +104,19 @@ async def list_agents(
     ]
 
 
+@router.get("/v1/activity", include_in_schema=False)
+async def activity(user: CurrentUser = Depends(get_current_user)) -> dict:
+    """What every agent is doing this second.
+
+    The answer the owner could not get: whether something is running,
+    which step it is on, how long it has been there, and whether that is
+    long enough to call it stuck.
+    """
+    from app import activity as live
+
+    return await live.snapshot()
+
+
 @router.get("/v1/org", include_in_schema=False)
 async def org_tree(user: CurrentUser = Depends(get_current_user)) -> dict:
     """The whole organisation, generated from the registry.

@@ -104,6 +104,46 @@ def unbacked(reply: str) -> str | None:
     return None
 
 
+# The machinery, by name. Enumerating phrasings turned into whack-a-mole:
+# the guard caught the first person so the model used the third, then it
+# caught "in progress" so the model said the Media Director was working on
+# it. What every one of those sentences has in common is that it names a
+# part of the system, and the model cannot describe the machinery doing
+# something without naming it.
+_MACHINERY = re.compile(
+    r"\b(?:media director|media tab|the director|the scout|the reviewer|"
+    r"editorial review|opportunity scout|content strategy|script agent|"
+    r"the agents?|the chain|the pipeline|the workflow|workflows?|"
+    r"media\.\w+|research\.web|factcheck\.claims)\b",
+    re.IGNORECASE,
+)
+
+# Something being done, in any person or tense.
+_ACTIVITY = re.compile(
+    r"\b(?:working|running|processing|handling|busy|started|starting|"
+    r"began|begun|underway|under way|in progress|in process|drafting|"
+    r"writing|researching|verifying|reviewing|preparing|generating|"
+    r"producing|building|assembling|queued)\b",
+    re.IGNORECASE,
+)
+
+
+def names_machinery_at_work(reply: str) -> bool:
+    """Does the reply say a part of the system is doing something?
+
+    Two signals together rather than a phrase list. Naming the Media
+    Director is fine on its own -- the owner asks what agents exist. So is
+    the word "working". Both in the same reply, with nothing running, is
+    the failure that keeps recurring.
+    """
+    if not reply:
+        return False
+    try:
+        return bool(_MACHINERY.search(reply) and _ACTIVITY.search(reply))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def correct(reply: str, *, offered: bool, in_flight: bool = False) -> tuple[str, str | None]:
     """Add the honest sentence, if one is needed.
 
@@ -121,11 +161,38 @@ def correct(reply: str, *, offered: bool, in_flight: bool = False) -> tuple[str,
         return reply, None
 
     why = unbacked(reply)
+    if why is None and names_machinery_at_work(reply):
+        why = "machinery said to be at work"
     if why is None:
         return reply, None
 
     logger.info("Corrected an unbacked claim (%s): %.160s", why, reply)
     return f"{reply.rstrip()}\n\n{CORRECTION}", why
+
+
+def with_state(reply: str, said: str) -> str:
+    """Put the true state under any reply that mentions the machinery.
+
+    A fact rather than a correction, and the difference decides how strict
+    each should be. Accusing a sentence of being a lie needs two signals,
+    because getting it wrong contradicts JARVIS when it was telling the
+    truth. Stating what is actually running needs none: it is true
+    whatever the sentence above it said, so it attaches on the mention
+    alone.
+
+    That also covers the phrasings the correction misses. "The reviewer is
+    going over it" is not in any verb list and never will be -- enumerating
+    them was whack-a-mole -- but the fact underneath it still says nothing
+    is running.
+    """
+    if not reply or not said:
+        return reply
+    try:
+        if not _MACHINERY.search(reply):
+            return reply
+    except Exception:  # noqa: BLE001
+        return reply
+    return f"{reply.rstrip()}\n\nRight now: {said}"
 
 
 # When the model marked work but the registry cannot take it. Until now

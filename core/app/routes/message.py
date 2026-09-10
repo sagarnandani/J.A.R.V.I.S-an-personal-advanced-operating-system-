@@ -76,17 +76,18 @@ async def send_message(
     # "it is still being researched" is a fabrication when nothing is and
     # a plain report when something is, and correcting the second would
     # make the guard the one telling the untruth.
-    async def _in_flight() -> bool:
+    async def _live() -> dict:
         try:
-            from app.media import records as pieces
+            from app import activity
 
-            return bool(await pieces.in_progress())
+            return await activity.snapshot()
         except Exception:  # noqa: BLE001
-            return False
+            return {}
 
-    stopped, history, known_facts, status_line, in_flight = await asyncio.gather(
-        system_control.is_stopped(), _recall(), _facts(), _status(), _in_flight()
+    stopped, history, known_facts, status_line, live = await asyncio.gather(
+        system_control.is_stopped(), _recall(), _facts(), _status(), _live()
     )
+    in_flight = bool(live.get("busy"))
 
     if stopped:
         raise HTTPException(
@@ -141,6 +142,11 @@ async def send_message(
         reply_text, _claimed = claims.correct(
             reply_text, offered=proposal is not None, in_flight=in_flight
         )
+        # And whether or not anything was corrected, a reply that talks
+        # about the machinery gets the true state underneath it. Stating
+        # what is running needs no judgement and is never wrong, which is
+        # more than can be said for deciding whether a sentence is a lie.
+        reply_text = claims.with_state(reply_text, live.get("said", ""))
 
     # Provenance: the user's own words are 'stated'. JARVIS's reply is
     # content that came back from the model -- 'retrieved' -- never

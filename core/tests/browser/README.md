@@ -87,6 +87,22 @@ tab the link opens. On a keyless check server the chain fails at its first
 step, which is the correct outcome and still exercises the wiring — what a
 finished piece looks like is `media_tab.mjs`'s job, from seeded data.
 
+What is running right now, on the home screen. A check server finishes
+everything instantly, so the one state that mattered — something running,
+and running too long — has to be seeded:
+
+```bash
+DATABASE_URL=... python tests/browser/seed_stalled_work.py
+node tests/browser/right_now.mjs now.png
+```
+
+`right_now.mjs` checks the thing that could not be answered for a week:
+that work in flight is visible without leaving the conversation, that
+each row names the agent and how long it has been going, that work past
+five minutes is drawn as stuck rather than as working, and that the panel
+disappears entirely when nothing is running — a panel that says "nothing"
+all day is one you stop reading.
+
 The spoken reply path has its own check, which needs no seeding:
 
 ```bash
