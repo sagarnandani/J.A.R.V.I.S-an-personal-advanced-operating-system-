@@ -695,9 +695,11 @@ async def roster() -> list[str]:
     for boss, team in sorted(supervised.items()):
         lines.append(
             f"    * {_title(boss)} coordinates a chain of "
-            f"{len(team)} capabilities, which run as steps of that chain "
-            f"rather than on their own — started from the Media tab, not "
-            f"from a conversation:"
+            f"{len(team)} capabilities. They run as steps of that chain "
+            f"rather than on their own. You can start the chain from a "
+            f"conversation when the owner asks for a script, a post or "
+            f"content, and it produces a draft that waits for him on the "
+            f"Media tab — you cannot show it to him here:"
         )
         for spec in sorted(team, key=lambda s: s.capability)[:ROSTER_LIMIT]:
             lines.append(f"        - {spec.capability} — {spec.name}: {_one_line(spec)}")

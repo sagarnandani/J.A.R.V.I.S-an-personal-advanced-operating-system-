@@ -580,3 +580,66 @@ async def test_L2_a_gate_that_never_objects_changes_nothing(clean):
     )
     assert result["status"] == "completed"
     assert result["tasks"] == {"completed": 2}
+
+
+# --- Test M: work interrupted by a restart --------------------------------
+
+@pytest.mark.asyncio
+async def test_M_work_interrupted_by_a_restart_is_picked_back_up(clean):
+    """A deploy mid-workflow used to leave a task running for ever.
+
+    Nothing moved it, the workflow never settled, and the Agents page
+    showed that agent permanently at work on something that had stopped
+    days earlier.
+    """
+    await install("general.research")
+    workflow = await tasks.create_workflow("Interrupted", "user:owner")
+    task_id = await tasks.create(objective="Find out",
+                                 capability="general.research",
+                                 workflow_id=workflow)
+    await clean.execute(
+        "UPDATE tasks SET status = 'running', attempts = 1, "
+        "started_at = now() - interval '2 hours' WHERE id = $1", task_id)
+
+    picked = await tasks.recover_stuck()
+
+    assert [p["id"] for p in picked] == [task_id]
+    after = await tasks.get(task_id)
+    assert after["status"] == "queued", "it was not made runnable again"
+    assert after["started_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_M2_work_that_has_run_out_of_attempts_fails_with_a_reason(clean):
+    """Better than a silent retry loop that survives every restart."""
+    await install("general.research")
+    workflow = await tasks.create_workflow("Interrupted", "user:owner")
+    task_id = await tasks.create(objective="Find out",
+                                 capability="general.research",
+                                 workflow_id=workflow, max_attempts=2)
+    await clean.execute(
+        "UPDATE tasks SET status = 'running', attempts = 2, "
+        "started_at = now() - interval '2 hours' WHERE id = $1", task_id)
+
+    await tasks.recover_stuck()
+
+    after = await tasks.get(task_id)
+    assert after["status"] == "failed"
+    assert "restart" in after["failure_reason"]
+
+
+@pytest.mark.asyncio
+async def test_M3_work_that_started_moments_ago_is_left_alone(clean):
+    """Without the age check, restarting one instance would re-queue work
+    another was actively doing."""
+    await install("general.research")
+    workflow = await tasks.create_workflow("Running now", "user:owner")
+    task_id = await tasks.create(objective="Find out",
+                                 capability="general.research",
+                                 workflow_id=workflow)
+    await clean.execute(
+        "UPDATE tasks SET status = 'running', started_at = now() WHERE id = $1",
+        task_id)
+
+    assert await tasks.recover_stuck() == []
+    assert (await tasks.get(task_id))["status"] == "running"

@@ -45,6 +45,14 @@ _MARKER_RE = re.compile(
     r"\[{1,3}\s*" + MARKER + r"\s*[::]?\s*(?P<objective>[^\]]*?)\s*\]{0,3}\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
+
+# The two kinds of real work a conversation can start. LOOK_UP goes
+# through the planner; MAKE goes to the Media Director, which runs a
+# fixed chain with gates the planner is deliberately not allowed to
+# assemble for itself.
+LOOK_UP = "look_up"
+MAKE = "make"
+KINDS = (LOOK_UP, MAKE)
 # The same thing when it lands mid-reply rather than at the end.
 _MARKER_ANYWHERE_RE = re.compile(
     r"\[{1,3}\s*" + MARKER + r"\s*[::]?\s*(?P<objective>[^\]\n]*?)\s*\]{1,3}",
@@ -57,16 +65,25 @@ _MARKER_ANYWHERE_RE = re.compile(
 # stripped and quietly dropped rather than promised to the owner.
 INSTRUCTION = f"""
 
-You can do more than answer. Separately from this conversation you can
-search the live web and check claims against sources.
+You can do more than answer. Separately from this conversation there are
+two things you can actually start, and only these two.
 
-When the honest answer is that your own knowledge is not good enough --
-it depends on current information, the owner has asked you to check or
-verify something, or they have plainly told you to go and find something
-out -- answer as best you can in one or two sentences, say that you can
-look it up properly, and end your reply with exactly:
+LOOK SOMETHING UP. Search the live web and check claims against sources.
+Use it when your own knowledge is not good enough: it depends on current
+information, the owner asked you to check or verify something, or they
+told you plainly to go and find something out.
 
-[[{MARKER}: a single self-contained sentence describing the job]]
+MAKE A PIECE OF CONTENT. Research a topic, verify the claims, decide
+whether it is worth publishing, write it and have it reviewed. Use it
+when the owner asks for a script, a post, a video, an article or content
+about something. It publishes nothing: it produces a draft that waits for
+them on the Media tab.
+
+When one of them applies, answer as best you can in one or two sentences,
+say what you can do, and end your reply with exactly one of:
+
+[[{MARKER}: {LOOK_UP} | a single self-contained sentence describing the job]]
+[[{MARKER}: {MAKE} | the topic, as a single self-contained sentence]]
 
 That line is machinery. The owner never sees it, so do not describe it,
 apologise for it, or refer to it. Never put anything after it.
@@ -81,7 +98,8 @@ the owner's money on nothing, which is worse than not offering.
 def split(reply: str) -> tuple[str, str | None]:
     """Separate what the owner reads from what the machinery uses.
 
-    Returns the cleaned reply and the objective, if one was marked.
+    Returns the cleaned reply, the objective if one was marked, and which
+    of the two kinds of work it asks for.
 
     Never raises, and always strips. A reply that reaches the owner with
     "[[JARVIS_CAN_DO: ...]]" hanging off it is worse than one that misses
@@ -89,7 +107,7 @@ def split(reply: str) -> tuple[str, str | None]:
     make sense of it.
     """
     if not reply or MARKER.lower() not in reply.lower():
-        return reply, None
+        return reply, None, LOOK_UP
 
     objective = None
     match = _MARKER_RE.search(reply)
@@ -110,13 +128,40 @@ def split(reply: str) -> tuple[str, str | None]:
 
     cleaned = re.sub(r"\n{3,}", "\n\n", reply).strip()
     if not objective:
-        return cleaned, None
+        return cleaned, None, LOOK_UP
+
+    kind, objective = _kind_of(objective)
     # A marker with nothing useful in it is not an offer. Falling back to
     # the owner's own message would be guessing at what they meant.
-    return cleaned, objective if len(objective) > 8 else None
+    return cleaned, (objective if len(objective) > 8 else None), kind
 
 
-async def can_act() -> bool:
+def _kind_of(objective: str) -> tuple[str, str]:
+    """Read the kind off the front of a marked objective.
+
+    Forgiving in the same direction as everything else here. A model that
+    forgets the prefix gets the safer of the two: looking something up
+    spends a little and changes nothing, while making a piece spends more
+    and produces a draft nobody asked for.
+    """
+    if "|" not in objective:
+        return LOOK_UP, objective
+    head, rest = objective.split("|", 1)
+    kind = head.strip().lower().replace(" ", "_").replace("-", "_")
+    if kind in KINDS and rest.strip():
+        return kind, rest.strip()
+    return LOOK_UP, objective.strip()
+
+
+# The chain a "make" offer runs. Named here so the check below asks about
+# the capabilities that will actually be used, rather than about media in
+# general -- a registry holding the scout but not the reviewer would pass
+# a looser check and then produce something nobody reviewed.
+_MEDIA_CHAIN = ("research.web", "factcheck.claims",
+                "media.strategy", "media.script", "media.review")
+
+
+async def can_act(kind: str = LOOK_UP) -> bool:
     """Is there actually an agent that could take this on?
 
     Asked of the registry rather than assumed, because the prompt always
@@ -124,6 +169,9 @@ async def can_act() -> bool:
     offer JARVIS cannot honour is worse than no offer.
     """
     try:
+        if kind == MAKE:
+            routable = {s.capability for s in await registry.find()}
+            return all(c in routable for c in _MEDIA_CHAIN)
         return any(
             spec.capability != "general.writer"
             for spec in await registry.find(task_type="general")
@@ -132,23 +180,35 @@ async def can_act() -> bool:
         return False
 
 
-async def typical_cost() -> float | None:
+async def typical_cost(kind: str = LOOK_UP) -> float | None:
     """What work like this has actually cost, or None if nothing has run.
 
     The median of finished workflows rather than the mean: one expensive
     run should not make every future offer look dear. None is an honest
     answer and the caller says so in words -- a made-up figure about money
     is the one thing this project refuses to produce.
+
+    Counted per kind, because the two are not comparable. A look-up is one
+    or two steps; making a piece is five agents and sometimes a revision.
+    Quoting one median for both would tell the owner a production costs
+    what a search costs, which is the sort of wrong number that only shows
+    up on the bill.
     """
+    media = "EXISTS" if kind == MAKE else "NOT EXISTS"
     try:
         row = await fetchrow(
-            """
+            f"""
             SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY spend) AS median
             FROM (
                 SELECT SUM(t.spend_inr) AS spend
                 FROM tasks t
                 JOIN workflows w ON w.id = t.workflow_id
                 WHERE w.status = 'completed'
+                  AND {media} (
+                      SELECT 1 FROM tasks m
+                       WHERE m.workflow_id = w.id
+                         AND m.capability LIKE 'media.%'
+                  )
                 GROUP BY t.workflow_id
                 HAVING SUM(t.spend_inr) > 0
             ) runs
@@ -161,14 +221,28 @@ async def typical_cost() -> float | None:
     return round(float(row["median"]), 2)
 
 
-async def build(objective: str) -> dict | None:
+# What each kind actually does, in the owner's words. Shown on the card so
+# the route is visible before it is agreed to: JARVIS choosing the wrong
+# one should be something you can see and decline, not something you
+# discover from the bill.
+DOES = {
+    LOOK_UP: "look this up properly",
+    MAKE: "research, verify and draft this for you to approve",
+}
+
+
+async def build(objective: str, kind: str = LOOK_UP) -> dict | None:
     """Turn a marked objective into the offer the owner is shown."""
-    if not objective or not await can_act():
+    if kind not in KINDS:
+        kind = LOOK_UP
+    if not objective or not await can_act(kind):
         return None
 
-    cost = await typical_cost()
+    cost = await typical_cost(kind)
     return {
         "objective": objective,
+        "kind": kind,
+        "does": DOES[kind],
         # Said in words rather than as a number the caller has to
         # interpret, so an unknown price reads as unknown.
         "cost_note": (

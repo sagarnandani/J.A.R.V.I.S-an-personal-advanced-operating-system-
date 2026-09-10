@@ -1124,8 +1124,13 @@ function showOffer(box) {
 function addOffer(afterEl, offer, { spoken = false } = {}) {
   const box = document.createElement("div");
   box.className = "offer";
+  // What it would do is on the card, not assumed. There are two routes
+  // now -- look something up, or research and draft a piece -- and they
+  // cost very different amounts. JARVIS choosing the wrong one should be
+  // something you can see and decline, not something you find out later.
   box.innerHTML =
-    `<div class="what">I can look this up properly: ${esc(offer.objective)}</div>` +
+    `<div class="what">I can ${esc(offer.does || "look this up properly")}: ` +
+    `${esc(offer.objective)}</div>` +
     `<div class="cost">Cost: ${esc(offer.cost_note)}.` +
     (spoken ? " Just say yes — or use the buttons." : "") + `</div>` +
     `<div class="row">` +
@@ -1139,8 +1144,101 @@ function addOffer(afterEl, offer, { spoken = false } = {}) {
   no.onclick = () => {
     box.innerHTML = `<div class="cost">Left it. Nothing was run.</div>`;
   };
-  go.onclick = () => runOffer(box, offer.objective);
+  go.onclick = () => (offer.kind === "make"
+    ? makeOffer(box, offer.objective)
+    : runOffer(box, offer.objective));
   return box;
+}
+
+/* Making a piece is not a planned workflow.
+ *
+ * It goes to the Media Director, which runs a fixed chain with gates --
+ * verification can stop it before a word is written, the strategist can
+ * decide against it, the reviewer can send it back. The planner is
+ * deliberately not allowed to assemble that chain for itself, so this
+ * cannot go through the same endpoint as a look-up. */
+async function makeOffer(box, topic) {
+  box.className = "offer running";
+  box.innerHTML = `<div class="what">${esc(topic)}</div>` +
+                  `<div class="steps">Researching, verifying, then drafting…</div>`;
+  try {
+    const res = await api("/v1/media/produce", {
+      method: "POST", body: JSON.stringify({ topic }),
+    });
+    if (!res.ok) throw new Error(await problem(res));
+    const started = await res.json();
+    if (!started.piece_id || started.state === "failed") {
+      box.className = "offer failed";
+      box.innerHTML = `<div class="what">${esc(topic)}</div>` +
+        `<div class="cost">${esc(started.reason || "It could not be started.")}</div>`;
+      return;
+    }
+    await followPiece(box, topic, started.piece_id);
+  } catch (err) {
+    box.className = "offer failed";
+    box.innerHTML = `<div class="what">${esc(topic)}</div>` +
+                    `<div class="cost">${esc(String(err.message || err))}</div>`;
+  }
+}
+
+async function followPiece(box, topic, pieceId) {
+  for (let tick = 0; tick < 150; tick++) {
+    const res = await api(`/v1/media/pieces/${pieceId}`);
+    if (!res.ok) throw new Error(await problem(res));
+    const piece = await res.json();
+
+    if (piece.state !== "producing") {
+      renderPieceResult(box, topic, piece);
+      refresh();
+      return;
+    }
+    const steps = box.querySelector(".steps");
+    if (steps) steps.textContent = "Researching, verifying, then drafting…";
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  const steps = box.querySelector(".steps");
+  if (steps) steps.textContent = "Still going. Open the Media tab to watch the rest.";
+}
+
+function renderPieceResult(box, topic, piece) {
+  // Four of the five outcomes are not "here is your piece", and three of
+  // those are the system working correctly. A chain that stopped because
+  // verification refuted a claim is a good outcome, and showing it in red
+  // as a failure would teach exactly the wrong lesson.
+  const good = piece.state === "ready";
+  const neutral = ["declined", "stopped", "rejected"].includes(piece.state);
+  box.className = `offer ${good ? "done" : neutral ? "" : "failed"}`;
+
+  const title = piece.title || piece.topic || topic;
+  const hook = piece.package && piece.package.hook;
+
+  box.innerHTML =
+    `<div class="what">${esc(title)}</div>` +
+    (hook ? `<div class="out">${esc(hook)}</div>` : "") +
+    `<div class="cost">${esc(PIECE_WORDS[piece.state] || piece.state)}` +
+    (piece.reason ? ` — ${esc(piece.reason)}` : "") + `</div>` +
+    `<div class="cost">Rs.${Number(piece.spend_inr || 0).toFixed(2)} billed · ` +
+    `Rs.${Number(piece.shadow_inr || 0).toFixed(2)} at paid rates · ` +
+    `<a class="src" href="#" data-open-piece="${esc(piece.id)}">open it on the Media tab</a></div>`;
+  showOffer(box);
+
+  const link = box.querySelector("[data-open-piece]");
+  if (link) link.onclick = (e) => {
+    e.preventDefault();
+    openMediaPiece(link.dataset.openPiece);
+  };
+}
+
+// The answer to "where is it, then". Nothing is displayed in the
+// conversation itself: the piece lives on the Media tab, and this opens
+// it there rather than leaving you to find it.
+function openMediaPiece(pieceId) {
+  [...$("nav").querySelectorAll("button[data-view]")].forEach((b) => b.classList.remove("active"));
+  const tab = document.querySelector('button[data-view="media"]');
+  if (tab) tab.classList.add("active");
+  openPieceId = pieceId;
+  showView("media");
+  showPiece(pieceId);
 }
 
 async function runOffer(box, objective) {

@@ -534,3 +534,60 @@ async def test_a_run_that_breaks_is_not_left_sitting_at_producing(clean):
     piece = (await records.recent(1))[0]
     assert piece["state"] == "failed"
     assert piece["reason"]
+
+
+# --- starting a piece from a conversation ----------------------------------
+
+@pytest.mark.asyncio
+async def test_a_make_offer_needs_the_whole_chain_registered(clean):
+    """A registry holding the scout but not the reviewer would pass a
+    looser check and then produce something nobody reviewed."""
+    from app import offer
+
+    assert await offer.can_act(offer.MAKE) is False, "offered with nothing registered"
+
+    await fake_chain(clean)
+    assert await offer.can_act(offer.MAKE) is True
+
+    registry._IMPLEMENTATIONS.pop("media.review", None)
+    await clean.execute("DELETE FROM agents WHERE capability = 'media.review'")
+    assert await offer.can_act(offer.MAKE) is False, (
+        "offered to draft something with no reviewer registered"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_two_kinds_are_priced_from_their_own_history(clean):
+    """A look-up is one or two steps; a piece is five agents and sometimes
+    a revision. One median for both would tell the owner a production
+    costs what a search costs."""
+    from app import offer
+
+    await fake_chain(clean)
+    await director.produce("A topic", "user:owner")
+
+    cheap = await clean.fetchval(
+        "INSERT INTO workflows (objective, requested_by, status) "
+        "VALUES ('Look it up','user:owner','completed') RETURNING id")
+    await clean.execute(
+        "INSERT INTO tasks (workflow_id, objective, capability, status, "
+        "spend_inr, finished_at) "
+        "VALUES ($1,'x','research.web','completed',0.40,now())", cheap)
+    await clean.execute(
+        "UPDATE tasks SET spend_inr = 2.00 WHERE capability LIKE 'media.%'")
+
+    assert await offer.typical_cost(offer.LOOK_UP) == 0.40
+    made = await offer.typical_cost(offer.MAKE)
+    assert made and made > 0.40, "a production is priced as a look-up"
+
+
+@pytest.mark.asyncio
+async def test_an_offer_to_make_something_carries_its_route(clean):
+    from app import offer
+
+    await fake_chain(clean)
+    card = await offer.build("a piece about the new benchmark", offer.MAKE)
+
+    assert card is not None
+    assert card["kind"] == offer.MAKE
+    assert "approve" in card["does"], "the card does not say it stops for approval"

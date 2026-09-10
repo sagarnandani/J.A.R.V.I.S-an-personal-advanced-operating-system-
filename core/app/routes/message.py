@@ -112,8 +112,8 @@ async def send_message(
     # the reply it was already writing. Split before anything else touches
     # the text: the marker must never reach the owner, and must never be
     # stored as though JARVIS had said it.
-    reply_text, objective = offer.split(result.text)
-    proposal = await offer.build(objective) if objective else None
+    reply_text, objective, kind = offer.split(result.text)
+    proposal = await offer.build(objective, kind) if objective else None
     if objective and proposal is None:
         # Marked, but nothing registered can take it. Dropped quietly --
         # an offer JARVIS cannot honour is worse than none.

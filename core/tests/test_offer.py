@@ -42,7 +42,7 @@ async def clean(db_pool):
     "The rate was 8%.\n[[JARVIS_CAN_DO check the current rate]]",
 ])
 def test_a_well_formed_marker_is_taken_off_and_understood(reply):
-    clean_reply, objective = offer.split(reply)
+    clean_reply, objective, _kind = offer.split(reply)
     assert "JARVIS_CAN_DO" not in clean_reply.upper()
     assert clean_reply == "The rate was 8%."
     assert objective == "check the current rate"
@@ -61,13 +61,13 @@ def test_a_broken_marker_is_still_taken_off(reply):
     worse failure than one that quietly misses an offer, so every path
     strips -- including the ones that cannot be understood.
     """
-    clean_reply, _ = offer.split(reply)
+    clean_reply, _, _kind = offer.split(reply)
     assert "JARVIS_CAN_DO" not in clean_reply.upper()
     assert clean_reply.startswith("The rate was 8%.")
 
 
 def test_a_marker_in_the_middle_does_not_eat_the_reply():
-    clean_reply, objective = offer.split(
+    clean_reply, objective, _kind = offer.split(
         "First part. [[JARVIS_CAN_DO: go and check it]] Second part.")
     assert "JARVIS_CAN_DO" not in clean_reply.upper()
     assert "First part." in clean_reply and "Second part." in clean_reply
@@ -80,18 +80,18 @@ def test_an_empty_objective_is_not_an_offer():
     Falling back to the owner's own message would be guessing at what they
     meant and spending their money on the guess.
     """
-    _, objective = offer.split("Answer.\n[[JARVIS_CAN_DO: go]]")
+    _, objective, _kind = offer.split("Answer.\n[[JARVIS_CAN_DO: go]]")
     assert objective is None
 
 
 def test_an_ordinary_reply_is_returned_untouched():
     text = "Welcome back, sir. Sneha's birthday is on 3 March."
-    assert offer.split(text) == (text, None)
+    assert offer.split(text) == (text, None, offer.LOOK_UP)
 
 
 def test_splitting_never_raises():
     for odd in ["", "   ", "[[", "]]", "[[JARVIS_CAN_DO"]:
-        clean_reply, objective = offer.split(odd)
+        clean_reply, objective, _kind = offer.split(odd)
         assert isinstance(clean_reply, str)
         assert objective is None or isinstance(objective, str)
 
@@ -500,3 +500,61 @@ def test_only_the_opening_words_count():
     """
     assert offer.reads_as_yes("i said yes earlier but not to that") is False
     assert offer.reads_as_yes("yes, and while you are at it check the date") is True
+
+
+# --- the two kinds of work a conversation can start ------------------------
+#
+# Added after the owner asked JARVIS for a script and was told it was
+# being displayed on screen. It knew media.script existed, had no way to
+# reach it from a conversation, and narrated the action instead. Knowing
+# a capability exists without being able to reach it is worse than not
+# knowing, because a model will describe using it.
+
+def test_the_marker_says_which_kind_of_work_it_wants():
+    _, objective, kind = offer.split(
+        "Right.\n\n[[JARVIS_CAN_DO: make | a piece about the new benchmark]]"
+    )
+    assert kind == offer.MAKE
+    assert objective == "a piece about the new benchmark"
+
+    _, objective, kind = offer.split(
+        "Right.\n\n[[JARVIS_CAN_DO: look_up | the Karnataka EV subsidy today]]"
+    )
+    assert kind == offer.LOOK_UP
+    assert objective == "the Karnataka EV subsidy today"
+
+
+def test_a_marker_with_no_kind_gets_the_cheaper_safer_one():
+    """A model that forgets the prefix should not start a production.
+
+    Looking something up spends a little and changes nothing. Making a
+    piece spends more and leaves a draft nobody asked for.
+    """
+    _, objective, kind = offer.split(
+        "Right.\n\n[[JARVIS_CAN_DO: the Karnataka EV subsidy today]]"
+    )
+    assert kind == offer.LOOK_UP
+    assert objective == "the Karnataka EV subsidy today"
+
+
+def test_an_unrecognised_kind_is_not_guessed_at():
+    _, objective, kind = offer.split(
+        "Right.\n\n[[JARVIS_CAN_DO: publish | a piece about the benchmark]]"
+    )
+    assert kind == offer.LOOK_UP, "an unknown route must not become a real one"
+    assert objective and "publish" in objective, (
+        "the marked text is shown as written, not silently rewritten"
+    )
+
+
+def test_the_instruction_describes_both_kinds_and_no_others():
+    for kind in offer.KINDS:
+        assert kind in offer.INSTRUCTION, f"{kind} is never explained to the model"
+    assert "publishes nothing" in offer.INSTRUCTION
+
+
+def test_the_card_says_which_route_it_would_take():
+    """Two routes at very different prices. Choosing the wrong one should
+    be something the owner can see and decline."""
+    assert set(offer.DOES) == set(offer.KINDS)
+    assert offer.DOES[offer.LOOK_UP] != offer.DOES[offer.MAKE]

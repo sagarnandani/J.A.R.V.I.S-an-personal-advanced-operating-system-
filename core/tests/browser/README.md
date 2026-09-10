@@ -73,6 +73,20 @@ coordinator are presented as what they are rather than as agents, that
 unmeasured figures are named as unmeasured, and that there is no
 create-agent button.
 
+Asking JARVIS in chat to write something, which is the bug the owner
+reported:
+
+```bash
+node tests/browser/make_in_chat.mjs make.png
+```
+
+`make_in_chat.mjs` injects only the marked reply, because the mock
+provider cannot decide to mark a message. Everything after that is real:
+the card, the endpoint, the Director, the content record and the Media
+tab the link opens. On a keyless check server the chain fails at its first
+step, which is the correct outcome and still exercises the wiring — what a
+finished piece looks like is `media_tab.mjs`'s job, from seeded data.
+
 The spoken reply path has its own check, which needs no seeding:
 
 ```bash

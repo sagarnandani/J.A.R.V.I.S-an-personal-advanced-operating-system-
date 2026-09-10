@@ -53,6 +53,7 @@ async def lifespan(app: FastAPI):
         # Inside the pool: the registry lives in the database, so this
         # cannot run before there is a connection to it.
         await _install_agents()
+        await _recover_stuck_work()
         ticker = _start_scheduler(settings)
         logger.info("JARVIS Core started.")
         try:
@@ -104,6 +105,29 @@ async def _apply_migrations(settings) -> None:
         await apply_pending(get_pool())
     except Exception as exc:  # noqa: BLE001 - never worth refusing to start
         logger.error("Could not check or apply migrations: %s", exc)
+
+
+async def _recover_stuck_work() -> None:
+    """Pick up anything that was mid-flight when the last process died.
+
+    A deploy, a crash, or a free tier putting the instance to sleep leaves
+    a task marked running with nothing left to move it. Left alone it sits
+    there for ever, the workflow never settles, and the Agents page shows
+    an agent permanently at work on something that stopped days ago.
+    """
+    from app.agents import tasks
+
+    try:
+        picked = await tasks.recover_stuck()
+    except Exception as exc:  # noqa: BLE001 - never worth refusing to start
+        logger.warning("Could not check for interrupted work: %s", exc)
+        return
+    if picked:
+        logger.info(
+            "Recovered %d task(s) interrupted by a restart: %s",
+            len(picked),
+            ", ".join(f"{t['capability']} ({t['status']})" for t in picked[:5]),
+        )
 
 
 def _start_scheduler(settings):

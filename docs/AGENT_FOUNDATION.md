@@ -398,6 +398,45 @@ what you have mentioned. A partial total read as a complete one is the
 worst kind of wrong number, and money is where that costs most. Imports
 can write to the same table later; every row records where it came from.
 
+## Asking for it in conversation
+
+The offer mechanism now carries two kinds of work, because it had one and
+that turned out to be a hole.
+
+**Look something up.** The original: search the live web, check claims,
+through the planner. **Make a piece.** Research, verify, decide whether it
+should exist, write it, review it, through the Media Director.
+
+The second exists because of a plain failure. The owner asked for a
+script in conversation. JARVIS knew `media.script` existed, because the
+roster had just told it, and had no way to reach it from a conversation.
+So it said it was displaying the script on screen, and nothing appeared.
+A model that knows a capability exists and cannot reach it will narrate
+using it. Knowing without reaching is worse than not knowing.
+
+Two things were needed, and both are here.
+
+**A route.** The marker the model appends now names which kind it wants,
+and the offer card says which route it would take before you agree to it.
+A model that forgets the prefix gets the cheaper, safer one: a look-up
+spends a little and changes nothing, while a production spends more and
+leaves a draft nobody asked for. The two are also priced separately from
+their own history, because quoting one median for both would tell the
+owner a production costs what a search costs.
+
+Accepting a "make" goes to the Director, never through the planner. That
+matters: the planner is deliberately forbidden from assembling that chain,
+so routing it there would skip every gate the chain exists for.
+
+**A rule about claiming things.** The persona prompt now says plainly that
+JARVIS cannot display, open, send, post or prepare anything, that the
+offer is the only way work starts, and that until it is accepted nothing
+has happened. Reporting an action it did not take is the same class of
+error as inventing a figure, and it needed saying just as explicitly.
+
+Nothing is shown in the conversation itself. The finished piece lives on
+the Media tab, and the chat answer carries a link that opens it there.
+
 ## Saying yes to something that is waiting
 
 A task that needs approval stops at `waiting_approval` and says what it
@@ -691,6 +730,16 @@ the evidence a later stage would have to stand on. Without that record it
 would be a switch somebody flips on faith, which is the version of this
 that ends in a correction to publish.
 
-**Distributed execution.** Waves run in-process. A restart mid-workflow
-leaves tasks marked `running` — visible, but not yet automatically
-recovered.
+**Distributed execution.** Waves run in-process, so a workflow belongs to
+whichever instance started it.
+
+Work interrupted by a restart *is* recovered now. A task is marked
+`running` before the model call and `completed` after, so a deploy, a
+crash or a free tier going to sleep in between used to leave it running
+for ever: nothing moved it, the workflow never settled, and the Agents
+page showed that agent permanently at work on something that stopped days
+ago. Startup re-queues anything that has been running longer than fifteen
+minutes, or fails it with a reason when its attempts are gone. The age
+threshold is what makes this safe if a second instance ever exists —
+without it, restarting one would re-queue work another was actively
+doing.

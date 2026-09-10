@@ -244,3 +244,43 @@ async def recent_workflows(limit: int = 10) -> list[dict]:
         limit,
     )
     return [dict(r) for r in rows]
+
+
+async def recover_stuck(older_than_minutes: int = 15) -> list[dict]:
+    """Pick up work that was running when the process died.
+
+    A task is marked `running` before the model call and `completed`
+    after. A restart in between -- a deploy, a crash, a free tier putting
+    the instance to sleep -- leaves it marked running for ever. Nothing
+    ever moves it, the workflow never settles, and the Agents page shows
+    that agent as permanently at work on something that stopped days ago.
+
+    Re-queued rather than failed where an attempt remains, because the
+    task never got its answer and is worth trying again. A task that has
+    used its attempts is failed with a reason that says what happened,
+    which is better than a silent retry loop across restarts.
+
+    The age threshold matters if more than one instance is ever running:
+    without it, a restart of one would re-queue work another was actively
+    doing. Fifteen minutes is far longer than any task here legitimately
+    takes.
+    """
+    rows = await fetch(
+        """
+        UPDATE tasks
+           SET status = CASE WHEN attempts < max_attempts
+                             THEN 'queued' ELSE 'failed' END,
+               failure_reason = CASE WHEN attempts < max_attempts
+                             THEN failure_reason
+                             ELSE 'Interrupted by a restart, and no attempts '
+                                  'were left to try again.' END,
+               started_at = NULL,
+               updated_at = now()
+         WHERE status = 'running'
+           AND started_at IS NOT NULL
+           AND started_at < now() - ($1 || ' minutes')::interval
+        RETURNING id, capability, objective, attempts, max_attempts, status
+        """,
+        str(int(older_than_minutes)),
+    )
+    return [dict(r) for r in rows]
