@@ -73,6 +73,21 @@ coordinator are presented as what they are rather than as agents, that
 unmeasured figures are named as unmeasured, and that there is no
 create-agent button.
 
+The spoken reply path has its own check, which needs no seeding:
+
+```bash
+node tests/browser/voice_profile.mjs voice.png
+```
+
+Chromium in a sandbox has no audio device and no system voices, so
+`voice_profile.mjs` cannot check what JARVIS sounds like. It replaces
+`window.speechSynthesis` with a recorder and checks everything that made
+the old version wrong: that the page asks the server for the voice rather
+than deciding for itself, that a long reply is queued as sentences rather
+than truncated at 800 characters, that turning voice off empties the queue
+instead of only cancelling the sentence in flight, and that a reply in
+another script is read by a voice that can read it.
+
 `media_tab.mjs` fakes only the scan's *answer*, at the network boundary,
 since a real scout needs an API key this server does not have. Everything
 else is real: the ranked queue, the piece list, the script with its

@@ -233,8 +233,21 @@ class Settings(BaseSettings):
     # Google retires would otherwise need a code change -- which has
     # already happened once on this project.
     live_model: str = "gemini-3.1-flash-live-preview"
-    # Kore, Fenrir, Charon, Puck, Zephyr. Kore is the composed male voice.
+    # Gemini's own preset voices. This path produces audio straight out of
+    # the model, so JARVIS_VOICE_V1 does not reach it: there is no
+    # synthesis step to configure. Changing how the live conversation
+    # sounds means choosing a different preset here, and nothing else.
     live_voice: str = "Kore"
+
+    # --- Spoken replies ---
+    # Which engine reads a typed reply aloud. "browser" is the device's
+    # own synthesiser: no key, no cost, works offline, and cannot sound
+    # cinematic. A server-side neural engine is a new module in app/voice
+    # plus this setting, and nothing above it changes.
+    #
+    # Empty means "whatever is available", which is the browser until
+    # something better is installed.
+    voice_engine: str = ""
 
     # --- Budget guardrail ---
     # A concrete ceiling was requested by the architecture doc (section P)

@@ -605,6 +605,78 @@ everywhere else.
 written, reviewed, registered as experimental and only then activated.
 Agents are not made in production by tapping something.
 
+## The voice
+
+Two paths, and only one of them can take a voice profile. This is the
+first thing to know, because the difference decides everything else.
+
+**Gemini Live** is the spoken conversation. Audio goes up, audio comes
+back, and the model produces the speech itself. There is no synthesis
+step in the middle, so there is nothing to configure: its voice is one of
+Gemini's presets and `JARVIS_VOICE_V1` does not reach it. What it buys in
+exchange is latency and mixed-language handling that a
+dictate-then-answer-then-speak pipeline does not match.
+
+**A typed reply read aloud** goes text first, then speech. That path
+takes the profile, and it is where the voice module lives.
+
+### JARVIS_VOICE_V1
+
+`app/voice/profile.py` holds every voice setting. Before it, the voice was
+decided in four places at once: a preset in config, a regular expression
+matching voice names in the browser, and a hard-coded rate and pitch a few
+lines below that. Changing how JARVIS sounded meant finding all four.
+
+The profile is written in the owner's terms, not any provider's: British,
+forty, medium-low, around 140 words per minute, controlled, subtly dry.
+Each engine translates that into whatever knobs it actually has, and the
+translation lives in the engine, which is what makes a provider swap a new
+file rather than an edit to everything.
+
+It also carries what the voice must **not** sound like. That half of a
+voice brief is the one most easily lost, and it is what stops the thing
+drifting into a movie trailer.
+
+Six deliveries, all small departures from ordinary conversation:
+`normal`, `analysis`, `important`, `warning`, `success`, `humour`. Large
+departures are how a controlled voice starts acting, so the tests bound
+them.
+
+### The engine seam
+
+`app/voice/engine.py` is the seam. Nothing above it knows which engine is
+speaking, the same way nothing knows which model answered. `select()`
+takes the configured engine, falls back to whatever is available, and
+falls back finally to the browser, which is last on purpose because it is
+the one that always works. An owner whose neural voice has fallen over
+should hear a plainer JARVIS, not silence.
+
+One engine exists today. `browser` is the device's own synthesiser: no
+key, no cost, works offline, and it **cannot sound like the brief asks**.
+Those are Apple's and Google's system voices. The profile gets the accent,
+the pace and the delivery right, and the timbre is as good as the device.
+A server-side neural engine is a new module plus one setting, and nothing
+above it changes.
+
+### What is actually heard
+
+The old path handed the whole reply over as one utterance and cut it at
+800 characters, so a long answer was silently truncated mid-sentence. Now
+the reply is split into sentences and queued, so JARVIS begins on the
+first while the rest wait, nothing is dropped, and stopping is immediate
+because only one sentence is ever in flight.
+
+The splitter is careful about the full stops that are not sentence ends.
+`Rs.1,200`, `Dr. Rao`, `3.5 percent`. A wrong split is not a subtle bug:
+the voice stops mid-thought and starts again, and it sounds like a fault.
+
+One honest limit, marked as such in the code. A rate of 1.0 means a
+different number of words per minute on every voice and platform, so the
+server can only estimate the rate that hits 140. The page measures it: it
+knows how many words it sent and times how long they took, and after the
+first real utterance the estimate is replaced by an observation, kept per
+device because it is a property of the device.
+
 ## What is deliberately not built
 
 **Publishing.** Nothing connects to YouTube, Instagram or anywhere else.

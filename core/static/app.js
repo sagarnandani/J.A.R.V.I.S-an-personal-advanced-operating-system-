@@ -80,12 +80,6 @@ const canSpeak = "speechSynthesis" in window;
 let speechUnlocked = false;
 let voices = [];
 
-function loadVoices() { if (canSpeak) voices = speechSynthesis.getVoices() || []; }
-if (canSpeak) {
-  loadVoices();
-  speechSynthesis.addEventListener("voiceschanged", loadVoices);
-}
-
 // Must be called from inside a real user gesture. Speaking one silent
 // utterance is what actually lifts iOS's restriction; nothing else does.
 function unlockSpeech() {
@@ -96,6 +90,73 @@ function unlockSpeech() {
     speechSynthesis.speak(u);
     speechUnlocked = true;
   } catch (e) { /* nothing useful to say; speak() will report if it fails */ }
+}
+
+function loadVoices() { if (canSpeak) voices = speechSynthesis.getVoices() || []; }
+if (canSpeak) {
+  loadVoices();
+  speechSynthesis.addEventListener("voiceschanged", loadVoices);
+}
+
+/* JARVIS_VOICE_V1, fetched rather than decided here.
+ *
+ * This page used to hold its own opinion about the voice: a regular
+ * expression matching acceptable names, a rate and a pitch a few lines
+ * below it, and no way to change any of it without a deploy. All of that
+ * now lives in app/voice on the server, so there is one answer to "what
+ * does JARVIS sound like" and the page simply asks for it. */
+let VOICE = null;
+
+async function loadVoiceProfile() {
+  if (VOICE) return VOICE;
+  try {
+    const res = await api("/v1/voice");
+    if (res.ok) VOICE = await res.json();
+  } catch (e) { /* the defaults below still speak */ }
+  return VOICE;
+}
+
+// If the profile cannot be fetched, JARVIS still talks. Silence because a
+// settings request failed would be the worst of both.
+const FALLBACK_SETTINGS = { rate: 0.85, pitch: 0.92, volume: 1,
+                            lang: "en-GB", prefer: ["Arthur", "Daniel"] };
+
+function settingsFor(delivery) {
+  if (!VOICE) return FALLBACK_SETTINGS;
+  const mode = VOICE.deliveries && VOICE.deliveries[delivery];
+  return (mode && mode.settings) || VOICE.settings || FALLBACK_SETTINGS;
+}
+
+/* How fast this device actually speaks.
+ *
+ * A rate of 1.0 means different words per minute on every voice and every
+ * platform, so the server can only estimate it. The page can measure it:
+ * it knows the words it sent and can time how long they took. After the
+ * first real utterance the estimate is replaced by an observation, and it
+ * is kept per device because it is a property of the device. */
+const CAL_KEY = "jarvis.voice.wpm";
+let observedWpm = null;
+try {
+  const stored = parseFloat(localStorage.getItem(CAL_KEY));
+  if (stored > 40 && stored < 400) observedWpm = stored;
+} catch (e) {}
+
+function calibrate(words, seconds) {
+  if (!words || seconds < 0.6) return;   // too short to measure anything
+  const wpm = (words / seconds) * 60;
+  if (wpm < 40 || wpm > 400) return;     // implausible; the tab was hidden
+  // Averaged rather than replaced, so one odd measurement does not move it.
+  observedWpm = observedWpm ? observedWpm * 0.7 + wpm * 0.3 : wpm;
+  try { localStorage.setItem(CAL_KEY, String(Math.round(observedWpm))); } catch (e) {}
+}
+
+function correctedRate(rate) {
+  const target = VOICE && VOICE.profile && VOICE.profile.words_per_minute;
+  if (!observedWpm || !target) return rate;
+  // observedWpm was produced at some rate; scale toward the target and
+  // clamp, because a runaway correction is worse than a slightly wrong pace.
+  const factor = target / observedWpm;
+  return Math.max(0.5, Math.min(2, rate * Math.max(0.6, Math.min(1.6, factor))));
 }
 
 // Which language the reply is in, read from the script it is written in.
@@ -119,7 +180,7 @@ function langOf(text) {
   return null;
 }
 
-function pickVoice(lang) {
+function pickVoice(lang, prefer) {
   if (!voices.length) return null;
   if (lang) {
     // An Indian-English voice reads Hindi transliteration far better than
@@ -130,57 +191,130 @@ function pickVoice(lang) {
       null
     );
   }
-  // JARVIS is Paul Bettany, after all.
+  // Named voices first, in the order the profile lists them, then any
+  // British male, then any British voice at all. The names come from the
+  // server so a better voice appearing on a device is a config change.
+  for (const name of prefer || []) {
+    const hit = voices.find((v) => v.name.toLowerCase() === name.toLowerCase())
+             || voices.find((v) => v.name.toLowerCase().includes(name.toLowerCase()));
+    if (hit) return hit;
+  }
   return (
-    voices.find((v) => /en-GB/i.test(v.lang) && /(daniel|arthur|male)/i.test(v.name)) ||
+    voices.find((v) => /en-GB/i.test(v.lang) && /male/i.test(v.name)) ||
     voices.find((v) => /en-GB/i.test(v.lang)) ||
     voices.find((v) => /^en/i.test(v.lang)) ||
     null
   );
 }
 
-function speak(text) {
-  if (!speakOn || !canSpeak || !text) return;
-  try {
-    speechSynthesis.cancel();
-    loadVoices();
-    const lang = langOf(text);
-    const u = new SpeechSynthesisUtterance(text.slice(0, 800));
-    const v = pickVoice(lang);
-    // Setting .voice can throw if the browser hands back something it
-    // will not accept. Losing the preferred accent is a small loss;
-    // losing the whole utterance because of it is not, so the language
-    // is set either way and JARVIS still speaks.
-    if (v) {
-      try { u.voice = v; } catch (e) { /* fall back to lang alone */ }
-      u.lang = v.lang;
-    } else if (lang) {
-      u.lang = lang;
-    }
-    u.rate = 1.02;
-    u.pitch = 0.92;
-    // The waveform moves while JARVIS is actually speaking, so silence
-    // caused by a missing voice looks different from silence caused by
-    // nothing being said.
-    u.onstart = () => setBusy(true);
-    u.onend = () => setBusy(false);
-    u.onerror = () => { setBusy(false); voiceProblem("The browser refused to play the voice."); };
-    speechSynthesis.speak(u);
+/* Speaking, one piece at a time.
+ *
+ * The old version handed the whole reply over as a single utterance and
+ * cut it at 800 characters, so a long answer was silently truncated
+ * mid-sentence. Now the reply is split into sentences and queued: JARVIS
+ * begins on the first one while the rest wait, nothing is dropped, and
+ * stopping it is immediate because only the current sentence is in
+ * flight. */
+let speaking = { queue: [], active: false, token: 0 };
 
-    if (lang && !v) {
-      voiceProblem(
-        `No ${lang} voice is installed on this device, so JARVIS cannot ` +
-        `read that reply aloud. On iPad: Settings → Accessibility → ` +
-        `Spoken Content → Voices.`
-      );
-    }
-  } catch (e) {
-    voiceProblem(`Speech failed: ${e.message}`);
-  }
+function stopSpeaking() {
+  speaking.token += 1;
+  speaking.queue = [];
+  speaking.active = false;
+  try { speechSynthesis.cancel(); } catch (e) {}
+  setBusy(false);
 }
 
-// Voice failing must say so. It failed silently for every reply until now,
-// which is indistinguishable from the feature not existing.
+function splitForSpeech(text) {
+  // The same rule the server uses. Kept short here on purpose: the server
+  // is the authority, and this is what runs when the reply is already in
+  // hand and waiting a round trip to split it would be the slower path.
+  const parts = text.replace(/\s+/g, " ").trim()
+    .split(/(?<=[.!?…])\s+(?=[A-Z0-9"'\u00C0-\u024F])/);
+  const out = [];
+  for (const part of parts) {
+    if (out.length && out[out.length - 1].length < 20) out[out.length - 1] += " " + part;
+    else out.push(part);
+  }
+  if (out.length > 1 && out[out.length - 1].length < 20) {
+    out[out.length - 2] += " " + out.pop();
+  }
+  return out.filter(Boolean);
+}
+
+// The browser check drives this directly. Named as the seam it is rather
+// than reached through a mock reply, because what is being checked is the
+// speaking, not the answering.
+window.jarvisSpeak = (text, delivery) => speak(text, delivery);
+
+async function speak(text, delivery) {
+  if (!speakOn || !canSpeak || !text) return;
+  await loadVoiceProfile();
+
+  stopSpeaking();
+  const token = speaking.token;
+  loadVoices();
+
+  const lang = langOf(text);
+  const conf = settingsFor(delivery || "normal");
+  const chosen = pickVoice(lang, conf.prefer);
+
+  if (lang && !chosen) {
+    voiceProblem(
+      `No ${lang} voice is installed on this device, so JARVIS cannot ` +
+      `read that reply aloud. On iPad: Settings → Accessibility → ` +
+      `Spoken Content → Voices.`
+    );
+    return;
+  }
+
+  speaking.queue = splitForSpeech(text);
+  speaking.active = true;
+  next(token, chosen, conf, lang);
+}
+
+function next(token, chosen, conf, lang) {
+  if (token !== speaking.token) return;      // a newer reply took over
+  const line = speaking.queue.shift();
+  if (!line) { speaking.active = false; setBusy(false); return; }
+
+  let u;
+  try { u = new SpeechSynthesisUtterance(line); }
+  catch (e) { setBusy(false); return; }
+
+  if (chosen) {
+    // Setting .voice can throw if the browser hands back something it
+    // will not accept. Losing the accent is a small loss; losing the
+    // whole utterance because of it is not.
+    try { u.voice = chosen; } catch (e) {}
+    u.lang = chosen.lang;
+  } else if (lang) {
+    u.lang = lang;
+  } else {
+    u.lang = conf.lang || "en-GB";
+  }
+  u.rate = correctedRate(conf.rate ?? 0.85);
+  u.pitch = conf.pitch ?? 0.92;
+  u.volume = conf.volume ?? 1;
+
+  const words = line.split(/\s+/).filter(Boolean).length;
+  let started = 0;
+
+  u.onstart = () => { started = performance.now(); setBusy(true); };
+  u.onend = () => {
+    if (started) calibrate(words, (performance.now() - started) / 1000);
+    next(token, chosen, conf, lang);
+  };
+  u.onerror = () => {
+    setBusy(false);
+    speaking.queue = [];
+    voiceProblem("The browser refused to play the voice.");
+  };
+
+  try { speechSynthesis.speak(u); }
+  catch (e) { setBusy(false); voiceProblem("The browser refused to play the voice."); }
+}
+
 function voiceProblem(msg) {
   const el = $("convoNote");
   if (el) el.textContent = msg;
@@ -561,9 +695,9 @@ $("speakToggle").onchange = (e) => {
     unlockSpeech();
     // Speaking immediately confirms it works, in this tap, rather than
     // leaving you to discover on the next reply that it does not.
-    speak("Voice enabled.");
+    speak("Voice enabled.", "success");
   } else {
-    try { speechSynthesis.cancel(); } catch (err) {}
+    stopSpeaking();
   }
 };
 $("voiceNote").textContent = canSpeak
