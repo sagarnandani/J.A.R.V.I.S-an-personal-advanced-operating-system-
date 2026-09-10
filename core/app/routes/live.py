@@ -470,7 +470,10 @@ def _detached(coro) -> None:
 
 # One offer at a time, per live session. A spoken conversation has one
 # thread; two open questions would make "yes" ambiguous.
-_STANDING: dict[int, str] = {}
+# The objective and which kind of work it is. The kind used to be
+# assumed rather than carried, which is how a spoken request to write
+# something ran a web search instead.
+_STANDING: dict[int, tuple[str, str]] = {}
 
 
 async def _handle_turn(
@@ -491,7 +494,8 @@ async def _handle_turn(
         if standing:
             if offer.reads_as_yes(spoken):
                 _STANDING.pop(key, None)
-                await _act(websocket, session, standing, who, settings)
+                objective, kind = standing
+                await _act(websocket, session, objective, who, settings, kind)
                 return
             if offer.reads_as_no(spoken):
                 _STANDING.pop(key, None)
@@ -521,28 +525,62 @@ async def _inject(session, text: str) -> None:
 
 
 async def _act(
-    websocket: WebSocket, session, objective: str, who: dict, settings
+    websocket: WebSocket, session, objective: str, who: dict, settings,
+    kind: str = "look_up",
 ) -> None:
     """Do the thing that was agreed to, and say what came of it.
 
     Speaking first matters. The work takes twenty or thirty seconds, and
     silence that long after "yes" is indistinguishable from a system that
     has stopped working -- which is exactly what it looked like.
+
+    Two kinds of work, and until now only one of them could happen here.
+    A spoken request to write something was routed to a web search,
+    because the kind was assumed rather than carried.
     """
     from app.agents import orchestrator
 
-    await _say(websocket, type="offer_running", objective=objective)
+    making = kind == "make"
+    await _say(websocket, type="offer_running", objective=objective, kind=kind)
     await _inject(
         session,
-        "[System: the owner just agreed to the search you offered. Say in "
-        "one short sentence that you are looking it up now, in the same "
-        "language his own words were in -- English unless he actually "
-        "spoke another language, never guessed from his accent -- and "
-        "then stop and wait. Do not answer the question yet: the "
+        "[System: the owner just agreed to the "
+        + ("piece of content you offered to put together. Say in one short "
+           "sentence that you are starting on it and that it will take a "
+           "few minutes"
+           if making else
+           "search you offered. Say in one short sentence that you are "
+           "looking it up now")
+        + ", in the same language his own words were in -- English unless "
+        "he actually spoke another language, never guessed from his accent "
+        "-- and then stop and wait. Do not answer the question yet: the "
         "results are coming.]",
     )
 
     try:
+        if making:
+            # Through the Director, which runs the gates. Its outcome is a
+            # piece the owner can act on rather than a bare workflow.
+            from app.media import brands, director
+
+            outcome = await director.produce(
+                objective, f"user:{who.get('email') or who.get('uid')}",
+                brands.AI_MEDIA,
+            )
+            await _say(websocket, type="offer_done", objective=objective,
+                       kind=kind, piece_id=outcome.get("piece_id"),
+                       workflow_id=outcome.get("workflow_id"),
+                       summary=outcome.get("reason", ""))
+            await _inject(
+                session,
+                "[System: the piece is finished being worked on. Tell the "
+                "owner this in one or two sentences, in his own language, "
+                "and say it is on the Media tab for him to look at. Say "
+                "only what is here.]\n\n"
+                f"Outcome: {outcome.get('state')}. {outcome.get('reason')}",
+            )
+            return
+
         result = await orchestrator.run(
             objective, f"user:{who.get('email') or who.get('uid')}"
         )
@@ -551,9 +589,10 @@ async def _act(
         await _say(websocket, type="offer_failed", message=str(exc))
         await _inject(
             session,
-            "[System: the search failed and there are no results. Tell the "
-            "owner plainly that you could not get an answer. Do not invent "
-            "one.]",
+            "[System: the work failed and there are no results. Tell the "
+            "owner plainly that you could not get an answer, and say what "
+            "went wrong if you were told. Do not invent one.]\n\n"
+            f"What went wrong: {exc}",
         )
         return
 
@@ -606,12 +645,13 @@ async def _maybe_offer(websocket: WebSocket, spoken: str, settings) -> None:
         from app import offer
         from app.llm import get_provider
 
-        objective = await offer.from_speech(spoken, get_provider(settings))
-        if not objective:
+        asked = await offer.from_speech(spoken, get_provider(settings))
+        if not asked:
             return
-        proposal = await offer.build(objective)
+        objective, kind = asked
+        proposal = await offer.build(objective, kind)
         if proposal:
-            _STANDING[id(websocket)] = objective
+            _STANDING[id(websocket)] = (objective, kind)
             await _say(websocket, type="offer", **proposal)
     except Exception as exc:  # noqa: BLE001
         logger.info("Could not offer to act on what was said: %s", exc)

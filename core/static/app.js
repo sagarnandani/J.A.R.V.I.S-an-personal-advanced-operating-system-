@@ -1494,9 +1494,11 @@ async function loadBrands() {
     const res = await api("/v1/media/brands");
     if (!res.ok) return;
     const rows = await res.json();
-    $("mediaBrand").innerHTML = rows
+    const options = rows
       .map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`)
       .join("");
+    $("mediaBrand").innerHTML = options;
+    $("makeBrand").innerHTML = options;
     mediaBrandsLoaded = true;
   } catch (e) { /* the select stays empty; the server still defaults */ }
 }
@@ -1586,6 +1588,42 @@ $("oppList").addEventListener("click", (e) => {
   const opportunity = found[Number(card.dataset.opp)];
   if (opportunity) startProduction(opportunity.title, opportunity.brand);
 });
+
+/* Make one, without asking the model for permission.
+ *
+ * Every previous route to this went through the conversation: the model
+ * had to notice the request, mark it with the right kind, and have the
+ * offer survive the registry check. Three things that can each quietly
+ * fail, and between them they meant a week of being told work was
+ * happening when none was. This asks the model nothing. */
+$("makeBtn").onclick = async () => {
+  const topic = $("makeTopic").value.trim();
+  if (!topic) { $("makeNote").textContent = "Say what it should be about."; return; }
+
+  $("makeBtn").disabled = true;
+  $("makeNote").textContent = "Starting…";
+  try {
+    const res = await api("/v1/media/produce", {
+      method: "POST",
+      body: JSON.stringify({ topic, brand: $("makeBrand").value || undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "It would not start.");
+    if (!data.piece_id) throw new Error(data.reason || "Nothing was created.");
+
+    $("makeTopic").value = "";
+    $("makeNote").textContent =
+      "Started. It is in the list, and Right now on the home screen shows " +
+      "each step as it goes.";
+    openPieceId = data.piece_id;
+    loadPieces();
+    loadNow();
+  } catch (e) {
+    $("makeNote").textContent = e.message;
+  } finally {
+    $("makeBtn").disabled = false;
+  }
+};
 
 async function startProduction(topic, brand) {
   $("scanNote").textContent = `Making: ${topic}`;

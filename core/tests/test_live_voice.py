@@ -564,7 +564,7 @@ def test_saying_yes_out_loud_is_what_starts_the_work(wired, monkeypatch):
                 "outputs": {"research.web": "The ceiling is Rs.50,000."}}
 
     monkeypatch.setattr("app.offer.from_speech",
-                        _async_return("find the Karnataka EV subsidy"))
+                        _async_return(("find the Karnataka EV subsidy", "look_up")))
     monkeypatch.setattr("app.offer.build", _async_return(
         {"objective": "find the Karnataka EV subsidy",
          "cost_note": "no measurement yet", "typical_cost_inr": None}))
@@ -597,7 +597,7 @@ def test_the_answer_is_put_back_into_the_spoken_conversation(wired, monkeypatch)
     memory, or keep asking to search -- which is exactly what the owner
     heard.
     """
-    monkeypatch.setattr("app.offer.from_speech", _async_return("find the subsidy"))
+    monkeypatch.setattr("app.offer.from_speech", _async_return(("find the subsidy", "look_up")))
     monkeypatch.setattr("app.offer.build", _async_return(
         {"objective": "find the subsidy", "cost_note": "x", "typical_cost_inr": None}))
     monkeypatch.setattr("app.agents.orchestrator.run", _async_return(
@@ -628,7 +628,7 @@ def test_the_answer_is_put_back_into_the_spoken_conversation(wired, monkeypatch)
 
 def test_declining_out_loud_runs_nothing(wired, monkeypatch):
     ran = []
-    monkeypatch.setattr("app.offer.from_speech", _async_return("find the subsidy"))
+    monkeypatch.setattr("app.offer.from_speech", _async_return(("find the subsidy", "look_up")))
     monkeypatch.setattr("app.offer.build", _async_return(
         {"objective": "find the subsidy", "cost_note": "x", "typical_cost_inr": None}))
 
@@ -663,7 +663,7 @@ def test_an_unrelated_answer_leaves_the_offer_standing(wired, monkeypatch):
 
     async def from_speech(said, provider):
         calls.append(said)
-        return "find the subsidy"
+        return ("find the subsidy", "look_up")
 
     async def fake_run(*a, **k):
         ran.append(a)
@@ -691,7 +691,7 @@ def test_an_unrelated_answer_leaves_the_offer_standing(wired, monkeypatch):
 
 
 def test_work_that_fails_is_said_out_loud_not_invented(wired, monkeypatch):
-    monkeypatch.setattr("app.offer.from_speech", _async_return("find the subsidy"))
+    monkeypatch.setattr("app.offer.from_speech", _async_return(("find the subsidy", "look_up")))
     monkeypatch.setattr("app.offer.build", _async_return(
         {"objective": "find the subsidy", "cost_note": "x", "typical_cost_inr": None}))
 
@@ -724,7 +724,7 @@ def test_a_spoken_request_puts_an_offer_on_the_screen(wired, monkeypatch):
     """
     async def detected(said, provider):
         assert "EV subsidy" in said
-        return "find the current Karnataka EV subsidy"
+        return ("find the current Karnataka EV subsidy", "look_up")
 
     monkeypatch.setattr(live_route, "_maybe_offer", live_route._maybe_offer)
     monkeypatch.setattr("app.offer.from_speech", detected)

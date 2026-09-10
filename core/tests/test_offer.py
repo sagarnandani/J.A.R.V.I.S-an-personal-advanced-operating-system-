@@ -411,7 +411,9 @@ async def test_a_spoken_request_becomes_an_objective(clean):
                 input_tokens=1, output_tokens=1, model="t", provider="mock")
 
     got = await offer.from_speech("what is the latest on the EV policy", Fake())
-    assert got == "find the current Karnataka EV subsidy"
+    assert got == ("find the current Karnataka EV subsidy", offer.LOOK_UP), (
+        "a spoken request must carry which kind of work it is"
+    )
 
 
 @pytest.mark.asyncio
@@ -567,3 +569,48 @@ def test_the_card_says_which_route_it_would_take():
     be something the owner can see and decline."""
     assert set(offer.DOES) == set(offer.KINDS)
     assert offer.DOES[offer.LOOK_UP] != offer.DOES[offer.MAKE]
+
+
+# --- the spoken path could not start a production at all -------------------
+#
+# The owner talks to JARVIS more than he types at it. By voice, a request
+# to write something never reached the model that decides: it failed a
+# free keyword filter that knew only the vocabulary of looking things up,
+# and stopped there. Meanwhile the speaking model, which had just been
+# told the media chain exists, described it working.
+
+@pytest.mark.parametrize("said", [
+    "write me a script about the new benchmark",
+    "can you make a post about this",
+    "put together a video about the EV policy",
+    "draft an article on that",
+    "create a reel about what you built",
+])
+def test_asking_out_loud_for_something_to_be_made_gets_through_the_filter(said):
+    assert offer.looks_like_a_request(said) is True, (
+        f"a spoken request to make something was dropped for free: {said!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_spoken_request_to_write_something_is_a_make_not_a_search(clean):
+    from app.agents import builtin
+
+    await builtin.install()
+
+    class Fake:
+        async def complete(self, message, history=None, memory_context=None):
+            return SimpleNamespace(
+                text='{"needed": true, "kind": "make", '
+                     '"objective": "a script about the new benchmark"}',
+                input_tokens=1, output_tokens=1, model="t", provider="mock")
+
+    got = await offer.from_speech("write me a script about the benchmark", Fake())
+    assert got == ("a script about the new benchmark", offer.MAKE)
+
+
+@pytest.mark.asyncio
+async def test_the_spoken_prompt_offers_both_kinds_and_no_others(clean):
+    for kind in offer.KINDS:
+        assert kind in offer._SPEECH_PROMPT
+    assert "piece of content" in offer._SPEECH_PROMPT

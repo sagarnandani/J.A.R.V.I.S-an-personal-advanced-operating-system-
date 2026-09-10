@@ -300,24 +300,39 @@ _ASKING = (
     "verify", "fact check", "is it true", "latest", "current", "right now",
     "today", "this week", "news", "what happened", "how much is",
     "how much does", "price of", "confirm",
+    # Asking for something to be MADE. These were missing entirely, so a
+    # spoken "write me a script about X" never reached the model that
+    # decides -- it failed this free filter and stopped there. The owner
+    # talks to JARVIS more than he types at it, so by voice the media
+    # chain could not be started at all, while the model, which had just
+    # been told the chain exists, described it working.
+    "write", "script", "make a", "create a", "draft", "post about",
+    "video about", "article", "content about", "reel", "short about",
+    "put together", "piece about",
 )
 
 _SPEECH_PROMPT = """\
-The owner of a personal assistant said this out loud. Decide whether
-answering it honestly needs looking something up on the live web --
-because it depends on current information, because they asked for
-something to be checked or verified, or because they told the assistant
-to go and find something out.
+The owner of a personal assistant said this out loud. Decide whether it
+asks for real work, and if so which of exactly two kinds.
+
+"look_up" -- it needs something looked up on the live web: it depends on
+current information, they asked for something checked or verified, or
+they told the assistant to go and find something out.
+
+"make" -- they asked for a piece of content: a script, a post, a video,
+an article, a reel. This researches, verifies, decides whether it is
+worth publishing, writes it and has it reviewed.
 
 Say no to chat, to opinions, to anything about the owner the assistant
-would already know, and to anything a search cannot settle. No is the
+would already know, and to anything neither kind can settle. No is the
 common answer and the safe one: saying yes when it is not warranted
 spends the owner's money on nothing.
 
 They said: {said}
 
 Reply with JSON only:
-{{"needed": true or false, "objective": "one self-contained sentence"}}
+{{"needed": true or false, "kind": "look_up" or "make",
+  "objective": "one self-contained sentence"}}
 """
 
 
@@ -338,8 +353,13 @@ def looks_like_a_request(said: str) -> bool:
     return len(text.split()) >= 3 and any(cue in text for cue in _ASKING)
 
 
-async def from_speech(said: str, provider) -> str | None:
+async def from_speech(said: str, provider) -> tuple[str, str] | None:
     """What the owner asked for out loud, if it wants real work.
+
+    Returns the objective and which of the two kinds it is, or None. The
+    kind used to be assumed: everything spoken was treated as a look-up,
+    so a spoken request to write something could not start the media
+    chain however it was phrased.
 
     Returns an objective, or None -- and never raises. This runs while the
     owner is mid-conversation, so a bad JSON day must cost a missed offer
@@ -347,7 +367,7 @@ async def from_speech(said: str, provider) -> str | None:
     """
     import json
 
-    if not looks_like_a_request(said) or not await can_act():
+    if not looks_like_a_request(said):
         return None
 
     try:
@@ -367,8 +387,14 @@ async def from_speech(said: str, provider) -> str | None:
 
     if not isinstance(data, dict) or not data.get("needed"):
         return None
+
+    kind = str(data.get("kind") or "").strip().lower()
+    if kind not in KINDS:
+        kind = LOOK_UP
     objective = str(data.get("objective") or "").strip()
-    return objective if len(objective) > 8 else None
+    if len(objective) <= 8 or not await can_act(kind):
+        return None
+    return objective, kind
 
 
 # --- answering out loud ----------------------------------------------------

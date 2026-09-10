@@ -74,10 +74,31 @@ const firstScore = await page.locator('#oppList .opp .score').first().textConten
 if (!/0\.71/.test(firstScore)) fail(`the score is not shown: "${firstScore}"`);
 ok(`scan rendered ${opps} ranked opportunities`);
 
+// --- making one directly, asking the model nothing ------------------------
+// This is the route that exists because every other one went through the
+// conversation: the model had to notice the request, mark it with the
+// right kind, and have the offer survive a registry check. Three things
+// that can each quietly fail, and between them they did for a week.
+const before = (await (await fetch(BASE + '/v1/media/pieces?limit=50')).json()).length;
+await page.fill('#makeTopic', 'what the new benchmark number actually says');
+await page.click('#makeBtn');
+await page.waitForFunction(
+  () => /Started|not|could/.test(document.getElementById('makeNote').textContent || ''),
+  null, { timeout: 30000 });
+const note = await page.locator('#makeNote').textContent();
+if (!/Started/.test(note)) fail(`the direct route did not start: "${note}"`);
+
+const after = await (await fetch(BASE + '/v1/media/pieces?limit=50')).json();
+if (after.length !== before + 1)
+  fail(`a piece was not recorded (${before} then ${after.length})`);
+if (await page.locator('#makeTopic').inputValue() !== '')
+  fail('the box was not cleared, so it is easy to start the same thing twice');
+ok(`typing a topic and pressing Make records a piece, with no model routing`);
+
 // --- the seeded pieces ----------------------------------------------------
 await page.waitForSelector('#pieceList .wf', { timeout: 10000 });
 const pieces = await page.locator('#pieceList .wf').count();
-if (pieces < 2) fail(`expected the two seeded pieces, got ${pieces}`);
+if (pieces < 3) fail(`expected the two seeded pieces and the new one, got ${pieces}`);
 
 // A decision against publishing must not read as a fault.
 const declined = page.locator('#pieceList .wf .s.declined').first();

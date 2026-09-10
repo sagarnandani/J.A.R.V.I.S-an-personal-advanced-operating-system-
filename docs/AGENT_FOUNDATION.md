@@ -437,6 +437,40 @@ error as inventing a figure, and it needed saying just as explicitly.
 Nothing is shown in the conversation itself. The finished piece lives on
 the Media tab, and the chat answer carries a link that opens it there.
 
+## Not everything should go through the model
+
+A week of "it says it is working and there is no script" had two causes,
+and both come from the same mistake: making the conversational model the
+only way to start work.
+
+**By voice it was impossible.** The spoken path decides what a turn meant
+in two stages, and both only knew about looking things up. A free keyword
+filter ran first — "look up", "find out", "search", "latest" — and a
+spoken "write me a script about X" contains none of those, so it was
+dropped before any model saw it. Even past the filter, the classifier
+asked one question ("does this need looking something up?") and the
+acceptance path assumed the answer. The owner talks to JARVIS far more
+than he types at it, so the route he was actually using could not start a
+production at all, while the speaking model, which had just been told the
+media chain exists, described it working. Both stages now carry the kind,
+and a spoken yes to "shall I put that together" runs the Director.
+
+**By text it was three things that could each quietly fail.** The model
+had to notice the request, mark it with the right kind, and have the
+offer survive the registry check. Each is a place where nothing happens
+and nobody is told.
+
+So there is now a route that asks the model nothing at all: a topic, a
+brand and a **Make** button on the Media tab. It cannot be defeated by a
+prompt that grew too long, by an instruction buried under a page of
+roster, or by a model that decided to be helpful and answer instead. When
+it fails it fails visibly, with a reason, in the same second.
+
+The lesson is worth keeping: a language model is a good way to *offer* to
+start work and a poor one to *guarantee* it. Anything the owner must be
+able to rely on needs a path that does not depend on what the model chose
+to say.
+
 ## Right now
 
 One query, one answer, used by both the screen and the conversation.

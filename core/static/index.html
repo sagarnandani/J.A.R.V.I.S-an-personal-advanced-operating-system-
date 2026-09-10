@@ -1034,6 +1034,23 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         and commits to nothing.</p>
       </section>
 
+      <!-- The direct route, and the reason it exists.
+           Starting a piece used to require the model to notice the
+           request, mark it correctly, and offer it -- three things that
+           can each quietly not happen, and did. This asks nothing of the
+           model at all: a topic, a button, and the chain runs. -->
+      <section class="panel">
+        <h2>Make one now</h2>
+        <div class="row" style="gap:.4rem">
+          <input class="field" id="makeTopic" style="min-height:0;flex:1 1 100%"
+                 placeholder="What it should be about, e.g. what the new benchmark number actually says" />
+          <select class="field" id="makeBrand" style="min-height:0;width:auto;flex:1 1 auto"></select>
+          <button class="btn" id="makeBtn">Make</button>
+        </div>
+        <p class="note" id="makeNote">Research, verification, strategy, script,
+        review. A few minutes, and it stops at a draft for you to approve.</p>
+      </section>
+
       <section class="panel flexy">
         <h2>Opportunities</h2>
         <div class="scroller" id="oppList">
