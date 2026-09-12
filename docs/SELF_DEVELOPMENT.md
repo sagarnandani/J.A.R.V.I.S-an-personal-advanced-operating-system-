@@ -6,7 +6,7 @@ server on this machine, not only against the test suite — twice this
 month something passed its tests and did not work when it ran, so
 "tests pass" is no longer treated as evidence on its own.
 
-Last verified: 12 September 2026. 691 tests passing.
+Last verified: 12 September 2026. 697 tests passing.
 
 ---
 
@@ -130,15 +130,56 @@ Stated plainly so this document is not a sales page.
 | F | JARVIS Scientist and Auditor agents | **Not built.** There is a hook in the org chart that will file a `scientist.*` capability under governance when one exists. |
 | G | UI self-redesign | **Untested.** The pipeline can reach `static/`, but this has never been run. |
 | H | Rollback / last-known-good | **Not built.** The agent registry keeps version history, which is the raw material, but there is no deployment rollback. |
-| I | Docker build verification inside the pipeline | **Not run.** The image is tested by separate tests that read the Dockerfile and the ignore files; the pipeline does not build it. |
+| I | Docker build verification inside the pipeline | **Not run.** `docker build` has never been executed against this repository from here -- there is no Docker daemon in the environment these changes were written in. The image is checked by tests that read the Dockerfile and the ignore files, which is not the same thing. |
 | — | Model router provider awareness | `choose()` has no `provider` parameter yet. |
 | — | Tier 0–4 capability-first routing, local utility layer | Not built. |
 | — | Browser agent, search policy modes, computer access | Not built. |
 | — | Model performance learning from `agent_metrics` | Not built. The metrics are being recorded; nothing reads them back. |
 
-Tests 3, 4, 5, 10, 11, 12, 15 from the brief are covered. Tests 1, 2, 6,
-7, 8, 9, 13, 14, 16, 17 and 18 are not, mostly because they test the
-stages above.
+Tests 2, 3, 4, 5, 7, 9, 10, 11, 12, 15, 17 and 18 from the brief are
+covered. Test 1 is half-covered -- see the caveat below. Tests 6, 8, 14
+and 16 are not, because they test the stages above.
+
+### The caveat that matters most
+
+**The pipeline has never produced a real change with a real model.**
+Every part of it is unit-tested, and the isolation is proven, but every
+run so far has used the mock provider. The first time a real model plans
+a real change is still ahead, and that is where the interesting failures
+will be.
+
+---
+
+---
+
+## The container does not run as root
+
+Found by reading the Dockerfile while answering "is the prompt actually
+implemented" -- not by any test, which is the uncomfortable part.
+
+The image had no `USER` directive, so JARVIS ran as root inside its own
+container. Root in a container is not root on your server; it is one
+container escape away from it, and there was no reason to be holding it.
+
+What is now true:
+
+- The image creates a normal user and drops to it before it starts.
+- **`/app` is left owned by root.** JARVIS can read its own source code
+  and cannot write it. That is the Constitution's boundary enforced a
+  second time, by the filesystem, rather than by JARVIS's own good
+  behaviour.
+- The Docker socket is not mounted, nothing is `privileged`, and
+  `no-new-privileges` is set, so a setuid binary cannot climb back up.
+
+Seven tests guard this, and each one was checked by breaking the thing it
+guards and confirming it failed: no `USER` line, a user that is never
+created, dropping privileges before `pip install`, returning to root
+afterwards, handing `/app` to the runtime user, mounting the Docker
+socket, and `user: root` in compose.
+
+Still deliberately not done: `read_only: true` on the container. It is
+the right next step and it needs a real `docker build` to confirm
+nothing breaks, which has not been run.
 
 ---
 

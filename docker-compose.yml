@@ -61,6 +61,16 @@ services:
       # a read-only mount is the honest belt-and-braces on a machine where
       # the container could otherwise write its own copy.
       - ./CONSTITUTION.md:/app/CONSTITUTION.md:ro
+    # Nothing in here needs to gain privileges it did not start with, and
+    # a setuid binary is the ordinary way a container escape gets from
+    # "code runs" to "code runs as root". The image already drops to a
+    # normal user; this stops that drop from being climbed back up.
+    #
+    # Deliberately NOT set here: `read_only: true`. It is the right next
+    # step, but it needs a tmpfs for /tmp and a real `docker build` to
+    # confirm nothing breaks -- and that has not been run yet.
+    security_opt:
+      - no-new-privileges:true
     env_file: .env
     environment:
       DATABASE_URL: postgres://jarvis:${POSTGRES_PASSWORD:-jarvis}@postgres:5432/jarvis

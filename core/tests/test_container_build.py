@@ -29,7 +29,10 @@ def _copy_sources() -> list[str]:
         match = re.match(r"\s*COPY\s+(?!--from)(.+)", line)
         if not match:
             continue
-        parts = match.group(1).split()
+        parts = [p for p in match.group(1).split() if not p.startswith("--")]
+        # Flags are not paths. Without this, a perfectly good
+        # `COPY --chown=root:root x ./x` reports that the repository is
+        # missing a file called "--chown=root:root".
         sources.extend(parts[:-1])   # the last argument is the destination
     return sources
 
@@ -113,8 +116,11 @@ def test_the_migrations_land_where_the_app_looks_for_them():
     assert re.search(r"^WORKDIR /app\s*$", text, re.M), (
         "WORKDIR moved; app/migrate.py resolves the migrations relative to it"
     )
-    assert re.search(r"^COPY core/app \./app\s*$", text, re.M)
-    assert re.search(r"^COPY db/migrations \./db/migrations\s*$", text, re.M), (
+    # Flags tolerated, destination not: `--chown=root:root` is fine,
+    # a different destination moves the code out from under the app.
+    assert re.search(r"^COPY (?:--\S+ )*core/app \./app\s*$", text, re.M)
+    assert re.search(r"^COPY (?:--\S+ )*db/migrations \./db/migrations\s*$",
+                     text, re.M), (
         "the migrations must land at /app/db/migrations, which is where "
         "app/migrate.py._migrations_dir() looks"
     )
@@ -145,3 +151,110 @@ def test_the_constitution_is_found_from_where_the_app_actually_runs():
 
     assert constitution.state()["present"] is True
     assert constitution.digest()
+
+
+# --- who the container runs as ---------------------------------------------
+#
+# Brief section 32: "Do not automatically give the main autonomous JARVIS
+# runtime unrestricted Docker-host authority." The image had no USER
+# directive at all, so it ran as root -- caught by reading the Dockerfile
+# while answering "is the prompt implemented", not by any test here.
+#
+# Root in a container is not root on the host. It is one container escape
+# away from it, which is a different statement.
+
+COMPOSE = ROOT / "docker-compose.yml"
+
+
+def _directives() -> list[tuple[str, str]]:
+    """Every Dockerfile instruction in order, as (INSTRUCTION, rest)."""
+    found = []
+    for line in DOCKERFILE.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        head, _, rest = stripped.partition(" ")
+        found.append((head.upper(), rest.strip()))
+    return found
+
+
+def test_the_container_does_not_run_as_root():
+    users = [rest for head, rest in _directives() if head == "USER"]
+    assert users, (
+        "infra/Dockerfile has no USER directive, so the application runs "
+        "as root inside the container"
+    )
+    assert users[-1].split(":")[0] not in ("root", "0"), (
+        f"the container ends up running as {users[-1]}"
+    )
+
+
+def test_the_user_it_switches_to_is_one_the_image_actually_creates():
+    """`USER jarvis` without a matching useradd is not a privilege drop,
+    it is a container that will not start."""
+    order = _directives()
+    name = [rest for head, rest in order if head == "USER"][-1].split(":")[0]
+    created = " ".join(rest for head, rest in order if head == "RUN")
+    assert name in created, (
+        f"the Dockerfile switches to '{name}', which it never creates"
+    )
+
+
+def test_the_privileges_are_dropped_after_the_install_and_never_regained():
+    """Ordering is the whole correctness of this.
+
+    USER before `pip install` fails the build; a later `USER root` undoes
+    the drop and would look perfectly reasonable in a diff.
+    """
+    order = _directives()
+    first_user = next(i for i, (head, _) in enumerate(order) if head == "USER")
+
+    installs = [i for i, (head, rest) in enumerate(order)
+                if head == "RUN" and "pip install" in rest]
+    assert installs, "no pip install step found; this test is out of date"
+    assert max(installs) < first_user, (
+        "the Dockerfile drops privileges before installing dependencies, "
+        "which fails the build"
+    )
+
+    after = [rest for head, rest in order[first_user + 1:] if head == "USER"]
+    assert not any(u.split(":")[0] in ("root", "0") for u in after), (
+        "the Dockerfile returns to root after dropping privileges"
+    )
+
+
+def test_jarvis_cannot_write_the_code_it_is_running():
+    """The second enforcement of the protected core, by the filesystem.
+
+    /app is copied as root and left that way, so the runtime user can read
+    its own source and not modify it. A `chown` to the runtime user would
+    silently undo that -- and would be an easy thing to add while fixing
+    some unrelated permission error.
+    """
+    for head, rest in _directives():
+        if head in ("RUN", "COPY", "ADD") and "chown" in rest:
+            assert "root" in rest, (
+                f"'{head} {rest}' hands the application code to a non-root "
+                f"owner, letting the running JARVIS rewrite its own source"
+            )
+
+
+def test_the_compose_file_does_not_hand_over_the_docker_socket():
+    """Brief section 32, named explicitly: "unrestricted Docker socket
+    control can effectively become host-level authority"."""
+    text = COMPOSE.read_text()
+    for danger in ("docker.sock", "privileged: true", "cap_add",
+                   "network_mode: host", "pid: host"):
+        assert danger not in text, (
+            f"docker-compose.yml contains '{danger}', which gives the "
+            f"container authority over the machine running it"
+        )
+
+
+def test_the_compose_file_does_not_put_root_back():
+    """The image drops to a normal user; `user: root` in compose would
+    override it without touching the Dockerfile at all."""
+    text = COMPOSE.read_text()
+    assert not re.search(r"^\s*user:\s*[\"']?(root|0)\b", text, re.M), (
+        "docker-compose.yml overrides the image's user back to root"
+    )
