@@ -8,6 +8,11 @@ from pydantic import BaseModel
 
 class MessageRequest(BaseModel):
     text: str
+    # A document the owner attached for this message. Carried as an id
+    # rather than as text: the file is already on record, and sending a
+    # hundred thousand characters back up from a phone to be re-read would
+    # be slow, expensive and pointless.
+    attachment_id: UUID | None = None
 
 
 class Offer(BaseModel):

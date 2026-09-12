@@ -11,7 +11,16 @@ import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from app import audit, claims, facts, memory, offer, status, system_control
+from app import (
+    attachments,
+    audit,
+    claims,
+    facts,
+    memory,
+    offer,
+    status,
+    system_control,
+)
 from app.auth import CurrentUser, get_current_user
 from app.budget import estimate_cost_inr, estimate_shadow_inr
 from app.config import Settings, get_settings
@@ -30,7 +39,7 @@ async def send_message(
     user: CurrentUser = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> MessageResponse:
-    if not body.text.strip():
+    if not body.text.strip() and not body.attachment_id:
         raise HTTPException(status_code=400, detail="text must not be empty")
 
     started = time.perf_counter()
@@ -99,10 +108,25 @@ async def send_message(
 
     provider = get_provider(settings)
 
+    # A document the owner attached, fenced as material rather than added
+    # to the instructions. Everything about why that fence is where it is
+    # lives in app/attachments.py; the short version is that JARVIS can
+    # change its own code now, so a file that could command it would be a
+    # path from something on a phone to something on the server.
+    attached = None
+    asked = body.text.strip()
+    if body.attachment_id:
+        attached = await attachments.get(body.attachment_id)
+        if attached is None:
+            raise HTTPException(status_code=404, detail="No such attachment.")
+        if not asked:
+            asked = "I have attached a document. What does it say?"
+        asked = f"{attachments.as_material(attached)}\n\n{asked}"
+
     model_started = time.perf_counter()
     try:
         memory_context = _context(known_facts, status_line)
-        result = await provider.complete(body.text, history, memory_context)
+        result = await provider.complete(asked, history, memory_context)
         outcome = "success"
         model_ms = int((time.perf_counter() - model_started) * 1000)
     except Exception as exc:
@@ -169,8 +193,18 @@ async def send_message(
     # say to each other, so they go at once. Everything here happens after
     # the answer already exists, which is the worst place to spend time:
     # the owner is watching a spinner while JARVIS files paperwork.
+    # What goes into conversation memory is what the OWNER said, named
+    # with the document rather than containing it. The attachment is
+    # already on record; putting twenty thousand characters of it into the
+    # recent-turns window would push out everything else that was said and
+    # be replayed on every message afterwards.
+    remembered = body.text.strip()
+    if attached:
+        label = f"[attached: {attached['filename']}]"
+        remembered = f"{label} {remembered}".strip() if remembered else label
+
     (user_memory_id, reply_memory_id), audit_log_id = await asyncio.gather(
-        memory.store_exchange(body.text, reply_text),
+        memory.store_exchange(remembered, reply_text),
         audit.log_audit(
             actor="system",
             action="llm_message_exchange",
@@ -188,7 +222,7 @@ async def send_message(
         background.add_task(
             _learn_quietly,
             provider,
-            body.text,
+            remembered,
             reply_text,
             user_memory_id,
             settings.memory_facts_per_exchange,
@@ -201,6 +235,13 @@ async def send_message(
         background.add_task(status.mark_seen)
 
     total_ms = int((time.perf_counter() - started) * 1000)
+    if attached:
+        background.add_task(
+            attachments.note_outcome, attached["id"],
+            {"read_at": str(user_memory_id), "offer": bool(proposal),
+             "objective": objective or None},
+        )
+
     return MessageResponse(
         reply=reply_text,
         offer=Offer(**proposal) if proposal else None,

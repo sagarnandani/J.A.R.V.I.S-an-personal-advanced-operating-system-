@@ -437,6 +437,43 @@ error as inventing a figure, and it needed saying just as explicitly.
 Nothing is shown in the conversation itself. The finished piece lives on
 the Media tab, and the chat answer carries a link that opens it there.
 
+## Attachments: reading without obeying
+
+Typing a long brief into a chat box on an iPad was the worst part of
+using this, so a file can be attached instead. It is read once, kept as
+text, and rides along with the next message.
+
+The easy half is the reading: text, Markdown, CSV, JSON and PDF, with
+sensible limits and refusals said in words. A scanned PDF says it has no
+text in it rather than being stored as a document with nothing inside,
+because those two are indistinguishable afterwards and only one of them
+is the owner's mistake. The same file attached twice is the same row.
+
+**The half that matters is the fence.** An attachment is material, never
+instructions. The text is wrapped before the model sees it, marked as a
+document, and told explicitly that anything command-shaped inside it is a
+sentence to report rather than an order to follow.
+
+That boundary is where it is because of what changed underneath it. JARVIS
+now runs on the owner's own server and can change its own code, which
+makes a file that could command it a direct path from something on a phone
+to something running in production — and the file may well have been
+written by another model, or pasted without being read closely.
+
+The fence is a prompt, which makes it strong rather than absolute. What
+actually makes it safe is the thing that was already there: **work begins
+when the owner accepts an offer and at no other time.** The fence makes
+the model's default reading correct; the approval makes the consequence
+survivable if it is not. `MODIFY_CONFIG` and `MODIFY_AGENTS` stay where
+they have always been, delegated to nobody.
+
+One more rule worth naming. What goes into conversation memory is what
+the *owner* said, labelled with the document rather than containing it.
+Twenty thousand characters of brief in the recent-turns window would push
+out everything else that was said and be replayed on every message
+afterwards. The document is already on record; the conversation only
+needs to know which one it was.
+
 ## Not everything should go through the model
 
 A week of "it says it is working and there is no script" had two causes,

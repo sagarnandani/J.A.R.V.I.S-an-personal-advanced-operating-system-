@@ -29,3 +29,12 @@ anthropic>=1.1,<2
 # Live voice opens a WebSocket to Gemini. google-genai pulls this in
 # already; named here because app/routes/live.py depends on it directly.
 websockets>=14,<17
+
+# --- Reading what the owner attaches ---
+# FastAPI needs this to parse a multipart upload at all; without it an
+# upload route raises at import time rather than at request time.
+python-multipart>=0.0.9,<0.1
+# Pure Python, no system libraries, so it works in the slim image and on
+# a home server without apt-get. Only the text is taken out; the original
+# bytes are not kept (see app/attachments.py).
+pypdf>=5.1,<7

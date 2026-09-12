@@ -577,14 +577,27 @@ async function send() {
 
   const input = $("msg");
   const text = input.value.trim();
-  if (!text) return;
+  // An attachment on its own is a message: "read this" needs no words.
+  if (!text && !attached) return;
   input.value = "";
-  addMsg("you", text);
+
+  // Taken now, so a second message sent while this one is in flight does
+  // not send the same document twice.
+  const sending = attached;
+  attached = null;
+  showAttached();
+
+  addMsg("you", sending ? `${text ? text + "\n" : ""}📎 ${sending.filename}` : text);
   setBusy(true);
-  $("convoNote").textContent = "Thinking… the first message after a break can take a minute while the server wakes.";
+  $("convoNote").textContent = sending
+    ? `Reading ${sending.filename}…`
+    : "Thinking… the first message after a break can take a minute while the server wakes.";
 
   try {
-    const res = await api("/v1/message", { method: "POST", body: JSON.stringify({ text }) });
+    const res = await api("/v1/message", {
+      method: "POST",
+      body: JSON.stringify({ text, attachment_id: sending ? sending.id : undefined }),
+    });
     let data = {};
     try { data = await res.json(); } catch (e) {}
 
@@ -1781,6 +1794,70 @@ async function decidePiece(decision) {
 
 $("approveBtn").onclick = () => decidePiece("approve");
 $("discardPieceBtn").onclick = () => decidePiece("discard");
+
+/* --------------------------------------------------------- attachments */
+/* Handing JARVIS a document instead of typing it out.
+ *
+ * The file is uploaded and read on its own, then rides along with the
+ * next message as an id. It is shown as a chip under the box rather than
+ * as a turn in the conversation, because nothing has been said yet and
+ * drawing it as a turn would imply it had.
+ *
+ * What it never does is act on its own. JARVIS reads it and says what it
+ * says; anything it asks for comes back as an ordinary offer with a
+ * button. That matters more now that JARVIS can change its own code: a
+ * file that could start work would be a path from something on a phone
+ * straight to something running on the server. */
+
+let attached = null;
+
+$("attachBtn").onclick = () => $("attachFile").click();
+$("attachedClear").onclick = () => { attached = null; showAttached(); };
+
+function showAttached(state, note) {
+  const chip = $("attachedChip");
+  chip.classList.toggle("hidden", !attached && !note);
+  chip.className = `attached${!attached && !note ? " hidden" : ""}${state ? " " + state : ""}`;
+  $("attachedName").textContent = note || (attached ? attached.filename : "");
+  $("attachedSize").textContent = attached && !note
+    ? `${attached.chars.toLocaleString()} chars${attached.pages ? ` · ${attached.pages}p` : ""}`
+    : "";
+  $("attachedClear").hidden = !attached;
+}
+
+$("attachFile").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";              // so the same file can be picked twice
+  if (!file) return;
+
+  attached = null;
+  showAttached("working", `Reading ${file.name}…`);
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    // No Content-Type header: the browser must set the multipart boundary
+    // itself, and api() would override it with application/json.
+    const res = await fetch("/v1/attachments", {
+      method: "POST", body: form, credentials: "same-origin",
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "That file could not be read.");
+
+    attached = data;
+    showAttached();
+    $("convoNote").textContent = data.already_had_it
+      ? "Already had that one. Send a message and JARVIS will read it again."
+      : data.note;
+    $("msg").focus();
+  } catch (err) {
+    attached = null;
+    showAttached("failed", String(err.message || err));
+    // The chip carries the reason, so it survives until the next attempt
+    // rather than vanishing before it has been read.
+    $("attachedClear").hidden = false;
+    $("attachedClear").onclick = () => { showAttached(); $("attachedClear").onclick = () => { attached = null; showAttached(); }; };
+  }
+});
 
 /* ----------------------------------------------------------- right now */
 /* What is actually happening, on the screen the owner is already looking

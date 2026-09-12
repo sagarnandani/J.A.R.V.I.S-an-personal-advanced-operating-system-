@@ -534,6 +534,25 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 .perm .n { color: var(--muted); }
 .perm .tag { color: var(--gold); font-size: .68rem; letter-spacing: .05em; }
 .unknown { color: var(--muted); font-style: italic; }
+/* A document waiting to be sent with the next message. Deliberately a
+   chip under the box rather than a card in the conversation: nothing has
+   been said yet, and showing it as a turn would imply it had. */
+.attached {
+  display: flex; align-items: center; gap: .5rem; margin-top: .4rem;
+  padding: .3rem .55rem; border: 1px solid var(--edge-soft);
+  border-left: 2px solid var(--cyan); background: rgba(6,20,34,.6);
+  font-size: .82rem;
+}
+.attached .nm { color: var(--text); flex: 1; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }
+.attached .sz { color: var(--muted); font-size: .72rem; flex: none; }
+.attached .x {
+  background: none; border: 0; color: var(--muted); font-size: 1.1rem;
+  line-height: 1; cursor: pointer; padding: 0 .2rem; flex: none;
+}
+.attached .x:hover { color: var(--danger); }
+.attached.working { border-left-color: var(--gold); }
+.attached.failed { border-left-color: var(--danger); }
 .opp { border-left-color: var(--gold); cursor: pointer; }
 .opp:hover { border-color: var(--cyan); }
 .opp .score { float: right; font-family: Orbitron, sans-serif; font-size: .68rem; color: var(--gold); }
@@ -876,11 +895,20 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
           <button class="iconbtn" id="micBtn" title="Talk to JARVIS" aria-label="Talk to JARVIS">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
           </button>
+          <button class="iconbtn" id="attachBtn" title="Attach a document" aria-label="Attach a document">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.9-8.9a3.5 3.5 0 0 1 4.9 4.9l-8.9 8.9a2 2 0 0 1-2.8-2.8l8.2-8.2"/></svg>
+          </button>
+          <input type="file" id="attachFile" accept=".txt,.md,.markdown,.csv,.json,.log,.yaml,.yml,.pdf,text/plain,text/markdown,text/csv,application/json,application/pdf" hidden />
           <input id="msg" placeholder="Message JARVIS…" autocomplete="off" enterkeyhint="send" />
           <div class="wave" id="wave"></div>
           <button class="iconbtn" id="sendBtn" title="Send" aria-label="Send">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
           </button>
+        </div>
+        <div class="attached hidden" id="attachedChip">
+          <span class="nm" id="attachedName"></span>
+          <span class="sz" id="attachedSize"></span>
+          <button class="x" id="attachedClear" title="Remove" aria-label="Remove">×</button>
         </div>
         <p class="note" id="convoNote"></p>
       </section>

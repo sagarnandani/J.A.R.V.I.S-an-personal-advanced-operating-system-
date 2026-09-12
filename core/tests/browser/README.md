@@ -87,6 +87,19 @@ tab the link opens. On a keyless check server the chain fails at its first
 step, which is the correct outcome and still exercises the wiring — what a
 finished piece looks like is `media_tab.mjs`'s job, from seeded data.
 
+Handing JARVIS a document, which needs no seeding:
+
+```bash
+node tests/browser/attach_a_document.mjs attach.png
+```
+
+`attach_a_document.mjs` attaches a build brief with a prompt-injection
+attempt inside it. It checks the upload, that reading a file starts
+nothing and says so, that the message carries the attachment's id rather
+than the document, that the document is stored exactly as written, that
+sending clears the chip so nothing goes twice, and that a file JARVIS
+cannot read says why.
+
 What is running right now, on the home screen. A check server finishes
 everything instantly, so the one state that mattered — something running,
 and running too long — has to be seeded:
