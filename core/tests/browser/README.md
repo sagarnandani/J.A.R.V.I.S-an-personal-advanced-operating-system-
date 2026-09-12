@@ -87,6 +87,21 @@ tab the link opens. On a keyless check server the chain fails at its first
 step, which is the correct outcome and still exercises the wiring — what a
 finished piece looks like is `media_tab.mjs`'s job, from seeded data.
 
+A brief becoming a branch. The model calls that plan and write code
+cannot run on a check server, so the two states that matter are seeded:
+
+```bash
+DATABASE_URL=... python tests/browser/seed_change_request.py
+node tests/browser/build_from_a_brief.mjs build.png
+```
+
+`build_from_a_brief.mjs` checks that a proposal shows its plan, the parts
+it said it could NOT do, the diff and the test result; that failing tests
+are shown as failing rather than dressed up; that a plan can be written
+but not approved, and a proposal the reverse; that the diff scrolls
+inside its own box rather than pushing the page sideways; and that the
+page never offers to merge or push.
+
 Handing JARVIS a document, which needs no seeding:
 
 ```bash

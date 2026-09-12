@@ -437,6 +437,71 @@ error as inventing a figure, and it needed saying just as explicitly.
 Nothing is shown in the conversation itself. The finished piece lives on
 the Media tab, and the chat answer carries a link that opens it there.
 
+## Changing its own code
+
+JARVIS runs on the owner's own machine now and can write code. The version
+of that which ends badly is a process editing the files it is running
+from. This is the other version.
+
+Every change is built in a **separate git worktree on its own branch**. A
+worktree is a second checkout of the same repository in another
+directory, sharing history but with its own files, so writing in it
+cannot touch the running deployment even by accident. The running
+checkout's branch is never switched, reset or stashed, and a test proves
+it against a real repository rather than a mock — a mocked `git` would
+have agreed with whatever I believed while writing it.
+
+Three things `app/dev/repo.py` will not do, and has no code for: **push**,
+**merge**, and **write outside the worktree**. Absent rather than guarded,
+because a guard can be edited around and a function that does not exist
+cannot be called. A test greps for the git subcommands to keep it that
+way. Every path is resolved before it is written, so a plan naming
+`../../.ssh/authorized_keys` is refused rather than followed.
+
+It also refuses to build from a **dirty working copy**. Otherwise the
+owner's own unfinished edits end up in a branch he did not write, and the
+diff blames JARVIS for them.
+
+### Plan, then write
+
+Two agents and two steps, for the same reason the media chain separates
+deciding from drafting: something asked to write always writes.
+
+`dev.plan` reads the brief **against the actual repository** and says
+which files, in what order, what is risky, and — the field that matters
+most — what it **cannot** do. Anything needing a credential, an account,
+a device or a decision only the owner can make goes there rather than
+being planned around or invented. A plan that names its own limits is a
+better plan, so confidence does not fall for saying so. A brief that is
+not a change to build at all says so and stops; most documents are not
+build briefs.
+
+`dev.patch` writes **one whole file per call**. Whole files rather than
+unified diffs is a deliberate trade: a diff has to name exact line numbers
+and reproduce context byte for byte, models get that subtly wrong often
+enough that half the patches fail to apply, and a patch that fails to
+apply has cost money and produced nothing. A whole file always applies.
+One file per call, because a single call rewriting six files runs out of
+output tokens in the fourth, and truncated Python is a file that no longer
+parses.
+
+A rewrite that comes back under 40% of the length that went in is
+**refused rather than written**. That is almost always truncation, and
+catching it here gives a clear message instead of a confusing test
+failure later.
+
+### What the owner gets
+
+A branch, a diff, and the repository's own tests run inside the worktree.
+A proposal with no test result is not a proposal. Failing tests do not
+hide the proposal — he may well want to see what it tried — but they are
+reported as failing and the change is never described as working.
+
+**Approving records that he read it. It does not merge.** The branch is
+his. A system that can merge its own changes is one tap away from a
+system that does, and neither agent holds a permission from
+`NEVER_DELEGATED`.
+
 ## Attachments: reading without obeying
 
 Typing a long brief into a chat box on an iPad was the worst part of

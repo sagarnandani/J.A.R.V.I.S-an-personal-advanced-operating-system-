@@ -21,6 +21,7 @@ from app.routes import (
     auth_proxy,
     budget,
     dashboard,
+    dev,
     health,
     live,
     login,
@@ -242,6 +243,7 @@ app.include_router(agents.router)
 app.include_router(media.router)
 app.include_router(voice.router)
 app.include_router(attachments.router)
+app.include_router(dev.router)
 
 # The Stage 0 test console (plain HTML/JS) -- see /core/static/README for
 # what this is and isn't. Mounted last so it doesn't shadow API routes.

@@ -652,7 +652,8 @@ function explain(status, detail) {
 // memory" had nothing to go to. Home and Settings remain; full screen is
 // genuinely useful for leaving this up on a spare monitor.
 const VIEWS = { home: null, tasks: "tasksView", agents: "agentsView",
-                media: "mediaView", settings: "settingsView" };
+                build: "buildView", media: "mediaView",
+                settings: "settingsView" };
 const homeGrid = () => document.querySelector(".grid");
 
 function showView(name) {
@@ -663,6 +664,7 @@ function showView(name) {
   if (name === "tasks") { loadWorkflows(); loadSchedules(); }
   if (name === "media") { loadBrands(); loadPieces(); }
   if (name === "agents") loadOrg();
+  if (name === "build") loadBuilds();
 }
 
 $("nav").addEventListener("click", (e) => {
@@ -1794,6 +1796,213 @@ async function decidePiece(decision) {
 
 $("approveBtn").onclick = () => decidePiece("approve");
 $("discardPieceBtn").onclick = () => decidePiece("discard");
+
+/* --------------------------------------------------------------- build */
+/* A brief becoming a branch you can read.
+ *
+ * Two steps, deliberately. Planning costs one model call and produces
+ * something to read; writing costs a call per file and produces a diff to
+ * review. You decide in between whether it is worth it.
+ *
+ * Nothing here merges. JARVIS writes in a separate git worktree, never
+ * the running deployment, and approving records that you read it. The
+ * branch stays yours. */
+
+let openBuild = null;
+let buildPoll = null;
+
+async function loadBuilds() {
+  try {
+    const res = await api("/v1/dev");
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // Said up front. A brief that becomes a plan and then discovers there
+    // is no git repository has spent money for nothing.
+    const repo = data.repo || {};
+    $("repoNote").textContent = repo.usable
+      ? `Building from ${repo.path} on ${repo.branch}.`
+      : repo.why || "This deployment cannot build changes.";
+    $("planBuildBtn").disabled = !repo.usable;
+
+    const rows = data.requests || [];
+    $("buildList").innerHTML = rows.length ? rows.map((r) => `
+      <div class="wf" data-build="${esc(r.id)}">
+        <span class="o">${esc(r.title)}</span>
+        <span class="s ${esc(r.state)}">${esc(BUILD_WORDS[r.state] || r.state)}</span>
+      </div>`).join("") : `<p class="empty">Nothing proposed yet.</p>`;
+
+    // Attachments can be planned from directly, so a brief never has to
+    // be pasted twice.
+    const files = await api("/v1/attachments?limit=10");
+    if (files.ok) {
+      const list = await files.json();
+      $("buildFrom").innerHTML =
+        `<option value="">Use the text above</option>` +
+        list.map((f) => `<option value="${esc(f.id)}">${esc(f.filename)}</option>`).join("");
+    }
+
+    clearTimeout(buildPoll);
+    if (rows.some((r) => r.state === "building") &&
+        !$("buildView").classList.contains("hidden")) {
+      buildPoll = setTimeout(loadBuilds, 5000);
+    }
+    if (openBuild) showBuild(openBuild);
+  } catch (e) { /* the tab is still readable without a refresh */ }
+}
+
+const BUILD_WORDS = {
+  planned: "planned", building: "writing…", proposed: "waiting for you",
+  failed: "did not finish", approved: "approved by you", discarded: "discarded",
+};
+
+$("buildList").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-build]");
+  if (row) { openBuild = row.dataset.build; showBuild(openBuild); }
+});
+
+$("planBuildBtn").onclick = async () => {
+  const brief = $("buildBrief").value.trim();
+  const attachment = $("buildFrom").value;
+  if (!brief && !attachment) {
+    $("buildNote").textContent = "Paste a brief, or choose an attached one.";
+    return;
+  }
+  $("planBuildBtn").disabled = true;
+  $("buildNote").textContent = "Reading the code and working out what it would take…";
+  try {
+    const res = await api("/v1/dev/plan", {
+      method: "POST",
+      body: JSON.stringify({ brief, attachment_id: attachment || undefined }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "It would not plan.");
+    openBuild = data.id;
+    $("buildBrief").value = "";
+    $("buildNote").textContent = data.state === "failed"
+      ? data.reason
+      : "Planned. Read it, then decide whether to have it written.";
+    loadBuilds();
+  } catch (err) {
+    $("buildNote").textContent = err.message;
+  } finally {
+    $("planBuildBtn").disabled = false;
+  }
+};
+
+function colourDiff(text) {
+  return esc(text).split("\n").map((line) => {
+    if (/^\+\+\+|^---/.test(line)) return `<span class="at">${line}</span>`;
+    if (line.startsWith("+")) return `<span class="add">${line}</span>`;
+    if (line.startsWith("-")) return `<span class="del">${line}</span>`;
+    if (line.startsWith("@@")) return `<span class="at">${line}</span>`;
+    return line;
+  }).join("\n");
+}
+
+async function showBuild(id) {
+  try {
+    const res = await api(`/v1/dev/${encodeURIComponent(id)}`);
+    if (!res.ok) return;
+    const r = await res.json();
+
+    $("buildTitle").textContent = r.title;
+    $("buildState").textContent =
+      `${BUILD_WORDS[r.state] || r.state}${r.reason ? " — " + r.reason : ""}`;
+
+    const plan = r.plan || {};
+    let body = "";
+    if (plan.summary) body += `<div class="out">${esc(plan.summary)}</div>`;
+    if ((plan.files || []).length) {
+      body += `<div class="sect">Files</div>` + plan.files.map((f) =>
+        `<div class="perm">${f.new ? "+" : "~"} ${esc(f.path)}` +
+        `<span class="unknown"> — ${esc(f.why || "")}</span></div>`).join("");
+    }
+    if ((plan.steps || []).length) {
+      body += `<div class="sect">Steps</div>` +
+        plan.steps.map((x) => `<div class="perm">• ${esc(x)}</div>`).join("");
+    }
+    if ((plan.risk || []).length) {
+      body += `<div class="sect">What could break</div>` +
+        plan.risk.map((x) => `<div class="perm">• ${esc(x)}</div>`).join("");
+    }
+    // The most useful part of a plan, and the part a system that wants to
+    // look capable would leave out.
+    if ((plan.cannot || []).length) {
+      body += `<div class="sect">What it cannot do</div>` +
+        plan.cannot.map((x) => `<div class="perm">✕ ${esc(x)}</div>`).join("");
+    }
+
+    if (r.tests_passed !== null && r.tests_passed !== undefined) {
+      body += `<div class="sect">Tests</div>` +
+        `<div class="tests ${r.tests_passed ? "pass" : "fail"}">` +
+        `${r.tests_passed ? "The tests pass." : "The tests FAIL. Read them before merging."}</div>`;
+      if (r.tests_output) {
+        body += `<div class="diff">${esc(r.tests_output.slice(-2500))}</div>`;
+      }
+    }
+
+    if (r.branch) {
+      body += `<div class="sect">Branch</div>` +
+        `<div class="out">${esc(r.branch)} · ${r.files_changed} file(s)</div>`;
+    }
+    if (r.diff) {
+      body += `<div class="sect">Diff</div><div class="diff">${colourDiff(r.diff)}</div>`;
+    }
+    body += `<div class="cost" style="margin-top:.5rem">Rs.${Number(r.spend_inr || 0).toFixed(2)} billed · ` +
+            `Rs.${Number(r.shadow_inr || 0).toFixed(2)} at paid rates</div>`;
+
+    $("buildDetail").innerHTML = body || `<p class="empty">${esc(r.reason || "Nothing to show.")}</p>`;
+
+    const canWrite = r.state === "planned" || r.state === "failed";
+    const canDecide = r.state === "proposed";
+    $("buildButtons").classList.toggle("hidden", !canWrite && !canDecide);
+    $("writeItBtn").hidden = !canWrite;
+    $("approveBuildBtn").hidden = !canDecide;
+    $("discardBuildBtn").hidden = !canDecide;
+    $("buildFooter").textContent = canDecide
+      ? "Approving records that you read it. JARVIS does not merge its own changes — the branch is yours."
+      : r.decided_by ? `You decided this on ${new Date(r.decided_at).toLocaleString()}.`
+      : "Writing costs one model call per file and produces a diff to review.";
+  } catch (e) { /* leave whatever was on screen */ }
+}
+
+$("writeItBtn").onclick = async () => {
+  if (!openBuild) return;
+  $("writeItBtn").disabled = true;
+  try {
+    const res = await api(`/v1/dev/${encodeURIComponent(openBuild)}/build`,
+                          { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "It would not start.");
+    $("buildState").textContent = data.note;
+    loadBuilds();
+  } catch (err) {
+    $("buildState").textContent = err.message;
+  } finally {
+    $("writeItBtn").disabled = false;
+  }
+};
+
+async function decideBuild(decision) {
+  if (!openBuild) return;
+  $("approveBuildBtn").disabled = $("discardBuildBtn").disabled = true;
+  try {
+    const res = await api(`/v1/dev/${encodeURIComponent(openBuild)}/${decision}`,
+                          { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "That could not be decided.");
+    $("buildFooter").textContent = data.note;
+  } catch (err) {
+    $("buildFooter").textContent = err.message;
+  } finally {
+    $("approveBuildBtn").disabled = $("discardBuildBtn").disabled = false;
+    loadBuilds();
+  }
+}
+
+$("approveBuildBtn").onclick = () => decideBuild("approve");
+$("discardBuildBtn").onclick = () => decideBuild("discard");
 
 /* --------------------------------------------------------- attachments */
 /* Handing JARVIS a document instead of typing it out.

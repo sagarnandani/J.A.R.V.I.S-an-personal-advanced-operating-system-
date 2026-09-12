@@ -239,6 +239,16 @@ class Settings(BaseSettings):
     # sounds means choosing a different preset here, and nothing else.
     live_voice: str = "Kore"
 
+    # --- Changing its own code ---
+    # Where the repository lives. Empty means "three directories above
+    # this file", which is right for a normal checkout and wrong the first
+    # time this is packaged differently -- so it is a setting rather than
+    # a guess that works today.
+    #
+    # Every change is built in a separate git worktree on its own branch.
+    # Nothing here pushes or merges; see app/dev/repo.py.
+    repo_path: str = ""
+
     # --- Spoken replies ---
     # Which engine reads a typed reply aloud. "browser" is the device's
     # own synthesiser: no key, no cost, works offline, and cannot sound
