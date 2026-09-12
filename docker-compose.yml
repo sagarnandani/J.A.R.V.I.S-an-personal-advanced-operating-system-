@@ -54,6 +54,13 @@ services:
       # section of docs/SELF_HOSTING.md first, because the login cookie
       # travels in clear text over plain http.
       - "127.0.0.1:8080:8080"
+    volumes:
+      # The Constitution, mounted read-only over the copy in the image.
+      # Enforcement does not depend on this -- the protected paths are in
+      # code, and self-development is refused at the write boundary -- but
+      # a read-only mount is the honest belt-and-braces on a machine where
+      # the container could otherwise write its own copy.
+      - ./CONSTITUTION.md:/app/CONSTITUTION.md:ro
     env_file: .env
     environment:
       DATABASE_URL: postgres://jarvis:${POSTGRES_PASSWORD:-jarvis}@postgres:5432/jarvis

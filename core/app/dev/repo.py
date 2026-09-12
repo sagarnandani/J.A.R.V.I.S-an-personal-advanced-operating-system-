@@ -30,6 +30,8 @@ import os
 import shutil
 from pathlib import Path
 
+from app import constitution
+
 logger = logging.getLogger("jarvis.dev.repo")
 
 # How long any one git or test command may take. A hung test suite should
@@ -177,26 +179,50 @@ async def close_worktree(path: str, settings=None) -> None:
             pass
 
 
-def inside(worktree: str, relative: str) -> Path:
+def inside(worktree: str, relative: str, *, writing: bool = True) -> Path:
     """Resolve a path, or refuse it.
 
-    The check that stops a plan naming `../../.ssh/authorized_keys` from
-    being followed. Resolved first, because `a/../../b` is only obviously
+    Two refusals, and the second is the protected core.
+
+    The first stops a plan naming `../../.ssh/authorized_keys` from being
+    followed. Resolved first, because `a/../../b` is only obviously
     outside once it has been.
+
+    The second stops JARVIS writing the rules that govern JARVIS. It is
+    here, at the single point every write passes through, rather than in
+    the planner or the prompt, because this is the boundary that cannot
+    be reasoned around: a model can be persuaded, a prompt can be
+    diluted, and a plan can be wrong. A function that refuses cannot be
+    talked out of it.
+
+    Reading is allowed. JARVIS should be able to read its own
+    Constitution, reason with it, and say when a brief conflicts with it.
+    What it may not do is write it.
     """
     base = Path(worktree).resolve()
     target = (base / relative).resolve()
     try:
-        target.relative_to(base)
+        inside_tree = target.relative_to(base)
     except ValueError as exc:
         raise RepoError(f"Refusing to write outside the worktree: {relative}") from exc
     if ".git" in target.parts:
         raise RepoError(f"Refusing to write into git's own files: {relative}")
+
+    if writing:
+        why = constitution.is_protected(str(inside_tree))
+        if why:
+            raise RepoError(
+                f"Refusing to change {inside_tree}: {why} is part of the "
+                f"protected core. JARVIS may read it and say what it thinks "
+                f"about it, and changing it is yours to do by hand."
+            )
     return target
 
 
 async def read_file(worktree: str, relative: str, limit: int = 60_000) -> str:
-    path = inside(worktree, relative)
+    # Reading is not restricted. JARVIS should be able to read its own
+    # Constitution and reason about it; the protection is on writing.
+    path = inside(worktree, relative, writing=False)
     if not path.is_file():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")[:limit]
@@ -252,6 +278,21 @@ async def commit(worktree: str, message: str, settings=None) -> dict:
     if not staged:
         return {"committed": False, "files": [], "diff": "",
                 "why": "Nothing was changed."}
+
+    # The last boundary. Everything should have been refused already at
+    # the write, so reaching here means something arrived by a route this
+    # module does not know about -- which is exactly when a final check
+    # earns its keep. The commit is abandoned rather than partially made.
+    forbidden = constitution.refuse(staged.splitlines())
+    if forbidden:
+        # Raised rather than unstaged. Nothing is committed, and the
+        # whole worktree is discarded by the caller a moment later, so
+        # cleaning up here would only add a git subcommand this module is
+        # better off not having at all.
+        raise RepoError(
+            "Refusing to commit changes to the protected core: "
+            + "; ".join(forbidden)
+        )
 
     await _git("-c", "user.name=JARVIS",
                "-c", "user.email=jarvis@localhost",

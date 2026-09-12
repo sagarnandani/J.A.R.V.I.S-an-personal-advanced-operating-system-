@@ -263,7 +263,10 @@ async def chat(clean, monkeypatch):
                 return SimpleNamespace(text=text, input_tokens=10, output_tokens=5,
                                        model="test", provider="mock")
 
-        monkeypatch.setattr(message_route, "get_provider", lambda s: Fake())
+        # get_provider now takes the owner's model preference as well, so
+        # a hard "use Claude only" can be refused rather than substituted.
+        monkeypatch.setattr(message_route, "get_provider",
+                            lambda s, want=None: Fake())
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"

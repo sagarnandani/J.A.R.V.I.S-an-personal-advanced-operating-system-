@@ -118,3 +118,30 @@ def test_the_migrations_land_where_the_app_looks_for_them():
         "the migrations must land at /app/db/migrations, which is where "
         "app/migrate.py._migrations_dir() looks"
     )
+
+
+def test_the_constitution_reaches_the_container():
+    """A protection that reports itself missing in production and nowhere
+    else is the worst place for one to be absent.
+
+    The paths are enforced in code regardless of this file, so its absence
+    would not open the protected core -- but /health would report
+    `present: false` and the fingerprint would be gone, which is the half
+    that lets an unexpected change be noticed.
+    """
+    assert any("CONSTITUTION.md" in source for source in _copy_sources()), (
+        "infra/Dockerfile does not copy CONSTITUTION.md into the image"
+    )
+
+
+def test_the_constitution_is_found_from_where_the_app_actually_runs():
+    """A checkout has it three levels above app/constitution.py; the
+    container has it two. Both are looked in, because getting this wrong
+    fails only in production."""
+    import sys
+
+    sys.path.insert(0, str(ROOT / "core"))
+    from app import constitution
+
+    assert constitution.state()["present"] is True
+    assert constitution.digest()

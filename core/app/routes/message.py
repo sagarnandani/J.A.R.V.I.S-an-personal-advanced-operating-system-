@@ -24,7 +24,8 @@ from app import (
 from app.auth import CurrentUser, get_current_user
 from app.budget import estimate_cost_inr, estimate_shadow_inr
 from app.config import Settings, get_settings
-from app.llm import get_provider
+from app.llm import ProviderUnavailable, get_provider
+from app.llm import preference
 from app.models import MessageRequest, MessageResponse, Offer
 
 logger = logging.getLogger("jarvis.message")
@@ -106,7 +107,24 @@ async def send_message(
             "POST /v1/admin/emergency-stop to resume.",
         )
 
-    provider = get_provider(settings)
+    # Which intelligence he asked for, if he asked. This decides WHO does
+    # the work and nothing else: permissions come from the registry and
+    # the runtime, and a preference cannot widen any of them.
+    wanted = preference.read(body.text)
+    try:
+        provider = get_provider(settings, wanted)
+    except ProviderUnavailable as exc:
+        # Said, never substituted. A hard choice that quietly became a
+        # different model would turn a deliberate instruction into a
+        # suggestion, and he would have no way of knowing.
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"You asked for {exc.provider.title()} and I cannot use it: "
+                f"{exc.why} Nothing has been run. Say which provider to use "
+                f"instead, or drop the restriction and I will choose."
+            ),
+        ) from exc
 
     # A document the owner attached, fenced as material rather than added
     # to the instructions. Everything about why that fence is where it is
@@ -171,6 +189,17 @@ async def send_message(
         # what is running needs no judgement and is never wrong, which is
         # more than can be said for deciding whether a sentence is a lie.
         reply_text = claims.with_state(reply_text, live.get("said", ""))
+
+    # A soft preference that could not be met is reported rather than
+    # left to be noticed in a metadata line. He asked for one thing and
+    # got another; that is worth a sentence.
+    if (wanted.provider and wanted.mode == preference.SOFT
+            and result.provider != wanted.provider):
+        reply_text = (
+            f"{reply_text.rstrip()}\n\n"
+            f"You preferred {wanted.provider.title()}; it was not available, "
+            f"so {result.provider.title()} answered instead."
+        )
 
     # Provenance: the user's own words are 'stated'. JARVIS's reply is
     # content that came back from the model -- 'retrieved' -- never

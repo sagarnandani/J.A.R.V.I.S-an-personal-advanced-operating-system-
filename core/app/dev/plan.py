@@ -20,6 +20,7 @@ from app.agents.schemas import (
     ModelTier,
     Permission,
 )
+from app import constitution
 from app.media import _common
 
 logger = logging.getLogger("jarvis.dev.plan")
@@ -59,6 +60,8 @@ The repository, as it actually is:
 
 {files}
 
+{protected}
+
 Rules that are not stylistic:
 
 - Name at most {limit} files. A change spanning more than that is one
@@ -95,13 +98,30 @@ async def run(handoff: Handoff, choice) -> _common.AgentResult:
 
     data, model = await _common.think(
         _PROMPT.format(brief=brief[:24000], tree=tree[:12000],
-                       files=excerpts[:20000], limit=MAX_FILES),
+                       files=excerpts[:20000], limit=MAX_FILES,
+                       protected=constitution.described()),
         "dev.plan",
     )
 
     files = [f for f in (data.get("files") or [])
              if isinstance(f, dict) and str(f.get("path") or "").strip()][:MAX_FILES]
     cannot = [str(c) for c in (data.get("cannot") or []) if str(c).strip()]
+
+    # The first of three boundaries. Refused here so the owner reads the
+    # refusal before a worktree exists and before a call is spent writing
+    # something that could never land -- the write boundary would stop it
+    # anyway, but silently and much later.
+    forbidden = constitution.refuse(f["path"] for f in files)
+    if forbidden:
+        files = [f for f in files
+                 if not constitution.is_protected(str(f["path"]))]
+        cannot.append(
+            "Refused: this plan named part of the protected core — "
+            + "; ".join(forbidden)
+            + ". JARVIS can read those and say what it thinks about them; "
+              "changing them is yours to do by hand."
+        )
+
     is_change = bool(data.get("is_a_change", True)) and bool(files)
 
     return _common.result(

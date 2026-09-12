@@ -1,7 +1,7 @@
 """Public, unauthenticated health check -- "how do I know if it's running"."""
 from fastapi import APIRouter, Request
 
-from app import system_control
+from app import constitution, system_control
 from app.config import get_settings
 
 router = APIRouter()
@@ -18,6 +18,11 @@ async def health() -> dict:
         # questions have now cost real time to answer from a phone, and
         # both are one query away from the thing already being asked.
         "schema": await _schema(),
+        # The protected core. Reported rather than only enforced, so a
+        # Constitution that changed without the owner changing it is
+        # something he can see. Nothing secret is in here: the paths are
+        # in the repository and the fingerprint is of a public file.
+        "constitution": constitution.state(),
     }
 
 
