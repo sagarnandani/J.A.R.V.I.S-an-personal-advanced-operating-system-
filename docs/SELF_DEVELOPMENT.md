@@ -6,7 +6,15 @@ server on this machine, not only against the test suite — twice this
 month something passed its tests and did not work when it ran, so
 "tests pass" is no longer treated as evidence on its own.
 
-Last verified: 12 September 2026. 797 tests passing.
+Last verified: 13 September 2026, against a running server on this
+machine. 797 tests passing.
+
+What that verification covered, so "verified" means something: `/health`
+reports the Constitution's fingerprint; the Build tab's state endpoint
+returns the repository, the ceiling and the recovery commit; setting the
+ceiling to 4 stores 3; the level table reads correctly; the Scientist
+reports an empty fortnight as an empty fortnight; and recovery offers
+the *previous* working commit rather than the one running.
 
 ---
 
