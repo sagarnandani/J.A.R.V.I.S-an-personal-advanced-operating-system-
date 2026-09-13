@@ -25,8 +25,9 @@ import logging
 from decimal import Decimal
 from uuid import UUID
 
+from app import governor
 from app.agents import orchestrator, tasks
-from app.dev import records, repo
+from app.dev import auditor, records, repo
 
 logger = logging.getLogger("jarvis.dev.director")
 
@@ -103,11 +104,30 @@ async def begin(brief: str, title: str, requested_by: str,
                              plan=plan, spend_inr=spent, shadow_inr=shadow)
         return {**request, "state": "failed", "reason": reason, "plan": plan}
 
+    # What this change would be, before it is written. Classified here so
+    # that a brief aimed at the protected core costs one planning call
+    # and stops -- rather than a call per file and a branch nobody may
+    # ever merge.
+    paths = [str(f.get("path")) for f in (plan.get("files") or [])
+             if isinstance(f, dict) and f.get("path")]
+    risk = governor.classify(paths)
+
+    if risk.level >= 4:
+        why = ("This would change the protected core, which ordinary "
+               "self-development never changes. " + " ".join(risk.reasons))
+        await records.refuse(request["id"], why, risk=risk.as_detail())
+        await records.update(request["id"], plan=plan, spend_inr=spent,
+                             shadow_inr=shadow)
+        return {**request, "state": "refused", "reason": why, "plan": plan,
+                "risk": risk.as_detail()}
+
     await records.update(
         request["id"], plan=plan, spend_inr=spent, shadow_inr=shadow,
+        risk=risk.as_detail(), risk_level=risk.level,
         title=(plan.get("title") or title or "Change")[:200],
     )
     return {**request, "state": "planned", "plan": plan,
+            "risk": risk.as_detail(),
             "spend_inr": float(spent), "shadow_inr": float(shadow)}
 
 
@@ -126,7 +146,11 @@ async def build(request_id: UUID, requested_by: str, settings=None) -> dict:
     if not files:
         return {"state": "failed", "reason": "That plan names no files."}
 
-    await records.update(request_id, state="building", reason=None)
+    # The commit this was written against. Needed to say later what
+    # "going back" means, and cheap to record now rather than guess then.
+    based_on = (await repo.state(settings)).get("head")
+    await records.update(request_id, state="building", reason=None,
+                         based_on=based_on)
 
     try:
         worktree = await repo.open_worktree(request["title"], settings)
@@ -210,7 +234,7 @@ async def _write(request, plan, files, worktree, requested_by, settings) -> dict
                              spend_inr=spent, shadow_inr=shadow)
         return {"state": "failed", "reason": reason}
 
-    reason = (
+    built = (
         f"{len(committed['files'])} file(s) written on {worktree['branch']}. "
         + ("The tests pass." if tests.get("passed") is True
            else "The tests FAIL -- read them before merging."
@@ -218,18 +242,89 @@ async def _write(request, plan, files, worktree, requested_by, settings) -> dict
            else "The tests could not be run here.")
         + (f" Left alone: {'; '.join(skipped)}" if skipped else "")
     )
+
+    # Everything below here is review. The branch already exists and
+    # nothing that follows can change a line of it -- the worst case is
+    # that it sits unapproved, which is the correct worst case.
     await records.update(
-        request["id"], state="proposed", reason=reason,
+        request["id"], state="proposed", reason=built,
         branch=worktree["branch"], diff=committed["diff"],
         files_changed=len(committed["files"]),
         tests_passed=tests.get("passed"), tests_output=tests.get("output"),
         workflow_id=workflow_id, spend_inr=spent, shadow_inr=shadow,
     )
+
+    verdict = await _review(request, plan, committed["diff"],
+                            tests.get("passed"), spent, settings)
+
     return {
-        "state": "proposed", "reason": reason, "branch": worktree["branch"],
+        "state": verdict["state"], "reason": verdict["reason"],
+        "branch": worktree["branch"], "built": built,
         "files": committed["files"], "tests_passed": tests.get("passed"),
+        "risk": verdict["risk"], "governor": verdict["governor"],
+        "audit": verdict["audit"],
         "spend_inr": float(spent), "shadow_inr": float(shadow),
     }
+
+
+async def _review(request, plan, diff, tests_passed, spent, settings) -> dict:
+    """Audit the diff, then put it to the Governor.
+
+    Runs on what was actually written, never on what was planned. The
+    difference between those two is the single most useful thing an audit
+    can find, and reviewing the plan would make it invisible by
+    construction.
+
+    A failure anywhere in here lands on "ask the owner". Review machinery
+    that breaks must not be able to turn into approval -- and equally must
+    not throw away a branch that was built correctly.
+    """
+    try:
+        audit = await auditor.audit(
+            brief=request.get("brief") or "", plan=plan, diff=diff,
+            tests_passed=tests_passed, settings=settings,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("The auditor failed")
+        audit = {"blocking": [f"the auditor could not run: {exc}"],
+                 "noted": [], "checked": "nothing -- the auditor failed"}
+
+    paths = audit.get("files") or []
+    try:
+        decision = await governor.review(
+            paths=paths, tests_passed=tests_passed, audit=audit,
+            spend_inr=spent,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("The Governor could not decide")
+        decision = governor.Decision(
+            outcome="ask", level=3,
+            why=f"The Governor could not reach a decision ({exc}), so this "
+                f"is yours to judge.",
+        )
+
+    risk = decision.detail.get("risk") or governor.classify(paths).as_detail()
+    record = decision.as_detail()
+
+    if decision.outcome == "refused":
+        await records.refuse(request["id"], decision.why,
+                             governor=record, audit=audit, risk=risk)
+        return {"state": "refused", "reason": decision.why, "risk": risk,
+                "governor": record, "audit": audit}
+
+    if decision.outcome == "autonomous":
+        why = f"Approved by the Governor without asking. {decision.why}"
+        await records.approved_by_governor(request["id"], why, record,
+                                           audit, risk)
+        return {"state": "approved", "reason": why, "risk": risk,
+                "governor": record, "audit": audit}
+
+    reason = f"Waiting for you. {decision.why}"
+    await records.update(request["id"], state="proposed", reason=reason,
+                         governor=record, audit=audit, risk=risk,
+                         risk_level=risk.get("level"))
+    return {"state": "proposed", "reason": reason, "risk": risk,
+            "governor": record, "audit": audit}
 
 
 def _output(rows, capability):

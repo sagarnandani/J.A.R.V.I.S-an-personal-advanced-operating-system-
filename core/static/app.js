@@ -1842,6 +1842,10 @@ async function loadBuilds() {
         list.map((f) => `<option value="${esc(f.id)}">${esc(f.filename)}</option>`).join("");
     }
 
+    renderGovernor(data.governor || {});
+    renderRecovery(data.recovery || {});
+    loadScientist();
+
     clearTimeout(buildPoll);
     if (rows.some((r) => r.state === "building") &&
         !$("buildView").classList.contains("hidden")) {
@@ -1851,9 +1855,91 @@ async function loadBuilds() {
   } catch (e) { /* the tab is still readable without a refresh */ }
 }
 
+// The autonomy ceiling. Shown as what it permits, not as a number: "2 —
+// normal development" means nothing on its own, and this is the setting
+// least safe to misread.
+function renderGovernor(gov) {
+  const levels = (gov.levels || []).filter((l) => l.level <= 3);
+  const select = $("govCeiling");
+  if (!select) return;
+  select.innerHTML = levels.map((l) => `
+    <option value="${l.level}"${l.level === gov.ceiling ? " selected" : ""}>
+      ${l.level === 0 ? "Ask me about everything"
+                      : `Approve up to ${esc(l.name)} alone`}
+    </option>`).join("");
+  $("govMeans").textContent = gov.means || "";
+  $("govNever").textContent =
+    `The protected core — the Constitution, permissions, authentication, ` +
+    `the budget, the Governor itself — is never changed this way, at any ` +
+    `setting.`;
+}
+
+$("govCeiling").onchange = async (e) => {
+  const level = Number(e.target.value);
+  $("govMeans").textContent = "Saving…";
+  try {
+    const res = await api("/v1/dev/governor/ceiling", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level }),
+    });
+    if (res.ok) renderGovernor(await res.json());
+    else $("govMeans").textContent = "That could not be saved.";
+  } catch (err) { $("govMeans").textContent = "That could not be saved."; }
+};
+
+function renderRecovery(rec) {
+  const note = $("recoveryNote");
+  const cmd = $("recoveryCmd");
+  if (!note) return;
+  note.textContent = rec.command
+    ? `${rec.means} ${rec.honestly}`
+    : (rec.why_not || rec.means || "");
+  if (rec.command) {
+    cmd.textContent = rec.command;
+    cmd.style.display = "";
+  } else {
+    cmd.style.display = "none";
+  }
+}
+
+async function loadScientist() {
+  try {
+    const res = await api("/v1/dev/scientist");
+    if (!res.ok) return;
+    const data = await res.json();
+    const found = data.findings || [];
+    $("labList").innerHTML = found.length ? found.map((f, i) => `
+      <div class="wf">
+        <span class="o">${esc(f.hypothesis)}</span>
+        <button class="btn" data-lab="${i}">Propose a fix</button>
+      </div>`).join("") : `<p class="empty">${esc(data.said || "Nothing yet.")}</p>`;
+    $("labNote").textContent = data.note || "";
+  } catch (e) { /* the panel is optional */ }
+}
+
+$("labList").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-lab]");
+  if (!btn) return;
+  btn.disabled = true;
+  btn.textContent = "Planning…";
+  try {
+    const res = await api("/v1/dev/scientist/propose", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ index: Number(btn.dataset.lab) }),
+    });
+    if (res.ok) { const made = await res.json(); openBuild = made.id; }
+    await loadBuilds();
+  } catch (err) { btn.textContent = "That did not work"; }
+});
+
 const BUILD_WORDS = {
   planned: "planned", building: "writing…", proposed: "waiting for you",
-  failed: "did not finish", approved: "approved by you", discarded: "discarded",
+  failed: "did not finish", approved: "approved", discarded: "discarded",
+  // The Governor's own verdicts, worded so they are never mistaken for
+  // the owner's. "Refused" is not a failure -- it is the boundary working.
+  refused: "refused by the Governor",
 };
 
 $("buildList").addEventListener("click", (e) => {

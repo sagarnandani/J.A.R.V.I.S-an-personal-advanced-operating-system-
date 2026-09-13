@@ -6,18 +6,24 @@ server on this machine, not only against the test suite — twice this
 month something passed its tests and did not work when it ran, so
 "tests pass" is no longer treated as evidence on its own.
 
-Last verified: 12 September 2026. 697 tests passing.
+Last verified: 12 September 2026. 797 tests passing.
 
 ---
 
 ## The short version
 
-JARVIS can now read a brief, write a plan, open its own git branch, edit
-files there, run the tests, and show you the result. It cannot touch what
-is running, and it cannot touch the parts of itself that decide what it
-is allowed to do.
+JARVIS reads a brief, writes a plan, opens its own git branch, edits
+files there, runs the tests, audits the diff it produced, and puts the
+result to the Governor — which either refuses it, approves it, or hands
+it to you.
 
-Nothing reaches the live system without you pressing approve.
+It cannot touch what is running. It cannot touch the parts of itself that
+decide what it is allowed to do. And the number controlling how much it
+may approve for itself starts at zero.
+
+Nothing reaches the live system without you merging it. That is still
+true and still deliberate: JARVIS has no `merge`, `push`, `rebase`,
+`reset` or `checkout` anywhere in it.
 
 ---
 
@@ -120,37 +126,97 @@ left if the answer is no.
 
 ---
 
-## What is not built yet
+## How much JARVIS may decide for itself
 
-Stated plainly so this document is not a sales page.
+One number, which you set, called the autonomy ceiling. It starts at 0.
+
+| Level | | Ceiling 0 | Ceiling 1 | Ceiling 2 |
+|---|---|---|---|---|
+| 1 | Docs, copy, styling | asks you | **approves itself** | **approves itself** |
+| 2 | Agents, tools, routes | asks you | asks you | **approves itself** |
+| 3 | Memory, orchestrator, routing | asks you | asks you | asks you |
+| 4 | Constitution, permissions, auth | **refused** | **refused** | **refused** |
+
+Level 4 is not on the dial. The database will not store a ceiling of 4,
+and `governor.review` refuses level 4 separately — so neither one is the
+only thing standing there.
+
+Three things block an approval at any level: failing tests, tests that
+never ran, or an auditor finding. "Nobody checked" is not a reason to
+approve, and it is the state every change is in before someone looks.
+
+When JARVIS approves its own change the row says `autonomous = true`.
+"You approved this" and "JARVIS approved this" are never the same query.
+
+## The Auditor
+
+Two halves, deliberately.
+
+**Mechanical, and cannot be argued with.** Reads the diff and answers:
+did it touch a protected file? Did it write files the plan never
+mentioned? Did it grant a permission, touch the never-delegated set,
+change an approval policy, flip `DEV_MODE`? Does it shell out, `eval`,
+disable certificate verification, carry something shaped like an API key,
+or try to `git push`? Did it remove a `PermissionDenied` or an
+emergency-stop check? Did it add a dependency? Did it delete far more
+than it wrote? Every one of these is something you could confirm yourself
+by reading the diff in under a minute — that is the standard.
+
+**A second model, for the judgement calls.** Whether the change actually
+does what you asked is not a text search. That half runs on a *different
+provider* from the one that wrote the change. If only one provider is
+configured, the report says the review was not independent rather than
+letting "audited" imply something that did not happen. If no model was
+available, that is recorded as "no second opinion" — never as a pass.
+
+## The Scientist
+
+Watches how JARVIS actually performs — failure rates, timings, costs,
+repeated identical errors — and proposes fixes. Every finding carries the
+rows it came from, so you can disagree with the conclusion while still
+trusting the measurement.
+
+It has no path of its own. A finding becomes an ordinary change request
+through the same door as a brief you type by hand, which is how "the
+Scientist may not bypass the Governor" is enforced: not by a check, but
+by there being nowhere else to go. A test asserts the module never
+reaches the worktree, the ceiling or the approval functions directly.
+
+## Going back
+
+The strongest property is not a feature: **JARVIS cannot merge, push,
+rebase, reset or check out.** Those verbs are absent from
+`core/app/dev/repo.py`, not guarded in it, and a test greps the file to
+keep them absent. Every change it writes is a branch nobody merged.
+Undoing one is deleting the branch. There is no sequence of
+self-development that reaches the running code.
+
+What that leaves is the case *after* you merge something and it turns out
+to be broken. JARVIS cannot fix that — it is the thing that is broken —
+and building a JARVIS that could would mean one that can check out
+arbitrary commits, which is a much larger hole than the problem it
+solves.
+
+So instead: every time it starts up and works, it writes down the commit
+it is running. `/health` and the Build tab carry the previous working
+commit and the exact command to return to it.
+
+**Said plainly, because the name overclaims:** "known good" means the
+process started, reached the database, applied its schema and installed
+its agents. It does not mean the release was correct.
+
+## What is still not built
 
 | Stage | Item | Status |
 |---|---|---|
-| C | Risk classification (Levels 0–4) mapped onto change requests | **Not built.** Every change is treated the same today. |
-| F | JARVIS Scientist and Auditor agents | **Not built.** There is a hook in the org chart that will file a `scientist.*` capability under governance when one exists. |
-| G | UI self-redesign | **Untested.** The pipeline can reach `static/`, but this has never been run. |
-| H | Rollback / last-known-good | **Not built.** The agent registry keeps version history, which is the raw material, but there is no deployment rollback. |
-| I | Docker build verification inside the pipeline | **Not run.** `docker build` has never been executed against this repository from here -- there is no Docker daemon in the environment these changes were written in. The image is checked by tests that read the Dockerfile and the ignore files, which is not the same thing. |
-| — | Model router provider awareness | `choose()` has no `provider` parameter yet. |
-| — | Tier 0–4 capability-first routing, local utility layer | Not built. |
-| — | Browser agent, search policy modes, computer access | Not built. |
-| — | Model performance learning from `agent_metrics` | Not built. The metrics are being recorded; nothing reads them back. |
-
-Tests 2, 3, 4, 5, 7, 9, 10, 11, 12, 15, 17 and 18 from the brief are
-covered. Test 1 is half-covered -- see the caveat below. Tests 6, 8, 14
-and 16 are not, because they test the stages above.
-
-### The caveat that matters most
-
-**The pipeline has never produced a real change with a real model.**
-Every part of it is unit-tested, and the isolation is proven, but every
-run so far has used the mock provider. The first time a real model plans
-a real change is still ahead, and that is where the interesting failures
-will be.
-
----
-
----
+| I | Docker build verification | **Not run.** `docker build` has never executed against this repository — no Docker daemon in the environment these changes were written in. |
+| 20 | Agent versioning: candidate → benchmark → promotion | Not built. The registry keeps version history; nothing benchmarks a candidate against the current one. |
+| 23 | Browser access | Not built. |
+| 24 | Search policy modes | Not built. |
+| 25 | Computer access layer | Not built. |
+| 13/14 | Capability-first tier routing, local/Nano layer | Not built. |
+| 15 | Model performance learning from `agent_metrics` | Not built. The Scientist reads them; nothing routes on them. |
+| — | `read_only: true` on the container | Needs a real `docker build` to confirm nothing breaks. |
 
 ## The container does not run as root
 

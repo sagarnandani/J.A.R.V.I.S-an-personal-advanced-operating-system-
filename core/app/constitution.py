@@ -63,6 +63,14 @@ PROTECTED: tuple[tuple[str, str], ...] = (
     # rewritten, nothing else on this list is protected.
     ("core/app/dev/repo.py", "the isolation boundary"),
     ("core/app/dev/director.py", "the self-development gates"),
+    # The Governor's own judgement. Risk classification decides what may
+    # be approved without asking, so a JARVIS that could rewrite it could
+    # mark its next change "low risk" and approve it. Level 3 was not
+    # enough: at an autonomy ceiling of 3 that edit would have gone
+    # through on its own say-so.
+    ("core/app/governor.py", "risk classification and the autonomy ceiling"),
+    # The reviewer. An audit the audited party can rewrite is decoration.
+    ("core/app/dev/auditor.py", "the independent review"),
 
     # Deployment and schema: the ways a change reaches production, and
     # the ways credentials enter it.

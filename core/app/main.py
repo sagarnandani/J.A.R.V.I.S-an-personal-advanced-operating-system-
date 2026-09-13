@@ -57,6 +57,10 @@ async def lifespan(app: FastAPI):
         await _install_agents()
         await _recover_stuck_work()
         ticker = _start_scheduler(settings)
+        # Last, and only once everything above has worked: write down the
+        # commit that is running, so there is an answer to "what was the
+        # last version that worked" at the moment you cannot get one.
+        await _note_a_working_version(settings)
         logger.info("JARVIS Core started.")
         try:
             yield
@@ -107,6 +111,20 @@ async def _apply_migrations(settings) -> None:
         await apply_pending(get_pool())
     except Exception as exc:  # noqa: BLE001 - never worth refusing to start
         logger.error("Could not check or apply migrations: %s", exc)
+
+
+async def _note_a_working_version(settings) -> None:
+    """Record the running commit as known-good. Never fails startup.
+
+    A deployment that refused to start because it could not write a
+    recovery note would be the recovery mechanism causing the outage.
+    """
+    try:
+        from app.dev import recovery
+
+        await recovery.record_running_version(settings)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Could not record the running version: %s", exc)
 
 
 async def _recover_stuck_work() -> None:

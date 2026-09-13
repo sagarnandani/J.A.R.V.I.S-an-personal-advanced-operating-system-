@@ -1092,12 +1092,38 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         would take. It writes nothing.</p>
       </section>
 
+      <!-- The boundary, on the screen where it is exercised. A setting
+           this consequential should not live behind a menu, and it should
+           say in words what it currently permits rather than showing a
+           number. -->
+      <section class="panel">
+        <h2>How much JARVIS may decide</h2>
+        <select class="field" id="govCeiling" style="min-height:0"></select>
+        <p class="note" id="govMeans" style="margin-top:.5rem"></p>
+        <p class="note" id="govNever"></p>
+      </section>
+
       <section class="panel flexy">
         <h2>Proposed changes</h2>
         <div class="scroller" id="buildList">
           <p class="empty">Nothing proposed yet.</p>
         </div>
         <p class="note" id="repoNote"></p>
+      </section>
+
+      <!-- What JARVIS has noticed about itself. Each finding carries the
+           numbers it came from, and turning one into a change request
+           sends it through the identical path as a hand-typed brief. -->
+      <section class="panel">
+        <h2>What JARVIS has noticed</h2>
+        <div id="labList"><p class="empty">Nothing yet.</p></div>
+        <p class="note" id="labNote"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Going back</h2>
+        <p class="note" id="recoveryNote" style="margin-top:0"></p>
+        <pre class="mono" id="recoveryCmd" style="display:none"></pre>
       </section>
     </div>
 

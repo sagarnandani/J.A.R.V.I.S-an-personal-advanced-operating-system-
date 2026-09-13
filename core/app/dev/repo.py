@@ -28,6 +28,7 @@ import asyncio
 import logging
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from app import constitution
@@ -38,6 +39,8 @@ logger = logging.getLogger("jarvis.dev.repo")
 # be a reported failure, not a worktree that never finishes.
 GIT_TIMEOUT = 60
 TEST_TIMEOUT = 900
+# pytest's exit code for "I found no tests to run".
+NOTHING_COLLECTED = 5
 
 # Branches a change may never be built on, whatever a brief says.
 PROTECTED = {"main", "master", "trunk", "production", "release"}
@@ -93,7 +96,7 @@ async def state(settings=None) -> dict:
     """
     where = root(settings)
     info = {"path": str(where), "usable": False, "why": "", "branch": None,
-            "clean": None}
+            "clean": None, "head": None}
 
     if shutil.which("git") is None:
         info["why"] = "git is not installed on this machine."
@@ -105,6 +108,10 @@ async def state(settings=None) -> dict:
     try:
         info["branch"] = (await _git("rev-parse", "--abbrev-ref", "HEAD",
                                      cwd=where)).strip()
+        # The exact commit, so a change can record what it was written
+        # against and recovery has something specific to name. Reading a
+        # revision is not moving to one -- nothing here can check out.
+        info["head"] = (await _git("rev-parse", "HEAD", cwd=where)).strip()
         dirty = (await _git("status", "--porcelain", cwd=where)).strip()
     except RepoError as exc:
         info["why"] = str(exc)
@@ -242,18 +249,49 @@ async def run_tests(worktree: str, command: list[str] | None = None) -> dict:
     what it tried -- but they are reported as failing, plainly, and the
     change is never described as working.
     """
-    command = command or ["python", "-m", "pytest", "-q"]
+    # sys.executable, never a bare "python". The interpreter on PATH is
+    # frequently not the one JARVIS is running under -- a virtualenv, a
+    # container with a system python beside the app's -- and when it is
+    # not, pytest is missing from it and EVERY change comes back as "the
+    # tests fail". A test signal that is always red is worse than none,
+    # because it is the one people learn to ignore.
+    command = command or [sys.executable, "-m", "pytest", "-q"]
     cwd = Path(worktree) / "core"
     if not cwd.is_dir():
         cwd = Path(worktree)
 
     try:
+        # Verifying a change must not become part of it. Without this,
+        # the test run drops __pycache__/*.pyc into the worktree, the
+        # commit picks them up, and the auditor -- correctly -- reports
+        # files the plan never mentioned, on every single change.
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
         proc = await asyncio.create_subprocess_exec(
-            *command, cwd=str(cwd),
+            *command, cwd=str(cwd), env=env,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=TEST_TIMEOUT)
         text = (out or b"").decode("utf-8", errors="replace")
+
+        # pytest exits 5 when it collected nothing. That is not a failure
+        # and it is not a pass: it is "nobody checked", which is what
+        # `None` means here and what the Governor refuses to approve on.
+        # Reporting it as a failure -- which this did -- would mark a
+        # perfectly good change as broken, and reporting it as a pass
+        # would approve unverified code. Both are worse than saying so.
+        # The interpreter has no pytest. Not a failing test suite: no
+        # test suite was run at all.
+        if "No module named pytest" in text:
+            return {"passed": None, "command": " ".join(command),
+                    "output": "pytest is not installed for "
+                              f"{sys.executable}, so nothing about this "
+                              "change was verified.\n\n" + text[-4000:]}
+
+        if proc.returncode == NOTHING_COLLECTED:
+            return {"passed": None, "command": " ".join(command),
+                    "output": "No tests were collected, so nothing about "
+                              "this change was verified.\n\n" + text[-4000:]}
+
         return {"passed": proc.returncode == 0, "output": text[-6000:],
                 "command": " ".join(command)}
     except asyncio.TimeoutError:

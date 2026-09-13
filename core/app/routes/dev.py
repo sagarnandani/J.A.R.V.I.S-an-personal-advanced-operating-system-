@@ -51,8 +51,13 @@ async def state(
     there is no git repository has spent money for nothing, so the page
     can say up front that the button will not work and why.
     """
+    from app import governor
+    from app.dev import recovery
+
     return {"repo": await repo.state(settings),
-            "requests": await records.recent(20)}
+            "requests": await records.recent(20),
+            "governor": await governor.state(),
+            "recovery": await recovery.state(settings)}
 
 
 @router.post("/v1/dev/plan", include_in_schema=False)
@@ -110,6 +115,89 @@ async def build(
     )
     return {"id": str(request_id), "state": "building",
             "note": "Writing the files and running the tests. A few minutes."}
+
+
+# --- named routes, before the ones with a {request_id} in them ----------
+#
+# FastAPI matches in declaration order. Below /v1/dev/{request_id}, a GET
+# to /v1/dev/governor is read as a request for the change whose id is
+# "governor" and fails as a bad UUID -- with no test hitting it and
+# nothing in the logs that looks like a routing problem.
+
+class CeilingIn(BaseModel):
+    level: int
+
+
+@router.post("/v1/dev/governor/ceiling", include_in_schema=False)
+async def set_ceiling(
+    body: CeilingIn,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """How much JARVIS may approve for itself.
+
+    The single most consequential setting in the system, which is why it
+    is one number with a name on it rather than a scatter of flags. It
+    cannot reach the protected core at any value: the database constraint
+    refuses 4, and `governor.review` refuses level 4 separately, so
+    neither one is the only thing standing there.
+    """
+    from app import governor
+
+    await system_control.refuse_if_stopped()
+    level = await governor.set_ceiling(body.level,
+                                       f"user:{user.email or user.uid}")
+    return {"ceiling": level, **await governor.state()}
+
+
+@router.get("/v1/dev/governor", include_in_schema=False)
+async def governor_state(
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    from app import governor
+    from app.dev import records as dev_records
+
+    return {**await governor.state(),
+            "history": await dev_records.autonomy_history(30)}
+
+
+@router.get("/v1/dev/scientist", include_in_schema=False)
+async def scientist(
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """What JARVIS has noticed about its own behaviour."""
+    from app.dev import scientist as lab
+
+    return await lab.report()
+
+
+class ProposeIn(BaseModel):
+    index: int = 0
+
+
+@router.post("/v1/dev/scientist/propose", include_in_schema=False)
+async def propose(
+    body: ProposeIn,
+    user: CurrentUser = Depends(get_current_user),
+    settings=Depends(get_settings),
+) -> dict:
+    """Turn one of the Scientist's findings into an ordinary change request.
+
+    Ordinary is the point. It goes through the same planner, the same
+    worktree, the same auditor and the same Governor as a brief typed by
+    hand.
+    """
+    from app.dev import scientist as lab
+
+    await system_control.refuse_if_stopped()
+    findings = await lab.observe()
+    if not 0 <= body.index < len(findings):
+        raise HTTPException(status_code=404, detail="No such finding.")
+
+    result = await lab.propose(findings[body.index],
+                               f"user:{user.email or user.uid}", settings)
+    if result.get("id"):
+        result["id"] = str(result["id"])
+    return result
 
 
 @router.get("/v1/dev/{request_id}", include_in_schema=False)
