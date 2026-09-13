@@ -57,15 +57,54 @@ print('-' if d is None else (json.dumps(d) if isinstance(d,(dict,list)) else d))
 " 2>/dev/null; }
 
 # --- 2. which build ------------------------------------------------------
+#
+# The most valuable section, and the one that has to interpret itself.
+# Printing "-" and leaving the reader to notice what is missing is how
+# the first version of this script sent a whole page of stale-but-
+# plausible numbers back and taught nobody anything.
 say "2. Which build is running?"
-val "commit" "$(field running.commit)"
+RUNNING=$(field running.commit)
+HAS_NEW_HEALTH=$(field running.how)
+val "commit" "$RUNNING"
 val "branch" "$(field running.branch)"
-val "how it knows" "$(field running.how)"
+val "how it knows" "$HAS_NEW_HEALTH"
+
+LOCAL=""
 if command -v git >/dev/null && [ -d .git ]; then
-  val "checkout here" "$(git rev-parse --short=12 HEAD 2>/dev/null) on $(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  LOCAL=$(git rev-parse --short=12 HEAD 2>/dev/null)
+  val "checkout here" "$LOCAL on $(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+fi
+
+STALE=""
+if [ "$HAS_NEW_HEALTH" = "-" ]; then
+  STALE="yes"
   echo
-  echo "  If those two commits differ, the rebuild did not take. Force it:"
-  echo "    docker compose build --no-cache jarvis && docker compose up -d"
+  echo "  >> THE CONTAINER IS OLDER THAN YOUR CHECKOUT."
+  echo
+  echo "  /health did not report which build it is running. That field has"
+  echo "  existed since the commit that added this script, so the code"
+  echo "  answering is older than the code you have checked out."
+  echo
+  echo "  Note what this does NOT look like: your Constitution fingerprint"
+  echo "  below will still be current, because CONSTITUTION.md is mounted"
+  echo "  from your checkout. Only the Python is baked into the image, and"
+  echo "  only the Python is stale. That is why a rebuild can look like it"
+  echo "  worked."
+elif [ -n "$LOCAL" ] && [ "$RUNNING" != "-" ] && [ "$RUNNING" != "$LOCAL" ]; then
+  STALE="yes"
+  echo
+  echo "  >> THE CONTAINER IS RUNNING $RUNNING, YOUR CHECKOUT IS $LOCAL."
+fi
+
+if [ -n "$STALE" ]; then
+  echo
+  echo "  Rebuild and force the container to be replaced:"
+  echo "    docker compose build --no-cache jarvis"
+  echo "    docker compose up -d --force-recreate"
+  echo
+  echo "  'docker compose up -d' on its own does not rebuild, and"
+  echo "  'up -d --build' will reuse the old container if it thinks"
+  echo "  nothing changed. Then run this script again."
 fi
 
 # --- 3. can it build itself ---------------------------------------------
@@ -105,13 +144,46 @@ val "fingerprint" "$(field constitution.digest)"
 
 # --- 7. the log ----------------------------------------------------------
 say "7. Recent errors in the log"
-if command -v docker >/dev/null; then
-  docker compose logs --tail=200 jarvis 2>/dev/null \
-    | grep -iE "error|traceback|exception|refused|denied" | tail -12 \
-    | sed 's/^/  /' || echo "  (could not read the log)"
-  echo "  (grep of the last 200 lines; run 'docker compose logs -f jarvis' to watch)"
-else
+if ! command -v docker >/dev/null; then
   echo "  docker not found — skipping"
+else
+  LOG=$(docker compose logs --tail=200 jarvis 2>/dev/null) \
+    || LOG=$(docker compose logs --tail=200 2>/dev/null) \
+    || LOG=""
+  if [ -z "$LOG" ]; then
+    echo "  Could not read the log. Usually one of:"
+    echo "    - you are not in the folder with docker-compose.yml"
+    echo "    - the service is not called 'jarvis' (docker compose ps)"
+    echo "    - your user is not in the docker group (try with sudo)"
+  else
+    FOUND=$(printf '%s\n' "$LOG" \
+      | grep -iE "error|traceback|exception|refused|denied" | tail -12)
+    if [ -z "$FOUND" ]; then
+      echo "  No errors in the last 200 lines."
+    else
+      printf '%s\n' "$FOUND" | sed 's/^/  /'
+    fi
+  fi
+  echo "  (run 'docker compose logs -f jarvis' to watch it live)"
+fi
+
+# --- 8. the verdict ------------------------------------------------------
+say "8. Most likely problem"
+if [ -n "${STALE:-}" ]; then
+  echo "  The running container is older than your checkout. Everything"
+  echo "  else here is describing code you have already replaced, so fix"
+  echo "  that first and run this again before reading anything else."
+elif [ "$(field self_development.usable)" = "False" ]; then
+  echo "  Self-development cannot run: $(field self_development.why_not)"
+  echo "  $(field self_development.fix)"
+elif [ "$DEV" = "False" ] || [ "$DEV" = "false" ]; then
+  echo "  Nothing structural is wrong. If buttons still do nothing, you are"
+  echo "  most likely signed out — the page will now show a red banner"
+  echo "  saying so. If there is no banner, your browser is running a"
+  echo "  cached app.js: hard-reload, or clear website data on iOS."
+else
+  echo "  Nothing obviously wrong. Open the page and read the red banner if"
+  echo "  one appears; it names the failing call and the status."
 fi
 
 say "Done."
