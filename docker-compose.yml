@@ -61,6 +61,27 @@ services:
       # a read-only mount is the honest belt-and-braces on a machine where
       # the container could otherwise write its own copy.
       - ./CONSTITUTION.md:/app/CONSTITUTION.md:ro
+      # The repository itself, so JARVIS can write changes to itself.
+      #
+      # Without this the Build tab is dead in Docker and says so: the
+      # image contains a COPY of the source and no .git (.dockerignore
+      # excludes it), so repo.state() reports "not a git repository" and
+      # the Plan button stays disabled. That is a page that looks
+      # complete and does nothing, which is the worst shape a failure
+      # can take.
+      #
+      # Read-write on purpose, and this is the one mount that deserves a
+      # sentence about it. JARVIS creates git worktrees here and writes
+      # files inside them -- that IS self-development, and it cannot
+      # happen against a read-only copy. What stops it going further is
+      # not this mount: app/constitution.py refuses the protected core at
+      # the write boundary, app/dev/repo.py contains no push, merge,
+      # rebase, reset or checkout, and every branch stays unmerged until
+      # you merge it by hand.
+      #
+      # Branches land in your own checkout, which is the point: you read
+      # them with git log and git diff like anything else.
+      - ./:/repo
     # Nothing in here needs to gain privileges it did not start with, and
     # a setuid binary is the ordinary way a container escape gets from
     # "code runs" to "code runs as root". The image already drops to a
@@ -71,6 +92,17 @@ services:
     # confirm nothing breaks -- and that has not been run yet.
     security_opt:
       - no-new-privileges:true
+    # Run as you, not as the image's built-in user.
+    #
+    # The image drops to uid 10001, which cannot write to a checkout
+    # owned by your account -- every build would fail on permissions,
+    # inside git, with a message about the object store rather than about
+    # ownership. Set UID and GID in .env (id -u and id -g) if yours are
+    # not the usual 1000.
+    #
+    # This is still not root, and /app is still root-owned, so JARVIS
+    # can read the code it is running and cannot rewrite it in place.
+    user: "${UID:-1000}:${GID:-1000}"
     env_file: .env
     environment:
       DATABASE_URL: postgres://jarvis:${POSTGRES_PASSWORD:-jarvis}@postgres:5432/jarvis
@@ -80,6 +112,10 @@ services:
       # port that is loopback-only today is one edited line from being
       # open to the house.
       DEV_MODE: "false"
+      # Where the repository is, inside the container. Without it JARVIS
+      # looks beside its own code, finds no history there, and reports
+      # that it cannot build changes.
+      REPO_PATH: "/repo"
       # Off because http://localhost is not HTTPS and the browser would
       # otherwise refuse to send the login cookie back. Set to "true" the
       # moment JARVIS sits behind a real certificate.

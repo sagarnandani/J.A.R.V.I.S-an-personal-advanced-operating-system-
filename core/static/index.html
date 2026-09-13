@@ -371,6 +371,23 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 #gsi { display: flex; justify-content: center; margin-top: 1.1rem; min-height: 44px; }
 .err { color: var(--danger); font-size: .9rem; }
 
+/* The trouble banner. Fixed, above everything, and deliberately hard to
+   mistake for part of the design. */
+#trouble {
+  position: fixed; inset: 0 0 auto 0; z-index: 9999;
+  display: flex; gap: .75rem; align-items: flex-start;
+  padding: .7rem clamp(.8rem, 3vw, 1.2rem);
+  background: #40150f; color: #ffd9d2;
+  border-bottom: 1px solid var(--danger);
+  font-size: .92rem; line-height: 1.4;
+}
+#trouble[hidden] { display: none; }
+#troubleText { flex: 1 1 auto; }
+#troubleClose {
+  flex: 0 0 auto; background: none; border: 0; cursor: pointer;
+  color: inherit; font-size: 1.3rem; line-height: 1; padding: 0 .2rem;
+}
+
 .hidden { display: none !important; }
 .btn {
   background: transparent; border: 1px solid var(--edge-soft); color: var(--cyan);
@@ -703,6 +720,18 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
 </style>
 </head>
 <body>
+
+<!-- When the back end stops answering, say so.
+     Thirteen places in app.js used to check `res.ok`, give up silently
+     and leave the page looking perfectly healthy -- which is exactly how
+     a signed-out session, a container running an older image, and a
+     server that is simply down all present: buttons that do nothing.
+     Every failed call now lands here, once, with the status and what to
+     do about it. -->
+<div id="trouble" hidden>
+  <span id="troubleText"></span>
+  <button id="troubleClose" aria-label="Dismiss">&times;</button>
+</div>
 
 <!-- Sign-in comes before anything else, so the HUD never renders empty
      frames that look like JARVIS is broken rather than locked. -->

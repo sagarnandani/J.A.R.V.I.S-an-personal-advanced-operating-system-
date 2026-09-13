@@ -258,3 +258,64 @@ def test_the_compose_file_does_not_put_root_back():
     assert not re.search(r"^\s*user:\s*[\"']?(root|0)\b", text, re.M), (
         "docker-compose.yml overrides the image's user back to root"
     )
+
+
+# --- can self-development work in the container at all? --------------------
+#
+# It could not, and nothing said so. The image is a COPY of the source
+# with no .git in it (.dockerignore excludes it), so inside the container
+# repo.state() reports "not a git repository", the Plan button stays
+# disabled, and the Build tab renders perfectly while doing nothing.
+#
+# That is how it reached Sagar's own server: a page with every tab in
+# place and no working back end.
+
+
+def _compose() -> str:
+    return COMPOSE.read_text()
+
+
+def test_the_repository_is_mounted_so_jarvis_can_write_to_itself():
+    """The image has no history of its own; it must be given one."""
+    assert re.search(r"^\s*-\s*\./:/repo\s*$", _compose(), re.M), (
+        "docker-compose.yml does not mount the repository into the "
+        "container, so JARVIS cannot build changes to itself at all"
+    )
+
+
+def test_the_mount_is_writable():
+    """A read-only mount makes the Build tab fail later and less clearly:
+    it would plan, open a worktree, and die on the first write."""
+    assert not re.search(r"^\s*-\s*\./:/repo:ro\s*$", _compose(), re.M), (
+        "the repository is mounted read-only, so every build will fail "
+        "part way through instead of not starting"
+    )
+
+
+def test_the_container_is_told_where_the_repository_is():
+    """Mounting it is not enough. Without REPO_PATH, JARVIS looks beside
+    its own code -- which inside the image is '/', not a repository."""
+    assert re.search(r'^\s*REPO_PATH:\s*"?/repo"?\s*$', _compose(), re.M), (
+        "docker-compose.yml mounts the repository but never tells JARVIS "
+        "where it is, so it will still report that it cannot build"
+    )
+
+
+def test_it_runs_as_a_user_that_can_write_the_mounted_repository():
+    """The image drops to uid 10001, which does not own the host
+    checkout. Every build would fail inside git, with a message about the
+    object store rather than about ownership."""
+    match = re.search(r'^\s*user:\s*"?([^"\n]+)"?\s*$', _compose(), re.M)
+    assert match, (
+        "the compose file does not override the image's user, so the "
+        "container runs as uid 10001 and cannot write to your checkout"
+    )
+    assert "10001" not in match.group(1)
+
+
+def test_the_constitution_is_still_mounted_read_only_over_the_repository():
+    """Ordering matters: /repo is read-write and contains its own copy of
+    CONSTITUTION.md. The read-only mount at /app/CONSTITUTION.md is what
+    the running code reads, and it must survive."""
+    text = _compose()
+    assert "./CONSTITUTION.md:/app/CONSTITUTION.md:ro" in text

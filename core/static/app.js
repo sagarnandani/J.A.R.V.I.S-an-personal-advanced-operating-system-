@@ -13,12 +13,89 @@ const gate = $("gate"), app = $("app");
 // Sign-in lives in a cookie the server sets, so nothing about it is kept
 // here -- page memory dies on reload, which is what used to make JARVIS
 // appear to forget a sign-in that had actually worked.
-const api = (path, opts = {}) =>
-  fetch(path, {
-    ...opts,
-    credentials: "same-origin",
-    headers: { ...(opts.headers || {}), "Content-Type": "application/json" },
-  });
+// Every call to JARVIS goes through here, so this is the one place that
+// can notice the back end has stopped answering.
+//
+// It used to be a bare fetch. Callers checked `res.ok`, returned quietly
+// when it was false, and the page carried on looking healthy -- so a
+// signed-out session, an older image without a route, and a server that
+// is simply not running all looked identical from the outside: a full
+// dashboard whose buttons do nothing.
+//
+// The Response is still returned unchanged and network errors still
+// reject, so every existing caller behaves exactly as before. The only
+// addition is that the failure becomes visible.
+const api = async (path, opts = {}) => {
+  try {
+    const res = await fetch(path, {
+      ...opts,
+      credentials: "same-origin",
+      headers: { ...(opts.headers || {}), "Content-Type": "application/json" },
+    });
+    if (res.ok) clearTrouble(); else showTrouble(path, res.status);
+    return res;
+  } catch (err) {
+    // Never reached the server at all: down, wrong port, DNS, or the
+    // browser blocked it.
+    showTrouble(path, 0);
+    throw err;
+  }
+};
+
+// What each failure actually means, in the words of the thing to do next.
+// Written for someone reading it on a phone with no terminal open.
+function troubleText(path, status) {
+  if (status === 0)
+    return "JARVIS is not answering at all. The server may be stopped — " +
+           "on the machine running it: docker compose ps, then " +
+           "docker compose logs --tail=50 jarvis";
+  if (status === 401 || status === 403)
+    return "You are signed out, so nothing on this page can reach JARVIS. " +
+           "Reload and sign in again. If signing in does not stick, the " +
+           "browser is not keeping the login cookie — over plain http that " +
+           "means COOKIE_SECURE must be false.";
+  if (status === 404)
+    return `This deployment has no ${path} — it is probably running an ` +
+           "older build than the page you are looking at. On the server: " +
+           "git pull && docker compose up -d --build";
+  if (status === 503)
+    return "JARVIS refused the request: usually no model provider is " +
+           "configured, or a provider you asked for by name is not set up.";
+  if (status >= 500)
+    return `JARVIS hit an error on ${path} (${status}). The reason is in ` +
+           "the log: docker compose logs --tail=50 jarvis";
+  return `JARVIS refused ${path} (${status}).`;
+}
+
+let troubleShown = "";
+
+function showTrouble(path, status) {
+  const banner = $("trouble");
+  if (!banner) return;
+  // Before sign-in every call is a 401 by design, and the sign-in panel
+  // is already on screen saying so. A banner there would be noise on the
+  // one screen that is working correctly.
+  if ((status === 401 || status === 403) &&
+      gate && !gate.classList.contains("hidden")) return;
+  // Keyed, so a page polling four endpoints does not stack four banners
+  // or flicker between them.
+  const key = `${status}`;
+  if (troubleShown === key) return;
+  troubleShown = key;
+  $("troubleText").textContent = troubleText(path, status);
+  banner.hidden = false;
+}
+
+function clearTrouble() {
+  const banner = $("trouble");
+  if (!banner || banner.hidden) return;
+  banner.hidden = true;
+  troubleShown = "";
+}
+
+if ($("troubleClose")) {
+  $("troubleClose").onclick = () => { $("trouble").hidden = true; };
+}
 
 const esc = (s) => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
 const pad = (n) => String(n).padStart(2, "0");
