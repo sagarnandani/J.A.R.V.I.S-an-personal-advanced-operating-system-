@@ -1294,6 +1294,10 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
      only to break browsers out of a copy cached before that header
      existed, which they would otherwise never re-request. Future changes
      need no bump. -->
-<script src="/app.js?v=2" type="module"></script>
+<!-- The version is bumped on every change to app.js. Safari on iOS has
+     served a cached script against new HTML more than once here, which
+     presents as a complete page whose buttons do nothing -- the hardest
+     failure to diagnose, because everything looks right. -->
+<script src="/app.js?v=3" type="module"></script>
 </body>
 </html>
