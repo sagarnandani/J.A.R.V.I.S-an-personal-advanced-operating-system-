@@ -123,6 +123,17 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     claude_model: str = "claude-sonnet-5"
 
+    openai_api_key: str | None = None
+    # OpenAI retires model names the same way Google does. When it does,
+    # the API answers with "model not found" and the adapter turns that
+    # into a sentence naming this setting -- so the fix is a one-line env
+    # change and a restart, never a code change.
+    #
+    # If this default has been retired by the time you read it, set
+    # OPENAI_MODEL in .env to a model your account can actually use. The
+    # error will tell you that is what happened.
+    openai_model: str = "gpt-4o"
+
     # --- Memory recall ---
     # Whether past conversation is fed back to the model. Off means JARVIS
     # answers each message in isolation, the way Stage 0 did. Kept as a

@@ -242,18 +242,37 @@ def test_no_preference_leaves_the_choice_to_jarvis():
 
 def test_asking_for_a_provider_that_was_never_built_says_so():
     """"Not configured" and "never built" are different problems with
-    different fixes, and he needs to know which one he has."""
+    different fixes, and he needs to know which one he has.
+
+    This used to use OpenAI as the example. OpenAI now has an adapter, so
+    the example moved to the one that genuinely does not -- rather than
+    the test being deleted, which would have quietly stopped checking
+    that the distinction exists at all.
+    """
+    settings = Settings(gemini_api_key="x", llm_provider="gemini")
+
+    with pytest.raises(ProviderUnavailable) as refused:
+        get_provider(settings, pref.read("Use a local model only for this."))
+    assert "is built yet" in refused.value.why
+    assert "local" in NOT_BUILT
+
+
+def test_openai_is_built_now_and_says_the_other_thing():
+    """The distinction the test above is about, from the other side: with
+    no key this is a configuration problem, and the message must send him
+    to the setting rather than to me."""
     settings = Settings(gemini_api_key="x", llm_provider="gemini")
 
     with pytest.raises(ProviderUnavailable) as refused:
         get_provider(settings, pref.read("Use OpenAI only for this."))
-    assert "no adapter" in refused.value.why
-    assert "openai" in NOT_BUILT
+    assert "not configured" in refused.value.why
+    assert "API key is not set" in refused.value.why
+    assert "openai" not in NOT_BUILT
 
 
 def test_a_soft_preference_for_something_never_built_still_answers():
     settings = Settings(gemini_api_key="x", llm_provider="gemini")
-    chosen = get_provider(settings, pref.read("Prefer OpenAI if available."))
+    chosen = get_provider(settings, pref.read("Prefer a local model if available."))
     assert chosen.__class__.__name__ == "GeminiAdapter"
 
 

@@ -168,3 +168,164 @@ async def test_mock_chosen_deliberately_does_not_nag_about_a_missing_key():
     s = Settings(llm_provider="mock")
     result = await get_provider(s).complete("hello")
     assert "API_KEY" not in result.text
+
+
+# --- three providers, where the code assumed two ---------------------------
+#
+# `_other(name)` returned a single provider and was correct only while
+# there were exactly two. Adding OpenAI to that shape would have made one
+# of the three unreachable as a fallback, silently -- everything would
+# still work, one provider would simply never be tried.
+
+
+def test_every_real_provider_can_be_the_configured_one():
+    from app.llm import REAL, get_provider
+
+    for name in REAL:
+        settings = Settings(llm_provider=name, gemini_api_key="g",
+                            anthropic_api_key="a", openai_api_key="o")
+        chosen = get_provider(settings)
+        assert chosen is not None, f"{name} could not be selected"
+
+
+def test_each_provider_falls_back_to_both_of_the_others():
+    from app.llm import REAL, _others
+
+    for name in REAL:
+        others = _others(name)
+        assert name not in others
+        assert set(others) == set(REAL) - {name}, (
+            f"{name} cannot fall back to every other provider"
+        )
+
+
+def test_openai_alone_is_used_without_a_fallback_wrapper():
+    from app.llm import get_provider
+
+    chosen = get_provider(Settings(llm_provider="openai", openai_api_key="o"))
+    assert chosen.__class__.__name__ == "OpenAIAdapter"
+
+
+def test_all_three_configured_chains_all_three():
+    """A chain, not a pair. If this returned a two-deep structure, the
+    third provider would never be reached."""
+    from app.llm import get_provider
+
+    chosen = get_provider(Settings(llm_provider="gemini", gemini_api_key="g",
+                                   anthropic_api_key="a", openai_api_key="o"))
+    names, queue = [], [chosen]
+    while queue:
+        node = queue.pop()
+        if node.__class__.__name__ == "FallbackProvider":
+            queue += [node._primary, node._secondary]
+        else:
+            names.append(node.__class__.__name__)
+    assert sorted(names) == ["ClaudeAdapter", "GeminiAdapter", "OpenAIAdapter"]
+
+
+def test_the_configured_provider_is_tried_first():
+    """Order is the whole point of a fallback chain."""
+    from app.llm import get_provider
+
+    chosen = get_provider(Settings(llm_provider="openai", openai_api_key="o",
+                                   gemini_api_key="g", anthropic_api_key="a"))
+    assert chosen.__class__.__name__ == "FallbackProvider"
+    assert chosen._primary.__class__.__name__ == "OpenAIAdapter"
+
+
+def test_a_configured_provider_with_no_key_uses_the_ones_that_have_keys():
+    from app.llm import get_provider
+
+    chosen = get_provider(Settings(llm_provider="openai", gemini_api_key="g"))
+    assert chosen.__class__.__name__ == "GeminiAdapter"
+
+
+def test_an_unknown_provider_name_names_all_three():
+    from app.llm import get_provider
+
+    with pytest.raises(ValueError) as bad:
+        get_provider(Settings(llm_provider="banana"))
+    for name in ("gemini", "openai", "claude", "mock"):
+        assert name in str(bad.value)
+
+
+# --- the adapter itself ----------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_openai_sends_the_system_prompt_as_a_message(monkeypatch):
+    """OpenAI has no separate system field, unlike Claude. Getting this
+    wrong loses the persona silently: every reply still arrives, and none
+    of them know who they are."""
+    from types import SimpleNamespace
+
+    from app.llm.openai_adapter import OpenAIAdapter
+
+    sent = {}
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            sent.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content="hello"))],
+                usage=SimpleNamespace(prompt_tokens=11, completion_tokens=22),
+            )
+
+    adapter = OpenAIAdapter(api_key="x", model="gpt-test")
+    adapter._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()))
+
+    result = await adapter.complete("hi", memory_context="he likes tea")
+
+    assert sent["messages"][0]["role"] == "system"
+    assert "he likes tea" in sent["messages"][0]["content"]
+    assert sent["messages"][-1] == {"role": "user", "content": "hi"}
+    assert result.text == "hello"
+    assert result.provider == "openai"
+    assert (result.input_tokens, result.output_tokens) == (11, 22)
+
+
+@pytest.mark.asyncio
+async def test_a_retired_openai_model_says_which_setting_to_change():
+    """The raw 404 names the model and not the remedy. Read on a phone,
+    that is the difference between a one-line fix and a message to me."""
+    from types import SimpleNamespace
+
+    from app.llm.openai_adapter import OpenAIAdapter
+
+    class Broken:
+        async def create(self, **kwargs):
+            raise RuntimeError(
+                "Error code: 404 - The model `gpt-old` does not exist")
+
+    adapter = OpenAIAdapter(api_key="x", model="gpt-old")
+    adapter._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=Broken()))
+
+    with pytest.raises(RuntimeError) as failed:
+        await adapter.complete("hi")
+    assert "OPENAI_MODEL" in str(failed.value)
+    assert "gpt-old" in str(failed.value)
+
+
+@pytest.mark.asyncio
+async def test_missing_token_counts_are_zero_rather_than_invented():
+    """A cost of zero must mean 'not measured', never a number made up
+    here -- the budget ceiling is computed from these."""
+    from types import SimpleNamespace
+
+    from app.llm.openai_adapter import OpenAIAdapter
+
+    class NoUsage:
+        async def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="x"))],
+                usage=SimpleNamespace(),
+            )
+
+    adapter = OpenAIAdapter(api_key="x", model="gpt-test")
+    adapter._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=NoUsage()))
+
+    result = await adapter.complete("hi")
+    assert (result.input_tokens, result.output_tokens) == (0, 0)

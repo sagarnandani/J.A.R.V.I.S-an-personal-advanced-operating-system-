@@ -13,14 +13,18 @@ logger = logging.getLogger("jarvis.llm")
 
 GEMINI = "gemini"
 CLAUDE = "claude"
+OPENAI = "openai"
 MOCK = "mock"
+
+# Every real provider, in the order they are tried as fallbacks for one
+# another. A list rather than a pair: the code used to ask for "the other
+# one", which quietly assumed there would only ever be two of them.
+REAL = (GEMINI, OPENAI, CLAUDE)
 
 # Named so that being asked for one produces an honest answer rather than
 # a silent substitution. A provider with no adapter is not "unavailable";
 # it was never built, and those are different things to be told.
 NOT_BUILT = {
-    "openai": "OpenAI has no adapter in this build. Only Gemini and Claude "
-              "are implemented.",
     "local": "No local model adapter is built yet.",
 }
 
@@ -57,11 +61,38 @@ def _build(name: str, settings: Settings) -> LLMProvider | None:
             api_key=settings.anthropic_api_key, model=settings.claude_model
         )
 
+    if name == OPENAI and settings.openai_api_key:
+        from app.llm.openai_adapter import OpenAIAdapter
+
+        return OpenAIAdapter(
+            api_key=settings.openai_api_key, model=settings.openai_model
+        )
+
     return None
 
 
-def _other(name: str) -> str:
-    return CLAUDE if name == GEMINI else GEMINI
+def _others(name: str) -> tuple[str, ...]:
+    """Every other real provider, in the order they should be tried.
+
+    This replaced `_other`, which returned a single provider and worked
+    only while there were exactly two. Adding a third to that shape would
+    have silently made one of them unreachable as a fallback.
+    """
+    return tuple(p for p in REAL if p != name)
+
+
+def _chain(providers: list[LLMProvider]) -> LLMProvider:
+    """One provider that tries each in turn.
+
+    FallbackProvider takes a pair, and is itself a provider, so three are
+    nested rather than needing a different class.
+    """
+    from app.llm.fallback import FallbackProvider
+
+    chained = providers[-1]
+    for earlier in reversed(providers[:-1]):
+        chained = FallbackProvider(earlier, chained)
+    return chained
 
 
 def get_provider(settings: Settings, want=None) -> LLMProvider:
@@ -90,9 +121,10 @@ def get_provider(settings: Settings, want=None) -> LLMProvider:
             return chosen
 
     preferred = settings.llm_provider.strip().lower()
-    if preferred not in (GEMINI, CLAUDE, MOCK):
+    if preferred not in (*REAL, MOCK):
         raise ValueError(
-            f"LLM_PROVIDER must be one of 'gemini', 'claude', or 'mock' -- got {preferred!r}"
+            f"LLM_PROVIDER must be one of "
+            f"{', '.join(repr(p) for p in (*REAL, MOCK))} -- got {preferred!r}"
         )
 
     if preferred == MOCK:
@@ -101,9 +133,11 @@ def get_provider(settings: Settings, want=None) -> LLMProvider:
         return MockAdapter()
 
     primary = _build(preferred, settings)
-    secondary = _build(_other(preferred), settings)
+    others = [built for built in
+              (_build(name, settings) for name in _others(preferred))
+              if built is not None]
 
-    if primary is None and secondary is None:
+    if primary is None and not others:
         from app.llm.mock_adapter import MockAdapter
 
         logger.warning(
@@ -119,18 +153,15 @@ def get_provider(settings: Settings, want=None) -> LLMProvider:
 
     if primary is None:
         logger.warning(
-            "LLM_PROVIDER is '%s' but no API key is set for it -- using '%s' instead.",
-            preferred,
-            _other(preferred),
+            "LLM_PROVIDER is '%s' but no API key is set for it -- using the "
+            "configured provider(s) instead.", preferred,
         )
-        return secondary
+        return _chain(others)
 
-    if secondary is None or not settings.llm_fallback_enabled:
+    if not others or not settings.llm_fallback_enabled:
         return primary
 
-    from app.llm.fallback import FallbackProvider
-
-    return FallbackProvider(primary, secondary)
+    return _chain([primary, *others])
 
 
 def _for_preference(settings: Settings, want) -> LLMProvider | None:
