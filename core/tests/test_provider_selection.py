@@ -329,3 +329,65 @@ async def test_missing_token_counts_are_zero_rather_than_invented():
 
     result = await adapter.complete("hi")
     assert (result.input_tokens, result.output_tokens) == (0, 0)
+
+
+# --- reporting which providers are configured ------------------------------
+#
+# "I added the key" and "the key reached the container" are different
+# statements. Checking used to mean trusting the first or printing an
+# environment dump, which is how a key ends up pasted into a chat window.
+
+
+def test_health_says_which_providers_are_configured_and_never_which_keys():
+    from app.routes.health import _providers
+
+    import app.routes.health as health
+
+    health.get_settings.cache_clear()
+    import os
+
+    os.environ["GEMINI_API_KEY"] = "sk-secret-value-do-not-print"
+    os.environ.pop("OPENAI_API_KEY", None)
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        health.get_settings.cache_clear()
+        reported = _providers()
+        assert reported["configured"]["gemini"] is True
+        assert reported["configured"]["openai"] is False
+
+        # The whole point: no key, no prefix, not even a length. A masked
+        # key is still most of a key, and a length names the provider.
+        printed = repr(reported)
+        assert "sk-secret-value-do-not-print" not in printed
+        assert "secret" not in printed
+        for fragment in ("sk-", "key=", str(len("sk-secret-value-do-not-print"))):
+            assert fragment not in printed, f"{fragment!r} leaked into /health"
+    finally:
+        os.environ.pop("GEMINI_API_KEY", None)
+        health.get_settings.cache_clear()
+
+
+def test_it_says_when_review_cannot_be_independent():
+    import os
+
+    import app.routes.health as health
+    from app.routes.health import _providers
+
+    os.environ["GEMINI_API_KEY"] = "g"
+    os.environ.pop("OPENAI_API_KEY", None)
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+    try:
+        health.get_settings.cache_clear()
+        one = _providers()
+        assert one["independent_review"] is False
+        assert "not independent" in one["means"]
+
+        os.environ["OPENAI_API_KEY"] = "o"
+        health.get_settings.cache_clear()
+        two = _providers()
+        assert two["independent_review"] is True
+        assert "different model" in two["means"]
+    finally:
+        for name in ("GEMINI_API_KEY", "OPENAI_API_KEY"):
+            os.environ.pop(name, None)
+        health.get_settings.cache_clear()

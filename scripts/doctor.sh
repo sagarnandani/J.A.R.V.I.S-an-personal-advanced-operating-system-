@@ -130,6 +130,18 @@ else
   echo "  Over plain http the cookie is only kept when COOKIE_SECURE=false."
 fi
 
+# --- 4b. model providers -------------------------------------------------
+say "4b. Model providers"
+for name in gemini openai claude; do
+  val "$name" "$(field providers.configured.$name)"
+done
+echo
+echo "  $(field providers.means)"
+echo
+echo "  Nothing above is a key -- only whether one is set. If you added a"
+echo "  key and it still says False, the container did not pick it up:"
+echo "    docker compose up -d --force-recreate"
+
 # --- 5. schema -----------------------------------------------------------
 say "5. Database"
 val "migrations in image" "$(field schema.migrations_in_image)"

@@ -37,6 +37,47 @@ async def health() -> dict:
         # new code is running" are different statements, and until now
         # there was no way to tell them apart from outside.
         "running": _running_build(),
+        # Which model providers have a key. Whether, never what.
+        #
+        # "I added the key" and "the key reached the container" are two
+        # different statements, and checking used to mean either trusting
+        # the first or printing an environment dump -- which is how a key
+        # ends up pasted into a chat window.
+        "providers": _providers(),
+    }
+
+
+def _providers() -> dict:
+    """Booleans only. No key, no prefix, not even a length.
+
+    A masked key is still a key with most of it visible, and a length
+    tells you which provider it is from. There is nothing useful here
+    that is not a yes or a no.
+    """
+    from app.llm import CLAUDE, GEMINI, OPENAI
+
+    settings = get_settings()
+    configured = {
+        GEMINI: bool(settings.gemini_api_key),
+        OPENAI: bool(settings.openai_api_key),
+        CLAUDE: bool(settings.anthropic_api_key),
+    }
+    have = [name for name, ready in configured.items() if ready]
+    return {
+        "configured": configured,
+        "default": settings.llm_provider,
+        "independent_review": len(have) >= 2,
+        "means": (
+            "No model provider is configured, so JARVIS returns clearly "
+            "labelled placeholder replies."
+            if not have else
+            f"{', '.join(n.title() for n in have)} configured. "
+            + ("The Auditor can review a change on a different model from "
+               "the one that wrote it."
+               if len(have) >= 2 else
+               "With only one, the Auditor reviews work written by the "
+               "same model and reports that the review is not independent.")
+        ),
     }
 
 
