@@ -360,8 +360,14 @@ def test_health_says_which_providers_are_configured_and_never_which_keys():
         printed = repr(reported)
         assert "sk-secret-value-do-not-print" not in printed
         assert "secret" not in printed
-        for fragment in ("sk-", "key=", str(len("sk-secret-value-do-not-print"))):
-            assert fragment not in printed, f"{fragment!r} leaked into /health"
+        # The prefix, and any recognisable run of the key. Not its
+        # length as bare digits: two digits appear in unrelated fields
+        # for reasons that have nothing to do with the key, and a test
+        # that fails for those reasons gets rerun instead of read.
+        assert "sk-" not in printed
+        key = "sk-secret-value-do-not-print"
+        for start in range(0, len(key) - 8):
+            assert key[start:start + 8] not in printed
     finally:
         os.environ.pop("GEMINI_API_KEY", None)
         health.get_settings.cache_clear()

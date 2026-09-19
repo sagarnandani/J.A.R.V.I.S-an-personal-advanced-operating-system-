@@ -72,6 +72,20 @@ body::after {
    whatever the truth is. A measurement that cannot fail is not a
    measurement. The real check is now whether the last panel's bottom edge
    falls inside the viewport. */
+/* Narrow -- a phone, or an iPad held upright.
+   The two columns stack, so everything in the left one sits above
+   everything in the right, and a settings panel at the bottom of the
+   right column ends up a thousand pixels down a page nobody scrolls that
+   far. Measured: moving Model keys off the crowded column fixed the
+   laptop and put it at y=1138 on a portrait iPad, which is worse than
+   where it started.
+   So when they stack, the settings column comes first and the settings
+   come first within it. */
+@media (max-width: 899px) {
+  #buildView .col:last-child { order: -1; }
+  #buildView .col:last-child > .panel.settings { order: -1; }
+}
+
 @media (min-width: 900px) and (min-height: 480px) {
   html, body { height: 100%; overflow: hidden; }
   #app { height: 100dvh; display: flex; flex-direction: column; padding-bottom: .5rem; }
@@ -81,10 +95,28 @@ body::after {
      its content and no scrollbar ever appears. */
   .col {
     min-height: 0; overflow-y: auto; padding-right: 3px;
-    scrollbar-width: thin; scrollbar-color: var(--edge) transparent;
+    /* Reserve the gutter whether or not a bar is drawn, so a column that
+       grows past the fold does not shift its contents sideways at the
+       moment it starts scrolling. */
+    scrollbar-gutter: stable;
+    scrollbar-width: thin; scrollbar-color: var(--cyan) rgba(72,200,255,.10);
   }
-  .col::-webkit-scrollbar { width: 5px; }
-  .col::-webkit-scrollbar-thumb { background: var(--edge); border-radius: 3px; }
+  /* Drawn always, not only while scrolling.
+     These columns DID scroll -- measured at 70 to 93 pixels past the fold
+     on a laptop -- and nothing on screen said so, because an overlay
+     scrollbar is invisible until you are already scrolling. A panel you
+     cannot see and have no reason to look for is a panel that does not
+     exist. Hence a visible track as well as a thumb. */
+  .col::-webkit-scrollbar { width: 9px; }
+  .col::-webkit-scrollbar-track {
+    background: rgba(72,200,255,.10);
+    border-left: 1px solid var(--edge-soft);
+  }
+  .col::-webkit-scrollbar-thumb {
+    background: var(--edge); border-radius: 4px;
+    border: 2px solid transparent; background-clip: content-box;
+  }
+  .col::-webkit-scrollbar-thumb:hover { background: var(--cyan); background-clip: content-box; }
 }
 
 h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, system-ui, sans-serif; }
@@ -181,6 +213,16 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
   .col > .panel.flexy .scroller {
     max-height: 30vh;
     max-height: 30svh;   /* iOS: vh is the toolbar-less height */
+    /* And a floor, which was missing.
+       `min-height: 0` on the panel lets a flex child shrink to nothing,
+       and in a column that is itself scrolling that is exactly what this
+       did: measured at 0px tall, with its rows rendering behind the
+       panel. The list looked empty and its rows could not be clicked --
+       the pointer landed on the panel underneath them.
+       flex-basis auto with a floor means it takes the space it needs,
+       up to the cap, and never disappears. */
+    flex: 0 1 auto;
+    min-height: 92px;
     overflow-y: auto;
   }
   /* The centre never scrolls: the message box must always be on screen,
@@ -637,11 +679,40 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 @media (min-width: 900px) {
   #buildView { grid-template-columns: minmax(260px, 1fr) minmax(400px, 1.7fr); }
   #buildView .col { min-height: 0; }
+  /* `flex: 1` is `1 1 0%` -- a basis of nothing, grown from whatever
+     space is left over. `#buildView` is `align-content: start`, so the
+     grid row is NOT stretched and there is no space left over: the panel
+     collapsed to its heading, 31px, while the list inside it stayed 120px
+     and rendered outside its own panel. The rows were then painted over
+     by the next panel down, so the list looked empty and clicking a row
+     hit the panel beneath it.
+     `1 1 auto` takes the basis from content instead, so the panel is at
+     least as tall as what is in it, and still grows when there is room. */
   #buildView .col > .panel.flexy {
-    flex: 1; display: flex; flex-direction: column; min-height: 0;
+    flex: 1 1 auto; display: flex; flex-direction: column;
+    /* Not 0. `min-height: 0` is the usual incantation for letting a flex
+       child shrink so a scrollbar can appear -- and here it let the panel
+       shrink below its own contents, which is a different thing and not
+       one anybody wanted. `min-content` still allows the column around it
+       to scroll; it just refuses to squash a panel smaller than what is
+       in it. */
+    min-height: min-content;
   }
+  /* A floor, which was missing.
+     `min-height: 0` with `flex: 1` inside a column that is start-aligned
+     rather than stretched leaves nothing to distribute, and this list
+     collapsed to exactly 0px -- measured. Its rows still rendered, on top
+     of the panel rather than inside it, so the panel looked empty and
+     clicking a row landed on the panel underneath. A list you cannot see
+     and cannot click is the same as one that is not there.
+     `flex: 1 1 auto` takes its basis from content, and the floor means it
+     can never vanish however the column is sized. */
   #buildView #buildList, #buildView #buildDetail {
-    flex: 1; min-height: 0; max-height: 62vh; max-height: 62svh;
+    /* The floor is small on purpose: enough that an empty list still
+       shows its "nothing yet" line, not so much that it forces the panel
+       taller than the space available on a short screen. The real fix for
+       the collapse is the flex-basis on the panel above. */
+    flex: 1 1 auto; min-height: 60px; max-height: 62vh; max-height: 62svh;
   }
 }
 
@@ -1121,44 +1192,6 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         would take. It writes nothing.</p>
       </section>
 
-      <!-- Model provider keys.
-           Adding one used to mean an SSH session, an editor and a
-           container rebuild -- four things to get right on a laptop, for
-           a system that is read on an iPad. The key goes to the server
-           and is never shown again: this box is always empty on load,
-           and there is no endpoint that could fill it. -->
-      <section class="panel">
-        <h2>Model keys</h2>
-        <div id="providerList"></div>
-        <div class="row" style="margin-top:.6rem">
-          <select class="field" id="keyProvider" style="min-height:0;width:auto">
-            <option value="openai">ChatGPT (OpenAI)</option>
-            <option value="gemini">Gemini</option>
-            <option value="claude">Claude</option>
-          </select>
-        </div>
-        <input class="field" id="keyValue" type="password" autocomplete="off"
-               placeholder="Paste the key here" style="margin-top:.4rem" />
-        <input class="field" id="keyModel" autocomplete="off"
-               placeholder="Model name (leave blank for the default)"
-               style="margin-top:.4rem" />
-        <div class="row" style="margin-top:.6rem">
-          <button class="btn" id="saveKeyBtn">Save and test</button>
-        </div>
-        <p class="note" id="keyNote"></p>
-      </section>
-
-      <!-- The boundary, on the screen where it is exercised. A setting
-           this consequential should not live behind a menu, and it should
-           say in words what it currently permits rather than showing a
-           number. -->
-      <section class="panel">
-        <h2>How much JARVIS may decide</h2>
-        <select class="field" id="govCeiling" style="min-height:0"></select>
-        <p class="note" id="govMeans" style="margin-top:.5rem"></p>
-        <p class="note" id="govNever"></p>
-      </section>
-
       <section class="panel flexy">
         <h2>Proposed changes</h2>
         <div class="scroller" id="buildList">
@@ -1198,6 +1231,45 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         <p class="note" id="buildFooter">Approving records that you read it.
         JARVIS does not merge its own changes.</p>
       </section>
+
+      <!-- Model provider keys.
+           Adding one used to mean an SSH session, an editor and a
+           container rebuild -- four things to get right on a laptop, for
+           a system that is read on an iPad. The key goes to the server
+           and is never shown again: this box is always empty on load,
+           and there is no endpoint that could fill it. -->
+      <section class="panel settings">
+        <h2>Model keys</h2>
+        <div id="providerList"></div>
+        <div class="row" style="margin-top:.6rem">
+          <select class="field" id="keyProvider" style="min-height:0;width:auto">
+            <option value="openai">ChatGPT (OpenAI)</option>
+            <option value="gemini">Gemini</option>
+            <option value="claude">Claude</option>
+          </select>
+        </div>
+        <input class="field" id="keyValue" type="password" autocomplete="off"
+               placeholder="Paste the key here" style="margin-top:.4rem" />
+        <input class="field" id="keyModel" autocomplete="off"
+               placeholder="Model name (leave blank for the default)"
+               style="margin-top:.4rem" />
+        <div class="row" style="margin-top:.6rem">
+          <button class="btn" id="saveKeyBtn">Save and test</button>
+        </div>
+        <p class="note" id="keyNote"></p>
+      </section>
+
+      <!-- The boundary, on the screen where it is exercised. A setting
+           this consequential should not live behind a menu, and it should
+           say in words what it currently permits rather than showing a
+           number. -->
+      <section class="panel settings">
+        <h2>How much JARVIS may decide</h2>
+        <select class="field" id="govCeiling" style="min-height:0"></select>
+        <p class="note" id="govMeans" style="margin-top:.5rem"></p>
+        <p class="note" id="govNever"></p>
+      </section>
+
     </div>
   </div>
 

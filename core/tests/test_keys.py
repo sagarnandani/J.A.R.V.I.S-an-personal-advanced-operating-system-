@@ -91,9 +91,33 @@ async def test_nothing_reported_to_the_page_contains_the_key(clean):
     for reported in (await keys.configured(), await keys.one_line()):
         printed = repr(reported)
         assert SECRET not in printed
-        assert "sk-test" not in printed
-        # Not even the length: a length names which provider it is from.
-        assert str(len(SECRET)) not in printed
+
+        # Any recognisable run of the key, not just the whole thing --
+        # half a key is still half a key.
+        for start in range(0, len(SECRET) - 8):
+            assert SECRET[start:start + 8] not in printed, (
+                f"part of the key leaked: {SECRET[start:start + 8]!r}")
+
+    # The length must not be REPORTED, because a length narrows down
+    # which provider a key is from. Checked as "no field equals it"
+    # rather than "the digits appear nowhere in the output" -- the
+    # output carries a timestamp, and the naive version failed whenever
+    # the clock happened to contain those two digits. A test that fails
+    # on the minute of the hour is one you learn to rerun rather than
+    # read.
+    def values(obj):
+        if isinstance(obj, dict):
+            for item in obj.values():
+                yield from values(item)
+        elif isinstance(obj, (list, tuple)):
+            for item in obj:
+                yield from values(item)
+        else:
+            yield obj
+
+    for value in values(await keys.configured()):
+        assert value != len(SECRET), "the key's length is reported"
+        assert value != str(len(SECRET)), "the key's length is reported"
 
 
 @pytest.mark.asyncio
