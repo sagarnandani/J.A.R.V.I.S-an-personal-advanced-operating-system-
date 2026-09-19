@@ -93,6 +93,25 @@ body::after {
   .panel { min-height: 0; }
   /* min-height:0 at every level, or a flex child refuses to shrink below
      its content and no scrollbar ever appears. */
+  /* A panel is never squashed below what is inside it.
+     `.col` is a flex column, and a flex child's default shrink factor is
+     1 -- so with more panels than height, every panel gave up space and
+     its contents spilled out through its own bottom border. On screen
+     that read as panels merging into each other: the key entry lost its
+     model field and Save button, and the Scientist's findings ran down
+     into Going back.
+     Refusing to shrink means the column overflows instead, which is
+     exactly what it has a scrollbar for.
+
+     `:not(.flexy)` matters, and the first version without it broke the
+     Media tab. A `.flexy` panel holds a scroller and is BUILT to shrink
+     -- that is how its list gets a height to scroll inside. Freezing
+     those too left the media detail panel unable to size its own
+     scroller, so the script, the citations and the approve button all
+     disappeared. Panels without a scroller have nowhere to put the
+     overflow; panels with one do. */
+  .col > .panel:not(.flexy) { flex-shrink: 0; }
+
   .col {
     min-height: 0; overflow-y: auto; padding-right: 3px;
     /* Reserve the gutter whether or not a bar is drawn, so a column that

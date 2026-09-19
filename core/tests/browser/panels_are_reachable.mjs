@@ -68,8 +68,35 @@ for (const [label, width, height] of SIZES) {
       overflow: getComputedStyle(col).overflowY,
     }));
 
+    // Does anything spill out of its own panel?
+    //
+    // This is the fault that read on screen as panels merging into each
+    // other: a flex child's default shrink factor is 1, so with more
+    // panels than height every panel gave up space and its contents
+    // carried on past its bottom border into the next one. The key entry
+    // lost its model field and its Save button that way -- present in
+    // the DOM, painted outside the box, and invisible.
+    //
+    // A panel with its own scroller is allowed to overflow, because that
+    // is what the scroller is for; it is measured by whether the
+    // scroller can actually be scrolled, not by the panel's size.
+    const spilling = [];
+    for (const { name, panel } of named) {
+      const scroller = panel.querySelector('.scroller');
+      const slack = panel.scrollHeight - panel.clientHeight;
+      if (slack > 2 && !scroller)
+        spilling.push(`${name} (by ${Math.round(slack)}px)`);
+      if (slack > 2 && scroller) {
+        // With a scroller present, the panel itself must still contain
+        // it: the scroller absorbs its own content, not the panel's.
+        const inside = scroller.getBoundingClientRect().bottom
+                       <= panel.getBoundingClientRect().bottom + 2;
+        if (!inside) spilling.push(`${name} (its list renders outside it)`);
+      }
+    }
+
     return { count: named.length, names: named.map((n) => n.name),
-             unreachable, columns,
+             unreachable, columns, spilling,
              bodyScrolls: document.documentElement.scrollHeight
                           > window.innerHeight };
   });
@@ -79,6 +106,11 @@ for (const [label, width, height] of SIZES) {
   else if (report.unreachable.length)
     fail(`${label}: cannot reach ${report.unreachable.join(', ')}`);
   else ok(`${label}: all ${report.count} panels reachable`);
+
+  if (report.spilling.length)
+    fail(`${label}: content spills out of ${report.spilling.join('; ')} ` +
+         `— on screen that reads as panels merging into each other`);
+  else ok(`${label}: nothing spills out of its panel`);
 
   // Where the column itself scrolls, it must advertise it. Where the
   // page scrolls instead, the page's own scrollbar is the affordance.
