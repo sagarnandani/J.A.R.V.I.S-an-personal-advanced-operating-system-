@@ -44,7 +44,38 @@ class ProviderUnavailable(Exception):
 
 
 def _build(name: str, settings: Settings) -> LLMProvider | None:
-    """Build one provider, or None if it isn't configured on this deployment."""
+    """Build one provider, or None if it isn't configured on this deployment.
+
+    A key set from the dashboard wins over one in the environment. That
+    order is deliberate: the dashboard is the one the owner touched most
+    recently and can change without a rebuild, and a stale .env quietly
+    overriding what he just typed would be maddening to diagnose -- the
+    page would say the key was saved and the old one would keep being
+    used.
+    """
+    from app import keys
+
+    stored_key, stored_model = keys.cached(name)
+    if stored_key:
+        if name == GEMINI:
+            from app.llm.gemini_adapter import GeminiAdapter
+
+            return GeminiAdapter(
+                api_key=stored_key,
+                model=stored_model or settings.gemini_model,
+                thinking_budget=settings.gemini_thinking_budget,
+            )
+        if name == CLAUDE:
+            from app.llm.claude_adapter import ClaudeAdapter
+
+            return ClaudeAdapter(api_key=stored_key,
+                                 model=stored_model or settings.claude_model)
+        if name == OPENAI:
+            from app.llm.openai_adapter import OpenAIAdapter
+
+            return OpenAIAdapter(api_key=stored_key,
+                                 model=stored_model or settings.openai_model)
+
     if name == GEMINI and settings.gemini_api_key:
         from app.llm.gemini_adapter import GeminiAdapter
 

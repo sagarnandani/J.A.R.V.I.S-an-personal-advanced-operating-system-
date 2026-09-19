@@ -1971,6 +1971,7 @@ async function loadBuilds() {
         list.map((f) => `<option value="${esc(f.id)}">${esc(f.filename)}</option>`).join("");
     }
 
+    loadProviders();
     renderGovernor(data.governor || {});
     renderRecovery(data.recovery || {});
     loadScientist();
@@ -1983,6 +1984,66 @@ async function loadBuilds() {
     if (openBuild) showBuild(openBuild);
   } catch (e) { /* the tab is still readable without a refresh */ }
 }
+
+// Model provider keys.
+//
+// The box is always empty on load and there is no endpoint that could
+// fill it. What is shown is whether a key is set and where it came from
+// -- never the key, not even masked, because a masked key is still most
+// of a key and its length names the provider.
+const PROVIDER_NAMES = { openai: "ChatGPT", gemini: "Gemini", claude: "Claude" };
+
+async function loadProviders() {
+  try {
+    const res = await api("/v1/settings/providers");
+    if (!res.ok) return;
+    const data = await res.json();
+    const rows = Object.entries(data.providers || {});
+    $("providerList").innerHTML = rows.map(([name, p]) => `
+      <div class="wf">
+        <span class="o">${esc(PROVIDER_NAMES[name] || name)}</span>
+        <span class="s ${p.configured ? "completed" : ""}">${
+          p.configured
+            ? esc(p.source === "dashboard" ? "set here" : "set in .env")
+            : "not set"
+        }</span>
+      </div>`).join("");
+    if (!$("keyNote").textContent) $("keyNote").textContent = data.said || "";
+  } catch (e) { /* the rest of the tab still works */ }
+}
+
+$("saveKeyBtn").onclick = async () => {
+  const provider = $("keyProvider").value;
+  const key = $("keyValue").value.trim();
+  if (!key) { $("keyNote").textContent = "Paste a key first."; return; }
+
+  $("saveKeyBtn").disabled = true;
+  $("keyNote").textContent = `Saving and testing the ${PROVIDER_NAMES[provider]} key…`;
+  try {
+    const res = await api("/v1/settings/providers", {
+      method: "POST",
+      body: JSON.stringify({
+        provider, api_key: key, model: $("keyModel").value.trim() || null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      // Cleared whether or not the key worked. It is on the server now;
+      // leaving it on screen only leaves it on screen.
+      $("keyValue").value = "";
+      $("keyNote").textContent = data.works
+        ? `Saved. ${data.said} ${data.summary || ""}`
+        : `Saved, but it did not work: ${data.said}`;
+      loadProviders();
+    } else {
+      $("keyNote").textContent = data.detail || "That could not be saved.";
+    }
+  } catch (e) {
+    $("keyNote").textContent = "That could not be saved.";
+  } finally {
+    $("saveKeyBtn").disabled = false;
+  }
+};
 
 // The autonomy ceiling. Shown as what it permits, not as a number: "2 —
 // normal development" means nothing on its own, and this is the setting

@@ -1121,6 +1121,33 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         would take. It writes nothing.</p>
       </section>
 
+      <!-- Model provider keys.
+           Adding one used to mean an SSH session, an editor and a
+           container rebuild -- four things to get right on a laptop, for
+           a system that is read on an iPad. The key goes to the server
+           and is never shown again: this box is always empty on load,
+           and there is no endpoint that could fill it. -->
+      <section class="panel">
+        <h2>Model keys</h2>
+        <div id="providerList"></div>
+        <div class="row" style="margin-top:.6rem">
+          <select class="field" id="keyProvider" style="min-height:0;width:auto">
+            <option value="openai">ChatGPT (OpenAI)</option>
+            <option value="gemini">Gemini</option>
+            <option value="claude">Claude</option>
+          </select>
+        </div>
+        <input class="field" id="keyValue" type="password" autocomplete="off"
+               placeholder="Paste the key here" style="margin-top:.4rem" />
+        <input class="field" id="keyModel" autocomplete="off"
+               placeholder="Model name (leave blank for the default)"
+               style="margin-top:.4rem" />
+        <div class="row" style="margin-top:.6rem">
+          <button class="btn" id="saveKeyBtn">Save and test</button>
+        </div>
+        <p class="note" id="keyNote"></p>
+      </section>
+
       <!-- The boundary, on the screen where it is exercised. A setting
            this consequential should not live behind a menu, and it should
            say in words what it currently permits rather than showing a

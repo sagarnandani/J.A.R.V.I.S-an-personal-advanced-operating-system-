@@ -28,6 +28,7 @@ from app.routes import (
     media,
     message,
     records,
+    settings_keys,
     voice,
 )
 
@@ -55,6 +56,9 @@ async def lifespan(app: FastAPI):
         # Inside the pool: the registry lives in the database, so this
         # cannot run before there is a connection to it.
         await _install_agents()
+        # Provider keys set from the dashboard, into the cache the
+        # provider selection reads. Before anything can want a model.
+        await _load_provider_keys()
         await _recover_stuck_work()
         ticker = _start_scheduler(settings)
         # Last, and only once everything above has worked: write down the
@@ -111,6 +115,17 @@ async def _apply_migrations(settings) -> None:
         await apply_pending(get_pool())
     except Exception as exc:  # noqa: BLE001 - never worth refusing to start
         logger.error("Could not check or apply migrations: %s", exc)
+
+
+async def _load_provider_keys() -> None:
+    """Never fails startup. A deployment with no keys table yet should
+    come up and fall back to the environment, not refuse to boot."""
+    try:
+        from app import keys
+
+        await keys.refresh()
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Could not load provider keys: %s", exc)
 
 
 async def _note_a_working_version(settings) -> None:
@@ -260,6 +275,7 @@ app.include_router(admin.router)
 app.include_router(agents.router)
 app.include_router(media.router)
 app.include_router(voice.router)
+app.include_router(settings_keys.router)
 app.include_router(attachments.router)
 app.include_router(dev.router)
 

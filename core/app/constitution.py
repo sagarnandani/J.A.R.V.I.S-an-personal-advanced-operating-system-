@@ -71,6 +71,10 @@ PROTECTED: tuple[tuple[str, str], ...] = (
     ("core/app/governor.py", "risk classification and the autonomy ceiling"),
     # The reviewer. An audit the audited party can rewrite is decoration.
     ("core/app/dev/auditor.py", "the independent review"),
+    # Where the provider keys live and the rules about never reading one
+    # back out. A file that holds secrets is not one JARVIS may rewrite.
+    ("core/app/keys.py", "the model provider keys"),
+    ("core/app/routes/settings_keys.py", "the path that sets a key"),
 
     # Deployment and schema: the ways a change reaches production, and
     # the ways credentials enter it.
