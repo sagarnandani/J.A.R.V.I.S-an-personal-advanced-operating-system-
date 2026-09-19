@@ -26,7 +26,8 @@ from app.budget import estimate_cost_inr, estimate_shadow_inr
 from app.config import Settings, get_settings
 from app.llm import ProviderUnavailable, get_provider
 from app.llm import preference
-from app.models import MessageRequest, MessageResponse, Offer
+from app import browse
+from app.models import OpenInBrowser, MessageRequest, MessageResponse, Offer
 
 logger = logging.getLogger("jarvis.message")
 
@@ -107,12 +108,22 @@ async def send_message(
             "POST /v1/admin/emergency-stop to resume.",
         )
 
+    # "Open YouTube." Resolved from his own words, before a model is
+    # chosen and before one is called -- so it is instant, costs nothing,
+    # and works on a deployment with no key configured at all.
+    #
+    # Not for a message carrying a document: "open the attached file" is
+    # about the attachment, not about a website.
+    opening = None if body.attachment_id else browse.read(body.text)
+
     # Which intelligence he asked for, if he asked. This decides WHO does
     # the work and nothing else: permissions come from the registry and
     # the runtime, and a preference cannot widen any of them.
     wanted = preference.read(body.text)
+    provider = None
     try:
-        provider = get_provider(settings, wanted)
+        if opening is None:
+            provider = get_provider(settings, wanted)
     except ProviderUnavailable as exc:
         # Said, never substituted. A hard choice that quietly became a
         # different model would turn a deliberate instruction into a
@@ -142,26 +153,41 @@ async def send_message(
         asked = f"{attachments.as_material(attached)}\n\n{asked}"
 
     model_started = time.perf_counter()
-    try:
-        memory_context = _context(known_facts, status_line)
-        result = await provider.complete(asked, history, memory_context)
-        outcome = "success"
-        model_ms = int((time.perf_counter() - model_started) * 1000)
-    except Exception as exc:
-        # Graceful degradation (architecture doc, section L): say plainly
-        # that the model call failed, don't fabricate a response.
-        logger.exception("LLM call failed")
-        await audit.log_audit(
-            actor="system",
-            action="llm_message_exchange",
-            category="low_risk",
-            outcome=f"error: {exc}",
-            cost=None,
+    if opening is not None:
+        # A canned result rather than a separate return path, so the
+        # exchange is stored, audited and costed exactly like any other.
+        # A shortcut that skipped those would make "open YouTube" the one
+        # thing JARVIS does that leaves no trace.
+        from types import SimpleNamespace
+
+        result = SimpleNamespace(
+            text=opening.said, input_tokens=0, output_tokens=0,
+            model="none", provider="jarvis",
         )
-        raise HTTPException(
-            status_code=502,
-            detail=f"The language model provider failed to respond: {exc}",
-        ) from exc
+        outcome = "success"
+        model_ms = 0
+    else:
+        try:
+            memory_context = _context(known_facts, status_line)
+            result = await provider.complete(asked, history, memory_context)
+            outcome = "success"
+            model_ms = int((time.perf_counter() - model_started) * 1000)
+        except Exception as exc:
+            # Graceful degradation (architecture doc, section L): say
+            # plainly that the model call failed, don't fabricate a
+            # response.
+            logger.exception("LLM call failed")
+            await audit.log_audit(
+                actor="system",
+                action="llm_message_exchange",
+                category="low_risk",
+                outcome=f"error: {exc}",
+                cost=None,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"The language model provider failed to respond: {exc}",
+            ) from exc
 
     # The model marks a message it judges worth real work, on the end of
     # the reply it was already writing. Split before anything else touches
@@ -274,6 +300,7 @@ async def send_message(
     return MessageResponse(
         reply=reply_text,
         offer=Offer(**proposal) if proposal else None,
+        open=OpenInBrowser(**opening.as_detail()) if opening else None,
         user_memory_id=user_memory_id,
         reply_memory_id=reply_memory_id,
         audit_log_id=audit_log_id,

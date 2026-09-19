@@ -30,10 +30,26 @@ class Offer(BaseModel):
     typical_cost_inr: float | None = None
 
 
+class OpenInBrowser(BaseModel):
+    """An address for the page in front of the owner to open.
+
+    Resolved from what he typed, never from what a model replied -- see
+    app/browse.py for why that distinction is the whole security design.
+    """
+    url: str
+    site: str
+    query: str | None = None
+    said: str
+
+
 class MessageResponse(BaseModel):
     reply: str
     # None for the great majority of messages: chat stays chat.
     offer: Offer | None = None
+    # Set only when he asked to open something. JARVIS has no screen of
+    # its own -- it runs on a server in another room -- so what opens is
+    # his browser, on his device, which is what he meant.
+    open: OpenInBrowser | None = None
     user_memory_id: UUID
     reply_memory_id: UUID
     audit_log_id: UUID

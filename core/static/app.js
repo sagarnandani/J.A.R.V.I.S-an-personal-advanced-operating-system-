@@ -688,6 +688,7 @@ async function send() {
       // read aloud as a wall of text is harder to act on than one sitting
       // on screen with two buttons under it.
       if (data.offer) addOffer(msg, data.offer);
+      if (data.open) openIt(msg, data.open);
     } else {
       addMsg("jarvis", explain(res.status, data.detail || ""), null, "err");
     }
@@ -820,6 +821,49 @@ $("signOutBtn").onclick = async () => {
   await api("/auth/logout", { method: "POST" });
   location.reload();
 };
+
+/* -------------------------------------------------------------- opening */
+// "Open YouTube." JARVIS runs on a server with no screen, so what opens
+// is this browser, here.
+//
+// window.open() from inside a fetch callback is not a user gesture, and
+// every popup blocker treats it accordingly -- iOS Safari most strictly.
+// So the tab is attempted, and when it is blocked the reply grows a
+// button instead. A tap on that IS a gesture and always works.
+//
+// The alternative, navigating this tab away with location.href, was
+// rejected: it closes JARVIS to open something else, and on iOS coming
+// back means a cold reload and signing in again.
+function openIt(msg, opening) {
+  let tab = null;
+  try {
+    tab = window.open(opening.url, "_blank", "noopener");
+  } catch (e) { /* blocked; the button below is the answer */ }
+
+  if (tab) return;
+
+  const row = document.createElement("div");
+  row.className = "row";
+  row.style.marginTop = ".5rem";
+
+  const button = document.createElement("button");
+  button.className = "btn";
+  button.textContent = `Open ${opening.site}`;
+  // A real link under the hood, so a long-press offers "open in new tab"
+  // and the address is visible on hover -- a button that navigates
+  // somewhere unnamed is a button nobody should press.
+  button.onclick = () => {
+    window.open(opening.url, "_blank", "noopener");
+    note.textContent = "Opened.";
+  };
+
+  const note = document.createElement("span");
+  note.className = "note";
+  note.textContent = "Your browser blocked the tab — tap to open it.";
+
+  row.append(button, note);
+  msg.append(row);
+}
 
 /* ------------------------------------------------------------- start-up */
 async function start() {
@@ -1159,6 +1203,14 @@ let voiceOffer = null;
 
 document.addEventListener("jarvis:offer", (e) => {
   const msg = e.detail;
+
+  // Spoken "open YouTube". Handled before the offer machinery, and
+  // outside it: there is nothing to confirm, so there is no card, no
+  // standing offer, and no yes to wait for.
+  if (msg.type === "open") {
+    openIt(addMsg("jarvis", msg.said || `Opening ${msg.site}.`, null), msg);
+    return;
+  }
 
   if (msg.type === "offer") {
     const row = addMsg("jarvis", "", null);

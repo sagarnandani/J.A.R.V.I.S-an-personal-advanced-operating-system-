@@ -488,7 +488,26 @@ async def _handle_turn(
     """
     key = id(websocket)
     try:
-        from app import offer
+        from app import browse, offer
+
+        # "Open YouTube", spoken. Answered before anything else, because
+        # it is the one request that is finished the moment it is
+        # understood -- there is nothing to offer, confirm or wait for.
+        #
+        # Checked against what he SAID, never against what the model
+        # replied. Voice is the path where that matters most: the model
+        # is listening to a live audio stream, and an address taken from
+        # its output would be an address taken from whatever it heard.
+        opening = browse.read(spoken)
+        if opening is not None:
+            await _say(websocket, type="open", url=opening.url,
+                       site=opening.site, query=opening.query,
+                       said=opening.said)
+            # Told to the model too, so it says "opening YouTube" in its
+            # own voice instead of carrying on as if nothing happened.
+            await _inject(session, f"[JARVIS just did this: {opening.said} "
+                                   f"Say so briefly and naturally.]")
+            return
 
         standing = _STANDING.get(key)
         if standing:
