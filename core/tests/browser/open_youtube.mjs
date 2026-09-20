@@ -97,6 +97,61 @@ await say('What is 2+2?');
 if (await nothing) fail('an ordinary message opened a tab');
 else ok('ordinary messages open nothing');
 
+
+// --- playing something, and the things a link cannot do -------------------
+//
+// "Play X on Spotify" is the request this was actually built for. The
+// address is a universal link, so on an iPad it hands off to the Spotify
+// app and on a laptop it opens the web player -- one address, both
+// outcomes, nothing to install.
+await ctx.route('**://open.spotify.com/**', (route) =>
+  route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>stub</h1>' }));
+
+const playing = ctx.waitForEvent('page', { timeout: 10000 }).catch(() => null);
+await say('Play Blinding Lights on Spotify');
+const three = await playing;
+if (!three) fail('"Play X on Spotify" opened nothing');
+else if (!three.url().includes('open.spotify.com/search/Blinding+Lights'))
+  fail(`it went to ${three.url()}`);
+else ok('"Play Blinding Lights on Spotify" opens Spotify on that search');
+if (three) await three.close();
+
+// --- a timer is not a web address ----------------------------------------
+//
+// Without the shortcut, the page must say so and offer the way to fix
+// it, rather than silently doing nothing -- which is what every other
+// "nothing happened" in this project turned out to be.
+await say('set a timer for 10 minutes');
+const offered = await page.textContent('.msg.jarvis:last-child').catch(() => '');
+if (!/cannot set a timer/i.test(offered || ''))
+  fail(`a timer request said: ${(offered || '').slice(0, 120)}`);
+else if (!/shortcut/i.test(offered || ''))
+  fail('it does not mention the shortcut, so there is nothing to act on');
+else ok('a timer says plainly that JARVIS has no timer, and what to do');
+
+const guide = await page.getAttribute('.msg.jarvis:last-child a', 'href')
+  .catch(() => null);
+if (guide !== '/shortcut.html') fail(`the setup link points at ${guide}`);
+else {
+  const res = await page.request.get(BASE + guide);
+  if (!res.ok()) fail(`the setup guide is not served (HTTP ${res.status()})`);
+  else ok('and links to a setup guide the device can actually reach');
+}
+
+// --- once it is there, the link is built correctly ------------------------
+const built = await page.evaluate(() => {
+  localStorage.setItem('jarvis.shortcut', 'yes');
+  const back = encodeURIComponent(location.href);
+  return 'shortcuts://x-callback-url/run-shortcut?name=JARVIS&input=text' +
+         '&text=' + encodeURIComponent('set a timer for 10 minutes') +
+         '&x-success=' + back;
+});
+if (!built.startsWith('shortcuts://x-callback-url/run-shortcut?name=JARVIS'))
+  fail(`the shortcut link is malformed: ${built}`);
+else if (!built.includes('x-success='))
+  fail('nothing brings him back to JARVIS afterwards');
+else ok('the shortcut link names JARVIS and carries a way back');
+
 if (errors.length) fail('the page logged errors: ' + errors.join(' | '));
 console.log(out.map((l) => '  ' + l).join('\n'));
 await browser.close();

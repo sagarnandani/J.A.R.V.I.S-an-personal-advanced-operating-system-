@@ -834,7 +834,74 @@ $("signOutBtn").onclick = async () => {
 // The alternative, navigating this tab away with location.href, was
 // rejected: it closes JARVIS to open something else, and on iOS coming
 // back means a cold reload and signing in again.
+// Whether THIS device has the JARVIS shortcut. Per device, not per
+// account: the iPad has it, the laptop does not, and the server has no
+// business knowing which browser this is. localStorage is exactly the
+// right shape for that -- and it is a convenience, so a browser that
+// refuses to store it just means the prompt appears again.
+const HAS_SHORTCUT = "jarvis.shortcut";
+
+function hasShortcut() {
+  try { return localStorage.getItem(HAS_SHORTCUT) === "yes"; }
+  catch (e) { return false; }
+}
+
+function setHasShortcut(yes) {
+  try { localStorage.setItem(HAS_SHORTCUT, yes ? "yes" : "no"); }
+  catch (e) { /* private window; it will ask again, which is fine */ }
+}
+
+// A timer, a reminder, a message, a light. None of those is a web
+// address, and JARVIS has none of them -- it is a server in another
+// room. Shortcuts is the hand on an iPhone or iPad.
+function runShortcut(msg, action) {
+  if (!hasShortcut()) {
+    const row = document.createElement("div");
+    row.className = "cost";
+    row.style.marginTop = ".5rem";
+    row.innerHTML =
+      `JARVIS cannot ${esc(action.instruction)} by itself — it has no ` +
+      `timer, no messages and no lights. On an iPhone or iPad a Shortcut ` +
+      `can do it. <a href="/shortcut.html" target="_blank" rel="noopener">` +
+      `How to set it up</a>, then `;
+    const yes = document.createElement("button");
+    yes.className = "btn";
+    yes.textContent = "I've added it";
+    yes.onclick = () => { setHasShortcut(true); runShortcut(msg, action); };
+    row.append(yes);
+    msg.append(row);
+    return;
+  }
+
+  // The page builds the link, not the server, so the callback can carry
+  // this exact address and bring him back where he was.
+  const back = encodeURIComponent(location.href);
+  const url = "shortcuts://x-callback-url/run-shortcut" +
+    "?name=JARVIS&input=text" +
+    "&text=" + encodeURIComponent(action.instruction) +
+    "&x-success=" + back;
+
+  // Same as a tab: try it, and if the browser refuses, leave something
+  // to tap. A shortcut link opened without a gesture is blocked exactly
+  // like a popup.
+  let went = false;
+  try { location.href = url; went = true; } catch (e) { /* offer below */ }
+  if (went) return;
+
+  const row = document.createElement("div");
+  row.className = "row";
+  row.style.marginTop = ".5rem";
+  const go = document.createElement("button");
+  go.className = "btn";
+  go.textContent = "Run it";
+  go.onclick = () => { location.href = url; };
+  row.append(go);
+  msg.append(row);
+}
+
 function openIt(msg, opening) {
+  if (opening.kind === "shortcut") return runShortcut(msg, opening);
+
   let tab = null;
   try {
     tab = window.open(opening.url, "_blank", "noopener");

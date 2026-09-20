@@ -116,6 +116,17 @@ async def send_message(
     # about the attachment, not about a website.
     opening = None if body.attachment_id else browse.read(body.text)
 
+    # Things no address can do -- a timer, a reminder, a message, a light.
+    # Handed to the shortcut on his device rather than done here, because
+    # JARVIS has no timer, no messages app and no lights.
+    #
+    # The page decides whether it can: only some devices have the
+    # shortcut, and which ones is a fact about the device, not about the
+    # account. Sent as an instruction rather than a link so the page can
+    # put its own address in the callback and bring him back here.
+    doing = (None if (body.attachment_id or opening)
+             else browse.needs_the_shortcut(body.text))
+
     # Which intelligence he asked for, if he asked. This decides WHO does
     # the work and nothing else: permissions come from the registry and
     # the runtime, and a preference cannot widen any of them.
@@ -153,7 +164,7 @@ async def send_message(
         asked = f"{attachments.as_material(attached)}\n\n{asked}"
 
     model_started = time.perf_counter()
-    if opening is not None:
+    if opening is not None or doing is not None:
         # A canned result rather than a separate return path, so the
         # exchange is stored, audited and costed exactly like any other.
         # A shortcut that skipped those would make "open YouTube" the one
@@ -161,8 +172,8 @@ async def send_message(
         from types import SimpleNamespace
 
         result = SimpleNamespace(
-            text=opening.said, input_tokens=0, output_tokens=0,
-            model="none", provider="jarvis",
+            text=(opening.said if opening else f"Asking your device to {doing}."),
+            input_tokens=0, output_tokens=0, model="none", provider="jarvis",
         )
         outcome = "success"
         model_ms = 0
@@ -300,7 +311,10 @@ async def send_message(
     return MessageResponse(
         reply=reply_text,
         offer=Offer(**proposal) if proposal else None,
-        open=OpenInBrowser(**opening.as_detail()) if opening else None,
+        open=(OpenInBrowser(kind="url", **opening.as_detail()) if opening
+              else OpenInBrowser(kind="shortcut", instruction=doing,
+                                 said=f"Asking your device to {doing}.")
+              if doing else None),
         user_memory_id=user_memory_id,
         reply_memory_id=reply_memory_id,
         audit_log_id=audit_log_id,

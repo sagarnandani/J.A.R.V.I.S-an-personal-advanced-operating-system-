@@ -64,8 +64,8 @@ def test_a_query_is_escaped_rather_than_pasted_in():
 
 def test_searching_a_site_with_no_search_opens_it_and_says_only_that():
     """Never claim a search that did not happen."""
-    opened = browse.read("open netflix and search for dune")
-    assert opened.url == "https://www.netflix.com"
+    opened = browse.read("open gmail and search for invoices")
+    assert opened.url == "https://mail.google.com"
     assert opened.query is None
     assert "searching" not in opened.said
 
@@ -132,3 +132,108 @@ def test_the_reply_only_claims_what_actually_happens():
     assert browse.read("open youtube").said == "Opening YouTube."
     assert browse.read("search youtube for jazz").said == (
         "Opening YouTube and searching for jazz.")
+
+
+# --- playing something -----------------------------------------------------
+
+@pytest.mark.parametrize("said,expected", [
+    ("Play Blinding Lights on Spotify",
+     "https://open.spotify.com/search/Blinding+Lights"),
+    ("play lofi beats on youtube",
+     "https://www.youtube.com/results?search_query=lofi+beats"),
+    ("put on Interstellar on Netflix",
+     "https://www.netflix.com/search?q=Interstellar"),
+    ("listen to Coltrane on Apple Music",
+     "https://music.apple.com/search?term=Coltrane"),
+    ("watch The Boys on Prime Video",
+     "https://www.primevideo.com/search/ref=atv_nb_sr?phrase=The+Boys"),
+])
+def test_playing_something_lands_on_it(said, expected):
+    played = browse.read(said)
+    assert played is not None, f"{said!r} was not recognised"
+    assert played.url == expected
+
+
+def test_it_uses_universal_links_rather_than_app_schemes():
+    """`spotify:search:...` is the obvious choice and it does not work --
+    undocumented for search, reported failing with "Spotify can't open
+    this type of link", and broken outright without the app. An
+    open.spotify.com link is handed to the app by iOS when it is there
+    and falls back to the web page when it is not."""
+    addresses = ([home for _, home in browse.SITES.values()]
+                 + list(browse.SEARCH.values()))
+    for address in addresses:
+        assert address.startswith("https://"), (
+            f"{address} is not an https universal link -- an app URL "
+            f"scheme breaks for anyone without the app installed"
+        )
+
+    # Grepping the module source instead of the addresses is what the
+    # first version of this did, and it failed on the COMMENT explaining
+    # why the scheme is avoided. A test that reads prose is testing prose.
+
+
+@pytest.mark.parametrize("said", [
+    "Play the invoice on LinkedIn",     # not somewhere you play things
+    "play something",                   # nothing named
+    "play chess",
+    "play it again",
+])
+def test_play_somewhere_you_cannot_play_is_left_to_the_model(said):
+    assert browse.read(said) is None
+
+
+# --- what no address can do ------------------------------------------------
+
+@pytest.mark.parametrize("said", [
+    "set a timer for 10 minutes",
+    "set an alarm for 6am",
+    "remind me to call the bank at four",
+    "message Priya I am running late",
+    "turn off the bedroom light",
+    "skip",
+    "volume up",
+])
+def test_things_a_url_cannot_do_go_to_the_shortcut(said):
+    assert browse.needs_the_shortcut(said) == said
+
+
+@pytest.mark.parametrize("said", [
+    "what is the weather",
+    "open youtube",
+    "Play Blinding Lights on Spotify",
+    "how do I set a timer",              # a question, not an instruction
+])
+def test_ordinary_sentences_are_not_handed_to_the_shortcut(said):
+    assert browse.needs_the_shortcut(said) is None
+
+
+def test_the_shortcut_is_handed_what_he_said_and_nothing_else():
+    """The bound on what JARVIS can do to his device is his own sentence
+    plus whatever he built the shortcut to handle. Nothing a model wrote
+    ever becomes the instruction."""
+    import inspect
+
+    signature = inspect.signature(browse.needs_the_shortcut)
+    assert list(signature.parameters) == ["said"]
+
+
+def test_the_shortcut_link_escapes_what_it_carries():
+    url = browse.shortcut_url("remind me to buy milk & eggs",
+                              "https://jarvis.local/?tab=home")
+    query = url.split("?", 1)[1]
+    assert "text=remind%20me%20to%20buy%20milk%20%26%20eggs" in query
+    # The callback is one parameter, so its own ? and = must not end it.
+    assert "x-success=https%3A%2F%2Fjarvis.local%2F%3Ftab%3Dhome" in query
+
+
+def test_the_shortcut_is_named_the_same_everywhere():
+    """The page builds this link too. If the two names drift, the
+    failure is iOS saying there is no such shortcut."""
+    from pathlib import Path
+
+    page = Path(browse.__file__).parents[1] / "static" / "app.js"
+    assert f'name={browse.SHORTCUT}' in page.read_text(), (
+        "static/app.js builds the shortcut link with a different name "
+        "from app/browse.py"
+    )

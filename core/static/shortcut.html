@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Giving JARVIS a hand — JARVIS</title>
+<!-- Served by the app rather than linked to the repository: this is
+     read on the device being set up, often on a home network with no
+     route out, and a setup guide you cannot reach is not one. -->
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 2rem 1.1rem 4rem; background: #05121c;
+         color: #cfe8f7; font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+  main { max-width: 44rem; margin: 0 auto; }
+  h1 { font-size: 1.5rem; letter-spacing: .04em; color: #48c8ff; margin: 0 0 1.2rem; }
+  h2 { font-size: .95rem; letter-spacing: .16em; text-transform: uppercase;
+       color: #48c8ff; margin: 2.2rem 0 .6rem; }
+  code { background: rgba(72,200,255,.12); padding: .1em .35em; border-radius: 3px;
+         font-family: ui-monospace, Menlo, monospace; font-size: .92em; }
+  strong { color: #eaf6ff; }
+  ol { padding-left: 1.3rem; } li { margin: .45rem 0; }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0; }
+  th, td { text-align: left; padding: .5rem .6rem;
+           border-bottom: 1px solid rgba(72,200,255,.18); }
+  th { color: #48c8ff; font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; }
+  a { color: #48c8ff; } .back { display: inline-block; margin-top: 2.5rem; }
+</style></head>
+<body><main>
+<h1>Giving JARVIS a hand on your iPad</h1>
+<p>JARVIS runs on a server in another room. It has no screen, no speakers, no timer, no messages app and no lights. Opening a web address covers more than you would think — Spotify, YouTube, Netflix, LinkedIn all open straight into their app from a link — and then it stops dead, because a timer is not a web address.</p>
+<p>On an iPad or iPhone, the thing that <em>can</em> do those is <strong>Shortcuts</strong>. You build one shortcut, once, called <code>JARVIS</code>. After that JARVIS can ask it to do anything you taught it, just by saying so.</p>
+<h2>Why it works this way</h2>
+<p>The obvious design is a small program on your iPad that takes orders from the server. It is also the wrong one, and worth understanding why.</p>
+<p>Such a program would mean the server could act on your iPad whenever it liked — and if the server were ever compromised, so was the iPad. There is no version of that which is safe on a machine reachable from the internet.</p>
+<p>This cannot do that. The link is opened by a page <strong>you</strong> are looking at, in response to something <strong>you</strong> just typed or said. iOS asks you the first time. There is no channel from the server to your device that you are not standing in front of.</p>
+<p>The price is honest: it only works while you have JARVIS open. That is the correct price, and it is not a limitation that better code removes.</p>
+<h2>Build the shortcut</h2>
+<p>About five minutes, once.</p>
+<ol><li>Open <strong>Shortcuts</strong> on your iPad → <strong>+</strong> (new shortcut).</li><li>Rename it to exactly <strong>JARVIS</strong> (tap the name at the top). The name    is how JARVIS finds it, so the spelling matters.</li><li>Add action: <strong>Get Text from Input</strong>. (Search &quot;text from input&quot;.)</li><li>Add action: <strong>If</strong>. Set it to: <code>Text</code> <strong>contains</strong> <code>timer</code>.</li><li>Inside the If, add <strong>Start Timer</strong>. Tap the duration and set it from    the text, or leave a default like 10 minutes to begin with.</li><li>Tap <strong>Otherwise</strong>, and add another <strong>If</strong> for the next thing you want    — <code>reminder</code>, <code>message</code>, <code>light</code>, <code>pause</code>, <code>volume</code>.</li><li>Save.</li></ol>
+<p>Then in JARVIS, say <em>&quot;set a timer for 10 minutes&quot;</em>. The first time, iOS will ask whether to allow it. Say yes.</p>
+<h2>Start smaller if that looks like a lot</h2>
+<p>It does look like a lot written down. A shortcut that handles exactly one thing is a fine place to start:</p>
+<ol><li>New shortcut, named <strong>JARVIS</strong>.</li><li>One action: <strong>Start Timer</strong>, 10 minutes.</li><li>Save.</li></ol>
+<p>Now <em>&quot;set a timer for 10 minutes&quot;</em> works. Add the others when you want them; JARVIS does not need to know what is inside.</p>
+<h2>What JARVIS will hand it</h2>
+<p>Whatever you said, as plain text. Say <em>&quot;remind me to call the bank at four&quot;</em> and the shortcut receives exactly that sentence. Your shortcut decides what to do with it — so what JARVIS can do on your iPad is bounded by two things, both of them yours: what you asked for, and what you built the shortcut to handle.</p>
+<p>Nothing a model wrote ever becomes the instruction. That is deliberate, and it is the same rule that governs opening a web address: <code>core/app/browse.py</code> resolves both from your words, before any model is called.</p>
+<h2>What needs no shortcut at all</h2>
+<p>These already work, on any device, with nothing installed:</p>
+<table><thead><tr><th>Say</th><th>What happens</th></tr></thead><tbody><tr><td>&quot;Open YouTube&quot;</td><td>YouTube opens</td></tr><tr><td>&quot;Play Blinding Lights on Spotify&quot;</td><td>Spotify opens on that search</td></tr><tr><td>&quot;Put on Interstellar on Netflix&quot;</td><td>Netflix opens on that search</td></tr><tr><td>&quot;Search LinkedIn for AI hiring&quot;</td><td>That search opens</td></tr><tr><td>&quot;Open bbc.co.uk&quot;</td><td>That site opens</td></tr></tbody></table>
+<p>On an iPad those links hand off to the installed app rather than the website, because they are universal links.</p>
+<h2>If it does not work</h2>
+<p><strong>&quot;There is no shortcut named JARVIS.&quot;</strong> The name must match exactly — capitals included.</p>
+<p><strong>Nothing happens when you tap.</strong> Safari blocks links that open other apps unless you tapped something. JARVIS leaves a button for exactly that; tap it.</p>
+<p><strong>It runs but does the wrong thing.</strong> That is inside your shortcut, not JARVIS. Open Shortcuts, run it by hand with the same text, and watch where it goes.</p>
+<a class="back" href="/">&larr; Back to JARVIS</a>
+</main></body></html>

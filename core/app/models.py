@@ -36,9 +36,14 @@ class OpenInBrowser(BaseModel):
     Resolved from what he typed, never from what a model replied -- see
     app/browse.py for why that distinction is the whole security design.
     """
-    url: str
-    site: str
+    # "url" -- open this address. "shortcut" -- hand `instruction` to the
+    # JARVIS shortcut on this device, which only some devices have, so
+    # the page decides whether it can.
+    kind: str = "url"
+    url: str = ""
+    site: str = ""
     query: str | None = None
+    instruction: str | None = None
     said: str
 
 
