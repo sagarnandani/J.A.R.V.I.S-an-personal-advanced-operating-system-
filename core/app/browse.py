@@ -129,6 +129,17 @@ _PLAY_BARE = re.compile(
     re.I,
 )
 
+# "...in Chrome", "...using Safari". Stripped off before the rest is
+# read, because it says WHERE to open something, not what.
+BROWSERS = {
+    "chrome": "chrome", "google chrome": "chrome",
+    "safari": "safari", "default": "safari",
+}
+_IN_BROWSER = re.compile(
+    r"\s+(?:in|using|with|on|via)\s+(google\s+chrome|chrome|safari)\s*[.!?]*\s*$",
+    re.I,
+)
+
 # A bare address: "open bbc.co.uk", "open example.com/page".
 _DOMAIN = re.compile(
     r"^(?:https?://)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)(/[^\s]*)?$", re.I
@@ -152,6 +163,9 @@ class Open:
     url: str
     site: str
     query: str | None = None
+    # Which browser he named, if he named one. The page turns this into
+    # the right address: https for Safari, googlechromes:// for Chrome.
+    browser: str | None = None
 
     @property
     def said(self) -> str:
@@ -161,7 +175,7 @@ class Open:
 
     def as_detail(self) -> dict:
         return {"url": self.url, "site": self.site, "query": self.query,
-                "said": self.said}
+                "browser": self.browser, "said": self.said}
 
 
 def _search_url(site: str, query: str) -> str | None:
@@ -277,6 +291,23 @@ def read(said: str) -> Open | None:
     if not text or len(text) > 300:
         return None
 
+    # "open YouTube in Chrome" -- take the browser off first, so every
+    # pattern below sees the same sentence it always did.
+    browser = None
+    named = _IN_BROWSER.search(text)
+    if named:
+        browser = BROWSERS.get(" ".join(named.group(1).lower().split()))
+        text = text[: named.start()].strip()
+
+    found = _read(text)
+    if found is None or browser is None:
+        return found
+    return Open(url=found.url, site=found.site, query=found.query,
+                browser=browser)
+
+
+def _read(text: str) -> Open | None:
+    """The reading itself, once the browser has been taken off."""
     # Play first: "play X on Y" is unambiguous, and the open patterns
     # below would otherwise never see it anyway.
     match = _PLAY_ON.match(text)

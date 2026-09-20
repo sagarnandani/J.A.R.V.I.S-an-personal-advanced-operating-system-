@@ -72,24 +72,42 @@ else if (!two.url().includes('search_query=lofi+beats'))
 else ok('"search youtube for lofi beats" lands on the results page');
 if (two) await two.close();
 
-// --- blocked popups fall back to a button ---------------------------------
-const blocked = await ctx.newPage();
-await blocked.addInitScript(() => { window.open = () => null; });
-await blocked.goto(BASE, { waitUntil: 'domcontentloaded' });
-await blocked.waitForSelector('#app:not(.hidden)', { timeout: 15000 });
-await blocked.fill('#msg', 'Open YouTube');
-await blocked.click('#sendBtn');
-await blocked.waitForSelector('.msg.jarvis button.btn', { timeout: 20000 })
-  .catch(() => fail('a blocked popup left nothing on screen to tap'));
-const label = await blocked.textContent('.msg.jarvis button.btn').catch(() => '');
-if (!/open youtube/i.test(label || ''))
-  fail(`the fallback button said: ${label}`);
-else ok('a blocked tab becomes a button that names where it goes');
+// --- a browser that refuses to open anything -------------------------------
+//
+// Two shapes of refusal, and the second is the one that mattered.
+// window.open returning null is the textbook blocked popup. Returning a
+// truthy Window that never navigates is what iOS Safari does, and it
+// defeats every check for the first. Both must end with a link.
+for (const [how, stub] of [
+  ['refusing outright', () => { window.open = () => null; }],
+  ['pretending it worked',
+   () => { window.open = () => ({ closed: false, focus() {} }); }],
+]) {
+  const blocked = await ctx.newPage();
+  await blocked.addInitScript(stub);
+  await blocked.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await blocked.waitForSelector('#app:not(.hidden)', { timeout: 15000 });
+  await blocked.fill('#msg', 'Open YouTube');
+  await blocked.click('#sendBtn');
 
-const why = await blocked.textContent('.msg.jarvis .note').catch(() => '');
-if (!/blocked/i.test(why || ''))
-  fail('it does not say why the button is there');
-else ok('and says the browser blocked it, rather than looking like a bug');
+  const link = await blocked.waitForSelector('.msg.jarvis a.btn', { timeout: 20000 })
+    .catch(() => null);
+  if (!link) {
+    fail(`a browser ${how} left nothing on screen to tap`);
+  } else {
+    const label = (await link.textContent()) || '';
+    const href = (await link.getAttribute('href')) || '';
+    if (!/open youtube/i.test(label)) fail(`the link said: ${label}`);
+    else if (!href.includes('youtube.com')) fail(`the link points at ${href}`);
+    else ok(`a browser ${how} still leaves a link that names where it goes`);
+
+    const why = await blocked.textContent('.msg.jarvis .note').catch(() => '');
+    if (!/tap this/i.test(why || ''))
+      fail('nothing tells him to tap it');
+    else ok('and tells him to tap it, rather than looking like a dead end');
+  }
+  await blocked.close();
+}
 
 // --- ordinary chat is untouched -------------------------------------------
 const nothing = ctx.waitForEvent('page', { timeout: 3000 }).catch(() => null);
@@ -97,6 +115,49 @@ await say('What is 2+2?');
 if (await nothing) fail('an ordinary message opened a tab');
 else ok('ordinary messages open nothing');
 
+
+// --- the fault that made this look broken three times ---------------------
+//
+// window.open() on iOS Safari, called from a fetch callback, can return
+// a truthy Window that never navigates. Every way of detecting a blocked
+// popup says it worked, and the page leaves nothing behind. Chromium
+// cannot reproduce it -- it genuinely opens the tab -- so the check is
+// that a link is ALWAYS left, whether the tab opened or not.
+{
+  const before = await page.$$eval('.msg.jarvis', (n) => n.length);
+  const opened = ctx.waitForEvent('page', { timeout: 8000 }).catch(() => null);
+  await say('Open LinkedIn');
+  const tab = await opened;
+  if (tab) await tab.close();
+
+  const link = await page.$('.msg.jarvis:last-child a.btn');
+  if (!link)
+    fail('the tab opened and no link was left — on iOS that is a dead end, ' +
+         'because a popup can be suppressed while reporting success');
+  else {
+    const href = await link.getAttribute('href');
+    const target = await link.getAttribute('target');
+    if (!href || !href.includes('linkedin.com'))
+      fail(`the link points at ${href}`);
+    else if (target !== '_blank') fail('the link does not open a new tab');
+    else ok('a real link is left behind even when the tab did open');
+  }
+}
+
+// --- naming a browser -----------------------------------------------------
+{
+  const opened = ctx.waitForEvent('page', { timeout: 5000 }).catch(() => null);
+  await say('open linkedin in Chrome');
+  const tab = await opened;
+  if (tab) await tab.close();
+  const href = await page.getAttribute('.msg.jarvis:last-child a.btn', 'href')
+    .catch(() => null);
+  if (!href || !href.startsWith('googlechromes://'))
+    fail(`"in Chrome" produced ${href}`);
+  else if (!href.includes('linkedin.com'))
+    fail(`the Chrome link points at ${href}`);
+  else ok('"in Chrome" becomes a googlechromes:// link, which Chrome answers');
+}
 
 // --- playing something, and the things a link cannot do -------------------
 //

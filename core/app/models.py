@@ -43,6 +43,7 @@ class OpenInBrowser(BaseModel):
     url: str = ""
     site: str = ""
     query: str | None = None
+    browser: str | None = None
     instruction: str | None = None
     said: str
 

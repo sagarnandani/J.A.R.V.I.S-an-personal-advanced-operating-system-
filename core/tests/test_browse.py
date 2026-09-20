@@ -237,3 +237,41 @@ def test_the_shortcut_is_named_the_same_everywhere():
         "static/app.js builds the shortcut link with a different name "
         "from app/browse.py"
     )
+
+
+# --- naming a browser ------------------------------------------------------
+
+@pytest.mark.parametrize("said,browser", [
+    ("open youtube in Chrome", "chrome"),
+    ("open youtube in google chrome", "chrome"),
+    ("open linkedin using chrome", "chrome"),
+    ("open youtube in Safari", "safari"),
+    ("Play Blinding Lights on Spotify in Chrome", "chrome"),
+    ("Open YouTube", None),
+])
+def test_he_can_say_which_browser(said, browser):
+    opened = browse.read(said)
+    assert opened is not None, f"{said!r} was not recognised"
+    assert opened.browser == browser
+
+
+def test_naming_a_browser_does_not_change_where_it_goes():
+    plain = browse.read("open youtube")
+    named = browse.read("open youtube in Chrome")
+    assert plain.url == named.url
+
+
+def test_a_place_that_merely_sounds_like_a_browser_is_left_alone():
+    """"open the shop in Chennai" must not be read as a browser, and
+    must not be read as an address either."""
+    assert browse.read("open the shop in Chennai") is None
+    assert browse.read("open the file in Notepad") is None
+
+
+def test_the_address_stays_https_and_the_page_converts_it():
+    """Chrome's scheme is applied by the page, not stored here. The
+    address JARVIS resolves is the canonical one, so a device with no
+    Chrome still has something that works."""
+    named = browse.read("open youtube in Chrome")
+    assert named.url.startswith("https://")
+    assert "googlechrome" not in named.url

@@ -899,36 +899,57 @@ function runShortcut(msg, action) {
   msg.append(row);
 }
 
+// Chrome on iOS registers its own schemes, so "in Chrome" can be
+// honoured rather than ignored: googlechrome:// for http and
+// googlechromes:// for https. Safari is the default and needs nothing.
+function addressFor(opening) {
+  if (opening.browser !== "chrome") return opening.url;
+  return opening.url
+    .replace(/^https:\/\//, "googlechromes://")
+    .replace(/^http:\/\//, "googlechrome://");
+}
+
 function openIt(msg, opening) {
   if (opening.kind === "shortcut") return runShortcut(msg, opening);
 
-  let tab = null;
-  try {
-    tab = window.open(opening.url, "_blank", "noopener");
-  } catch (e) { /* blocked; the button below is the answer */ }
+  const url = addressFor(opening);
 
-  if (tab) return;
+  // Try it -- and then do not believe it.
+  //
+  // This used to be `if (tab) return;`, which is the standard way to
+  // detect a blocked popup and is wrong on the device this is for. On
+  // iOS Safari, window.open() called from a fetch callback can return a
+  // perfectly good Window object that never navigates anywhere: the
+  // popup is suppressed silently, every check says it worked, and the
+  // page leaves nothing on screen. Which is precisely what "JARVIS still
+  // can't open YouTube" looked like -- three times.
+  //
+  // So the result is discarded. A real link is always left behind, and
+  // tapping a link is a gesture no browser refuses.
+  try { window.open(url, "_blank", "noopener"); } catch (e) { /* the link below */ }
 
   const row = document.createElement("div");
   row.className = "row";
   row.style.marginTop = ".5rem";
 
-  const button = document.createElement("button");
-  button.className = "btn";
-  button.textContent = `Open ${opening.site}`;
-  // A real link under the hood, so a long-press offers "open in new tab"
-  // and the address is visible on hover -- a button that navigates
-  // somewhere unnamed is a button nobody should press.
-  button.onclick = () => {
-    window.open(opening.url, "_blank", "noopener");
-    note.textContent = "Opened.";
-  };
+  // An anchor, not a button. Long-press offers "open in new tab", the
+  // address shows on hover, and it works with JavaScript disabled --
+  // none of which is true of a button that calls window.open.
+  const link = document.createElement("a");
+  link.className = "btn";
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.style.textDecoration = "none";
+  link.textContent = `Open ${opening.site}`;
 
   const note = document.createElement("span");
   note.className = "note";
-  note.textContent = "Your browser blocked the tab — tap to open it.";
+  note.textContent = opening.browser === "chrome"
+    ? "If Chrome did not open, tap this."
+    : "If the tab did not open, tap this.";
 
-  row.append(button, note);
+  row.append(link, note);
   msg.append(row);
 }
 
