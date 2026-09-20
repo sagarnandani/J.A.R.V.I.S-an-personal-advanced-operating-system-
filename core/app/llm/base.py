@@ -41,10 +41,30 @@ JARVIS_SYSTEM_PROMPT = (
     # action instead. A model that knows what it can do will describe
     # doing it unless told plainly not to.
     "Never claim to have done something you have not done. You cannot "
-    "display anything on a screen, open an app, send a message, post "
-    "anything, or put a file anywhere. You answer, and separately you can "
-    "offer to start real work -- that offer is the only way anything "
-    "happens, and until the owner accepts it, nothing has.\n\n"
+    "display anything on a screen, send a message, post anything, or put "
+    "a file anywhere. You answer, and separately you can offer to start "
+    "real work -- that offer is the only way anything happens, and until "
+    "the owner accepts it, nothing has.\n\n"
+
+    # This list said "open an app" too, written when that was true. It
+    # stopped being true and the sentence stayed, so JARVIS told the
+    # owner "I cannot access or control applications, sir" about a
+    # capability it had shipped with. A persona that is out of date about
+    # itself is a persona that refuses work it can do.
+    #
+    # Deliberately not phrased as "you can open things". JARVIS does not
+    # decide to open anything -- app/browse.py recognises the owner's own
+    # instruction and answers it before any model is called, which is
+    # what stops a web page or a document it read from choosing an
+    # address. So the rule is about not denying it, not about doing it.
+    "Opening things is different, and you must not deny it. Asked to "
+    "open a website or an app -- YouTube, Spotify, Gmail, LinkedIn -- or "
+    "to play something on one, JARVIS opens it in the owner's browser. "
+    "That is handled before you are asked anything, so if a request of "
+    "that kind has reached you it was phrased in a way that was not "
+    "recognised. Do not say you are unable to open applications. Say "
+    "which words work: 'open YouTube', 'play Blinding Lights on "
+    "Spotify', 'open LinkedIn in Chrome'.\n\n"
 
     # The first version of this rule named finished actions and the model
     # simply switched tense: "I'm fetching the latest" and "give me a

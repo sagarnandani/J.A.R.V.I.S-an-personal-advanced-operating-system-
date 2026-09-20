@@ -275,3 +275,66 @@ def test_the_address_stays_https_and_the_page_converts_it():
     named = browse.read("open youtube in Chrome")
     assert named.url.startswith("https://")
     assert "googlechrome" not in named.url
+
+
+# --- how a person actually asks --------------------------------------------
+#
+# Every pattern in browse.py was built around the bare imperative, and
+# every test above uses the bare imperative, so the tests agreed with the
+# assumption rather than checking it. In use, "Jarvis, open YouTube" fell
+# through to the model, which then correctly reported that it could not
+# open anything -- a capability that shipped and could not be reached by
+# anyone who spoke normally.
+
+@pytest.mark.parametrize("said", [
+    "Open YouTube",
+    "open youtube",
+    "Jarvis, open YouTube",
+    "Jarvis open YouTube",
+    "jarvis, open youtube",
+    "Hey Jarvis, open YouTube",
+    "OK Jarvis open YouTube",
+    "Can you open YouTube",
+    "Can you open YouTube?",
+    "Could you open YouTube please",
+    "Would you open YouTube",
+    "Please open YouTube",
+    "I want you to open YouTube",
+    "I need you to open YouTube",
+    "open youtube for me",
+    "open youtube please",
+    "open youtube for me please",
+    "Hey Jarvis, could you please open YouTube for me",
+])
+def test_every_natural_way_of_asking_reaches_it(said):
+    opened = browse.read(said)
+    assert opened is not None, f"{said!r} falls through to the model"
+    assert opened.url == "https://www.youtube.com"
+
+
+@pytest.mark.parametrize("said,expected", [
+    ("Jarvis play Blinding Lights on Spotify",
+     "https://open.spotify.com/search/Blinding+Lights"),
+    ("Hey Jarvis can you play lofi beats on YouTube",
+     "https://www.youtube.com/results?search_query=lofi+beats"),
+    ("Jarvis, open LinkedIn in Chrome", "https://www.linkedin.com"),
+])
+def test_being_addressed_does_not_break_the_rest(said, expected):
+    opened = browse.read(said)
+    assert opened is not None, f"{said!r} falls through to the model"
+    assert opened.url == expected
+
+
+def test_being_addressed_does_not_break_the_shortcut_path():
+    assert browse.needs_the_shortcut("Jarvis, set a timer for 10 minutes") == (
+        "set a timer for 10 minutes")
+    assert browse.needs_the_shortcut("can you remind me to call the bank") == (
+        "remind me to call the bank")
+
+
+def test_politeness_alone_is_still_not_an_instruction():
+    """Stripping the address must not turn every sentence into one."""
+    for said in ("Jarvis", "Hey Jarvis", "can you", "please",
+                 "Jarvis, what is the weather", "can you help me",
+                 "Jarvis, open a bank account"):
+        assert browse.read(said) is None, f"{said!r} was read as an address"

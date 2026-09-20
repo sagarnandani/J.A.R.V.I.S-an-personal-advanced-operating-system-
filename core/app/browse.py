@@ -273,11 +273,50 @@ def needs_the_shortcut(said: str) -> str | None:
     what he asked for and by what he built the shortcut to handle -- not
     by anything a model produced.
     """
-    text = (said or "").strip()
+    text = _plainly(said)
     if not text or len(text) > 300:
         return None
     match = _DO.match(text)
     return match.group(1).strip() if match else None
+
+
+# How a person actually addresses an assistant, which is not how an
+# imperative is written.
+#
+# Every pattern in this file was built around the bare form -- "Open
+# YouTube" -- and every test used the bare form, so the tests agreed
+# with the assumption instead of checking it. In use, "Jarvis, open
+# YouTube" and "can you open YouTube" both fell straight through to the
+# model, which then correctly reported that it could not open anything.
+#
+# Stripped in a loop, because these stack: "Hey Jarvis, could you please
+# open YouTube" is one sentence with four of them on the front.
+_ADDRESS = re.compile(
+    r"^\s*(?:"
+    r"(?:hey|ok|okay|hi|yo)\s+jarvis|jarvis|"
+    r"can\s+you|could\s+you|would\s+you|will\s+you|"
+    r"i\s+(?:want|need)\s+you\s+to|i\s+want\s+to|"
+    r"please|kindly|"
+    r"let(?:'|’)?s"
+    r")\b[\s,:.\u2014-]*",
+    re.I,
+)
+# And off the end: "open youtube for me", "open youtube please".
+_TRAILING = re.compile(
+    r"[\s,]*(?:for\s+me|please|thanks|thank\s+you)\s*[.!?]*\s*$", re.I
+)
+
+
+def _plainly(said: str) -> str:
+    """The instruction with the politeness taken off."""
+    text = (said or "").strip()
+    for _ in range(5):          # bounded: four stacked is already unusual
+        shorter = _ADDRESS.sub("", text, count=1)
+        shorter = _TRAILING.sub("", shorter, count=1).strip()
+        if shorter == text:
+            break
+        text = shorter
+    return text
 
 
 def read(said: str) -> Open | None:
@@ -287,7 +326,7 @@ def read(said: str) -> Open | None:
     page" are not browser instructions, and a loose match here would send
     him somewhere absurd instead of answering him.
     """
-    text = (said or "").strip()
+    text = _plainly(said)
     if not text or len(text) > 300:
         return None
 

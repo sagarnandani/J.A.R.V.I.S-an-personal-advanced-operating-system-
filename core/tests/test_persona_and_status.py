@@ -292,3 +292,50 @@ async def test_the_briefing_says_what_is_being_made_right_now(clean):
     finally:
         await clean.execute(
             "DELETE FROM content_pieces; DELETE FROM tasks; DELETE FROM workflows;")
+
+
+# --- the persona going out of date about itself ----------------------------
+
+def test_it_is_not_told_it_cannot_open_things():
+    """It shipped with a capability and denied having it.
+
+    The persona listed "open an app" among the things JARVIS cannot do,
+    which was true when it was written. It stopped being true, the
+    sentence stayed, and JARVIS answered "I cannot access or control
+    applications, sir" to a request it could have handled.
+
+    A rule that names a capability as impossible has to be deleted the
+    day it becomes possible, and nothing reminds you to do that.
+    """
+    from app.llm.base import JARVIS_SYSTEM_PROMPT
+
+    instructions = "\n".join(
+        line for line in JARVIS_SYSTEM_PROMPT.splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    # A denial, not a mention of one. The corrected rule contains the
+    # words "unable to open" inside "Do not say you are unable to open
+    # applications", and the first version of this test failed on its
+    # own fix -- which is how a test ends up loosened until it checks
+    # nothing.
+    import re
+
+    for denial in (r"cannot[^.]*\bopen an app",
+                   r"(?<!not say you are )unable to open",
+                   r"cannot access or control applications"):
+        found = re.search(denial, instructions, re.I)
+        assert not found, (
+            f"the persona denies opening things ({found.group(0)!r}) -- it "
+            f"can, through app/browse.py, and it will refuse work it can do"
+        )
+
+
+def test_it_is_told_what_opening_actually_is():
+    """Not "you can open things" -- JARVIS does not decide to open
+    anything. browse.py answers the owner's own instruction before a
+    model is called, which is what stops a page it read from choosing an
+    address. The rule exists so it does not DENY the capability."""
+    from app.llm.base import JARVIS_SYSTEM_PROMPT
+
+    assert "Do not say you are unable to open applications" in JARVIS_SYSTEM_PROMPT
+    assert "open YouTube" in JARVIS_SYSTEM_PROMPT
