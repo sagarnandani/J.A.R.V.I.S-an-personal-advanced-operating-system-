@@ -152,11 +152,17 @@ else ok('ordinary messages open nothing');
   if (tab) await tab.close();
   const href = await page.getAttribute('.msg.jarvis:last-child a.btn', 'href')
     .catch(() => null);
-  if (!href || !href.startsWith('googlechromes://'))
-    fail(`"in Chrome" produced ${href}`);
+  // This runs with a desktop user agent, where no page can choose the
+  // browser -- the operating system does. So the address must stay
+  // https rather than becoming a scheme that silently does nothing.
+  // The iPad case, where googlechromes:// is real, is in spoken_open.mjs.
+  if (!href || !href.startsWith('https://'))
+    fail(`on a desktop, "in Chrome" produced ${href} — a scheme that ` +
+         `cannot work here is worse than the plain address`);
   else if (!href.includes('linkedin.com'))
-    fail(`the Chrome link points at ${href}`);
-  else ok('"in Chrome" becomes a googlechromes:// link, which Chrome answers');
+    fail(`the link points at ${href}`);
+  else ok('"in Chrome" on a desktop stays an https link, because the ' +
+          'computer chooses the browser, not the page');
 }
 
 // --- playing something, and the things a link cannot do -------------------

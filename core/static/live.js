@@ -162,6 +162,14 @@ async function startLive() {
       case "offer_done":
       case "offer_failed":
       case "offer_closed":
+      // "open" was added to the server and to app.js and NOT to this
+      // list, so every spoken "open YouTube" was dropped right here,
+      // silently, by a switch with no default. The server had already
+      // told the model it had opened something, so JARVIS said so out
+      // loud while nothing happened -- which is the exact shape of lie
+      // the whole claims guard exists to prevent, arriving through a
+      // case label.
+      case "open":
         // JARVIS asked out loud and the owner answers out loud; these
         // frames only keep the screen honest about what is happening.
         // Rendering is app.js's job, so they are dispatched, not drawn.
@@ -170,6 +178,16 @@ async function startLive() {
       case "error":
         liveState("error", msg.message);
         stopLive();
+        break;
+      default:
+        // Never silent again. A frame this file does not know about is
+        // a frame somebody added at the other end and forgot to relay,
+        // and the cost of finding that out was three rounds of "it says
+        // it did it and nothing happened".
+        console.warn(
+          `live: unrelayed message type "${msg.type}" — if the page is ` +
+          `meant to act on this, add it to the switch in live.js`);
+        document.dispatchEvent(new CustomEvent("jarvis:offer", { detail: msg }));
         break;
     }
   };

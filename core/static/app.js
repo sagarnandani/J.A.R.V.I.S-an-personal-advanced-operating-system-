@@ -899,14 +899,37 @@ function runShortcut(msg, action) {
   msg.append(row);
 }
 
-// Chrome on iOS registers its own schemes, so "in Chrome" can be
-// honoured rather than ignored: googlechrome:// for http and
-// googlechromes:// for https. Safari is the default and needs nothing.
+// Which browser opens a link is not a web page's decision.
+//
+// On iOS and Android, Chrome registers its own URL schemes --
+// googlechrome:// for http, googlechromes:// for https -- so "in Chrome"
+// can be honoured there. On Windows, macOS and Linux there is no
+// equivalent: the operating system picks, and no page can override it.
+//
+// So the scheme is only used where it works. Emitting it everywhere,
+// which the first version did, produces a link that silently does
+// nothing on a laptop -- and "it says it opened and I can't see it" is
+// the report this whole week has been about.
+function canChooseBrowser() {
+  const ua = navigator.userAgent || "";
+  const iOS = /iPad|iPhone|iPod/.test(ua) ||
+              (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  return iOS || /Android/.test(ua);
+}
+
 function addressFor(opening) {
-  if (opening.browser !== "chrome") return opening.url;
+  if (opening.browser !== "chrome" || !canChooseBrowser()) return opening.url;
   return opening.url
     .replace(/^https:\/\//, "googlechromes://")
     .replace(/^http:\/\//, "googlechrome://");
+}
+
+// Said only when he asked for a browser this device cannot give him.
+function browserNote(opening) {
+  if (!opening.browser || opening.browser === "safari") return "";
+  if (canChooseBrowser()) return "";
+  return " This device decides which browser opens a link, not JARVIS — " +
+         "on a computer only a program installed on it could choose.";
 }
 
 function openIt(msg, opening) {
@@ -945,9 +968,10 @@ function openIt(msg, opening) {
 
   const note = document.createElement("span");
   note.className = "note";
-  note.textContent = opening.browser === "chrome"
-    ? "If Chrome did not open, tap this."
-    : "If the tab did not open, tap this.";
+  note.textContent =
+    (opening.browser === "chrome" && canChooseBrowser()
+      ? "If Chrome did not open, tap this."
+      : "If the tab did not open, tap this.") + browserNote(opening);
 
   row.append(link, note);
   msg.append(row);
