@@ -193,7 +193,12 @@ async function startLive() {
   };
 
   LIVE.ws.onerror = () => liveState("error", "The live connection failed.");
-  LIVE.ws.onclose = () => { if (LIVE.active) stopLive(); };
+  LIVE.ws.onclose = () => {
+    // The tab being suspended closes the socket. That is not an error
+    // and must not look like one -- it is simply where the session
+    // ended, and visibilitychange above brings it back.
+    if (LIVE.active) stopLive();
+  };
 }
 
 function beginCapture() {
@@ -221,6 +226,39 @@ function beginCapture() {
   mute.connect(LIVE.ctx.destination);
   LIVE.node = node;
 }
+
+// --- leaving JARVIS and coming back ---------------------------------------
+//
+// Opening Spotify sends JARVIS to the background, and a backgrounded tab
+// on iOS is suspended: no microphone, no socket, no JavaScript at all.
+// The connection closes, stopLive() runs, and nothing ever started it
+// again -- so coming back to the tab found a dead microphone and a live
+// button saying otherwise. "I go back to JARVIS and it cannot do it."
+//
+// What CANNOT be fixed here, and is not a coding gap: listening while in
+// the background. Apple suspends background web pages, and no web app on
+// iOS can hold a microphone through it. Only a native app can, and this
+// is a web page on purpose.
+//
+// What can be fixed is the return. If voice was on when the tab went
+// away, it comes back on when the tab does.
+let wasListening = false;
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    // Remember BEFORE the socket dies; onclose calls stopLive, which
+    // clears the flag this reads.
+    wasListening = LIVE.active;
+    return;
+  }
+  if (!wasListening || LIVE.active) return;
+
+  // iOS requires a gesture to open a microphone, and returning to a tab
+  // is not one. So it is attempted -- which works where the permission
+  // is already granted for the session -- and if it is refused the mic
+  // button is simply off, honestly, rather than looking on.
+  startLive().catch(() => { wasListening = false; });
+});
 
 function stopLive() {
   LIVE.active = false;

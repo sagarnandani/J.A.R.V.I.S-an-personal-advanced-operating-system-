@@ -140,5 +140,71 @@ for (const [label, ua, expected] of [
   await other.close();
 }
 
+// --- leaving JARVIS and coming back ---------------------------------------
+//
+// Opening Spotify backgrounds the tab, iOS suspends it, the socket dies
+// and stopLive() runs. Nothing used to start it again, so coming back
+// found a dead microphone. Listening WHILE away is not fixable on a web
+// page and is not what this checks; coming back is.
+{
+  const resumed = await page.evaluate(async () => {
+    // Put it genuinely into the listening state first. Without a "ready"
+    // frame LIVE.active is never set, so there is nothing to resume and
+    // the check passes for the wrong reason -- which is how the first
+    // version of this failed.
+    try {
+      window.__ws.onmessage({ data: JSON.stringify({
+        type: 'ready', input_rate: 16000, output_rate: 24000,
+        voice: 'test', model: 'test' }) });
+    } catch (e) { /* capture needs real audio nodes; the flag is set first */ }
+    await new Promise((r) => setTimeout(r, 100));
+    const before = window.__live ? window.__live.active : true;
+
+    // Go away: the socket closes, exactly as a suspended tab does.
+    Object.defineProperty(document, 'hidden',
+                          { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    if (window.__ws && window.__ws.onclose) window.__ws.onclose({ code: 1006 });
+
+    const socketAfterLeaving = window.__ws;
+
+    // Come back.
+    Object.defineProperty(document, 'hidden',
+                          { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise((r) => setTimeout(r, 400));
+
+    return { before, reconnected: window.__ws !== socketAfterLeaving };
+  });
+
+  if (!resumed.before) fail('the voice session never reached the listening state');
+  else if (!resumed.reconnected)
+    fail('coming back to the tab did not restart listening — the mic stays ' +
+         'dead and the button says otherwise');
+  else ok('leaving for another app and coming back starts listening again');
+}
+
+// --- and it says so before he finds out -----------------------------------
+{
+  const p3 = await ctx.newPage();
+  await p3.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await p3.waitForSelector('#app:not(.hidden)', { timeout: 15000 });
+  await p3.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('jarvis:offer', {
+      detail: { type: 'open', url: 'https://www.youtube.com', site: 'YouTube',
+                said: 'Opening YouTube.' },
+    }));
+  });
+  await p3.waitForTimeout(400);
+  const note = await p3.textContent('.msg.jarvis .note').catch(() => '');
+  if (!/cannot hear you/i.test(note || ''))
+    fail('nothing warns him that JARVIS goes deaf while he is in the app');
+  else if (!/starts listening again/i.test(note || ''))
+    fail('it does not say that coming back fixes it');
+  else ok('it says plainly that it cannot hear him while he is away, ' +
+          'and that coming back restores it');
+  await p3.close();
+}
+
 console.log(out.map((l) => '  ' + l).join('\n'));
 await browser.close();

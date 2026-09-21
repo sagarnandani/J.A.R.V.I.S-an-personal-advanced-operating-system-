@@ -924,6 +924,23 @@ function addressFor(opening) {
     .replace(/^http:\/\//, "googlechrome://");
 }
 
+// Said once per session, when JARVIS is about to send him somewhere
+// else, because the next thing that happens is the disappointment.
+//
+// A backgrounded tab on iOS is suspended: no microphone, no socket, no
+// JavaScript. JARVIS cannot hear anything while he is in Spotify, and
+// no amount of code changes that -- only a native app can hold a
+// microphone in the background, and this is a web page on purpose.
+// Saying so is better than him asking it something and waiting.
+let saidAboutAway = false;
+
+function awayNote() {
+  if (saidAboutAway) return "";
+  saidAboutAway = true;
+  return " While you are in the other app JARVIS cannot hear you — " +
+         "come back to this tab and it starts listening again by itself.";
+}
+
 // Said only when he asked for a browser this device cannot give him.
 function browserNote(opening) {
   if (!opening.browser || opening.browser === "safari") return "";
@@ -971,7 +988,8 @@ function openIt(msg, opening) {
   note.textContent =
     (opening.browser === "chrome" && canChooseBrowser()
       ? "If Chrome did not open, tap this."
-      : "If the tab did not open, tap this.") + browserNote(opening);
+      : "If the tab did not open, tap this.") +
+    browserNote(opening) + awayNote();
 
   row.append(link, note);
   msg.append(row);
