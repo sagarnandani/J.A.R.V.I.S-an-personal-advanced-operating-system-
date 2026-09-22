@@ -88,6 +88,14 @@ PROTECTED: tuple[tuple[str, str], ...] = (
     # widen the list, and it would do it in a diff that looked tidy.
     ("core/app/computer.py",
      "what may run on your machine without asking you"),
+    # How a new version of an agent gets to replace the one doing the
+    # job. A JARVIS that could rewrite this could make `promote` stop
+    # reading the verdict, or drop the check that a candidate may not
+    # hold a permission the live version does not -- and then a version
+    # it wrote itself would go live holding more than the one it
+    # replaced, through a door marked "we are just trying this".
+    ("core/app/agents/trials.py",
+     "how a new version of an agent replaces the live one"),
 
     # Deployment and schema: the ways a change reaches production, and
     # the ways credentials enter it.

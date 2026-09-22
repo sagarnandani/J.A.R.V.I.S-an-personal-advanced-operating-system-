@@ -213,18 +213,27 @@ commit and the exact command to return to it.
 process started, reached the database, applied its schema and installed
 its agents. It does not mean the release was correct.
 
-## What is still not built
+## Where each part of the brief stands
+
+Kept as a running list rather than deleted as things get built, because
+"what is not done" is the question this document is most often opened to
+answer, and a list that only ever grows shorter is one nobody trusts.
 
 | Stage | Item | Status |
 |---|---|---|
 | I | Docker build verification | **Not run.** `docker build` has never executed against this repository — no Docker daemon in the environment these changes were written in. |
-| 20 | Agent versioning: candidate → benchmark → promotion | Not built. The registry keeps version history; nothing benchmarks a candidate against the current one. |
+| 20 | Agent versioning: candidate → benchmark → promotion | **Built** — a share of real tasks go to the candidate, both are measured, and the numbers decide. Nothing promotes itself. See below. |
 | 23 | Browser access | **Built** — `research.page` reads a page the owner names. See below. No JavaScript: what comes back is the HTML the server sent. |
 | 24 | Search policy modes | **Built** — off / optional / required / fallback. See below. |
 | 25 | Computer access layer | **Built** — a fixed list of read-only checks JARVIS runs on its own, and for anything else the exact command shown to you, approved per command. Off until `COMPUTER_ACCESS=true`. See below. |
 | 13/14 | Capability-first tier routing, local/Nano layer | Partly built. The router now escalates on measured failure (below); choosing a *different* model for a job, and a local/Nano layer, are not built. |
 | 15 | Model performance learning from `agent_metrics` | **Built** — see below. |
 | — | `read_only: true` on the container | Needs a real `docker build` to confirm nothing breaks. |
+
+**What is actually left:** the two Docker rows, which need a Docker
+daemon and cannot be honestly ticked from here, and the local/Nano model
+layer in 13/14. Everything else in this table is built and covered by
+tests.
 
 ## The router learns which model is failing (section 15)
 
@@ -411,6 +420,63 @@ way to send the machine's contents somewhere.
 
 `GET /v1/computer` says what it may run, what is missing, and — if it is
 switched off — that it is.
+
+## Trying a new version of an agent (section 20)
+
+The registry has kept version history since the agent foundation, and it
+will stand one version down and another up on request. What never existed
+is the middle word of *candidate → benchmark → promotion*. Without it,
+"promotion" means somebody looked at the new one and thought it seemed
+better — which is the judgement this whole system exists to replace with
+a measurement.
+
+A trial sends a share of the capability's real tasks to the candidate;
+the rest go to the version already live. Both are measured by the
+machinery that was already measuring everything — `agent_metrics` has
+recorded `agent_id` from the beginning, so *which version* produced a
+result was answerable all along.
+
+**Which arm a task lands on is decided by the task's own id, not by a
+coin.** It makes a trial reproducible, and — the reason that actually
+matters — a retry keeps the arm it started on. A random split would send
+a candidate's failure to the baseline on the retry, the baseline would
+succeed, and the candidate's failure would be hidden by the very
+mechanism meant to measure it.
+
+**Three honest answers, and two of them are not "promote".**
+
+| | |
+|---|---|
+| Fewer than 12 runs on **either** arm | "Not enough yet." Two small numbers subtracted have more noise in the difference than in either side. |
+| Candidate ahead by 10 points or more | Promote. That is a real difference. |
+| Candidate behind by 10 points or more | Reject. It is taking a share of real work and doing it worse. |
+| Anything in between | "No difference worth acting on." Promoting on a gap smaller than the noise is promoting a coin landing the same way twice. |
+
+The margin is compared *after rounding*, because 60% minus 50% is
+`0.09999999999999998` in binary — a candidate that beat the baseline by
+exactly the margin fell a hair short of it and would have been held back
+for ever, and which comparisons that hit depends on the run counts, so
+from outside it would have looked like the threshold wandering.
+
+**What a trial may not be.** A candidate holding a permission the live
+version does not is refused at the start. That is not a candidate; it is
+a privilege escalation with a version number, arriving through a door
+marked "we are just trying this". The share is capped at half, because a
+trial that sends most of the work to an unproven version is a deployment
+with a hopeful name. One trial per capability, because two at once makes
+"which change caused this" unanswerable, which is the only question a
+trial answers.
+
+**Nothing promotes itself.** The verdict recommends; something outside
+has to act — your tap, or the Governor within its ceiling. You can
+overrule the numbers, and that is recorded *as overruling* rather than as
+a promotion the data supported. A rejected candidate is disabled rather
+than retired: it stays in the registry to be compared against, which is
+the whole reason versions are never edited in place. `trials.py` is on
+the Constitution's protected list.
+
+`GET /v1/trials`, `POST /v1/trials/<capability>`, and
+`POST /v1/trials/<capability>/promote|reject|abandon`.
 
 ## The container does not run as root
 

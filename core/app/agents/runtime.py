@@ -23,6 +23,7 @@ from app.agents import (
     registry,
     tasks,
     telemetry,
+    trials,
 )
 from app.agents.schemas import (
     AgentError,
@@ -68,13 +69,28 @@ async def run_task(task_id: UUID) -> bool:
         )
         return False
 
+    # A trial running on this capability sends a share of its tasks to
+    # the candidate version. Which share a task falls in is decided by
+    # the task's own id, so a retry stays on the arm it started on --
+    # otherwise a candidate's failure would be quietly covered by the
+    # baseline succeeding on the retry.
+    live = spec
+    spec, trial = await trials.version_for(capability, task_id, spec)
+
     await telemetry.record(
         "agent_selected", workflow_id=workflow_id, task_id=task_id,
         capability=capability,
         detail={
             "agent": str(spec.id), "version": spec.version, "status": spec.status.value,
             # Why this one -- the first question asked of any trace.
-            "why": f"'{capability}' resolved to v{spec.version} ({spec.status.value})",
+            "why": (
+                f"'{capability}' resolved to v{spec.version} ({spec.status.value})"
+                if trial is None else
+                f"'{capability}' is being trialled: this task went to the "
+                f"candidate v{spec.version} rather than the live v{live.version}"
+            ),
+            **({"trial": str(trial["id"]),
+                "baseline_version": live.version} if trial else {}),
         },
     )
 

@@ -296,6 +296,74 @@ async def cron_tick(
 
 # --- approving what is waiting ---------------------------------------------
 
+class TrialIn(BaseModel):
+    version: int
+    share: float = 0.20
+
+
+class TrialDecisionIn(BaseModel):
+    reason: str = ""
+    force: bool = False
+
+
+@router.get("/v1/trials", include_in_schema=False)
+async def trials_state(
+    capability: str | None = None,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """What is being tried, and what the numbers say so far."""
+    from app.agents import trials
+
+    return await trials.state(capability)
+
+
+@router.post("/v1/trials/{capability}", include_in_schema=False)
+async def trial_start(
+    capability: str, body: TrialIn,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """Begin trying a new version against the one doing the job."""
+    from app.agents import trials
+
+    await system_control.refuse_if_stopped()
+    try:
+        row = await trials.start(
+            capability, body.version, by=f"user:{user.email or user.uid}",
+            share=Decimal(str(body.share)),
+        )
+    except trials.CannotTrial as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, "trial": str(row["id"]),
+            "candidate": row["candidate_version"],
+            "baseline": row["baseline_version"], "share": float(row["share"])}
+
+
+@router.post("/v1/trials/{capability}/{decision}", include_in_schema=False)
+async def trial_decide(
+    capability: str, decision: str, body: TrialDecisionIn,
+    user: CurrentUser = Depends(get_current_user),
+) -> dict:
+    """Promote, reject or abandon. The owner decides; nothing self-promotes."""
+    from app.agents import trials
+
+    await system_control.refuse_if_stopped()
+    by = f"user:{user.email or user.uid}"
+    try:
+        if decision == "promote":
+            detail = await trials.promote(capability, by=by, force=body.force)
+        elif decision == "reject":
+            detail = await trials.reject(capability, by=by, reason=body.reason)
+        elif decision == "abandon":
+            detail = await trials.abandon(capability, by=by, reason=body.reason)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="A trial is promoted, rejected or abandoned.")
+    except trials.CannotTrial as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, "decision": decision, "verdict": detail}
+
+
 @router.get("/v1/computer", include_in_schema=False)
 async def computer_access(
     user: CurrentUser = Depends(get_current_user)
