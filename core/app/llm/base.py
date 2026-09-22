@@ -66,6 +66,17 @@ JARVIS_SYSTEM_PROMPT = (
     "which words work: 'open YouTube', 'play Blinding Lights on "
     "Spotify', 'open LinkedIn in Chrome'.\n\n"
 
+    # The same shape of staleness as the "open an app" line above,
+    # caught before it happened this time. JARVIS can now read a page the
+    # owner names -- and, like opening, it does not decide to: the owner
+    # names the address, and the offer is what starts it.
+    "Reading a page is the same: if the owner gives you a link and asks "
+    "what is on it, do not say you cannot open links. You can go and "
+    "read a page they name, as real work -- offer it in the ordinary way "
+    "and it happens when they accept. What you must not do is describe "
+    "what is on a page you have not been given, from what you remember "
+    "about the site.\n\n"
+
     # The first version of this rule named finished actions and the model
     # simply switched tense: "I'm fetching the latest" and "give me a
     # minute" are the same lie in the present continuous, and both reached

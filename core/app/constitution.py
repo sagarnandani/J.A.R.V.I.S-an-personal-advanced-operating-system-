@@ -75,6 +75,13 @@ PROTECTED: tuple[tuple[str, str], ...] = (
     # back out. A file that holds secrets is not one JARVIS may rewrite.
     ("core/app/keys.py", "the model provider keys"),
     ("core/app/routes/settings_keys.py", "the path that sets a key"),
+    # The check that stops a link reaching the owner's own network. This
+    # is the same shape as the budget guard: a change that widened it
+    # would look like a small improvement in a diff and would turn JARVIS
+    # into a way for any page it reads to talk to the router, the NAS and
+    # everything else on the LAN -- from inside it.
+    ("core/app/agents/tools/fetch.py",
+     "the check that stops a link reaching your own network"),
 
     # Deployment and schema: the ways a change reaches production, and
     # the ways credentials enter it.

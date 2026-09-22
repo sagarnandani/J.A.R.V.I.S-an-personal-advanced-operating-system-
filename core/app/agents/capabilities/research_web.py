@@ -15,7 +15,7 @@ noticing.
 import logging
 from decimal import Decimal
 
-from app.agents import registry
+from app.agents import registry, search_policy
 from app.agents.schemas import (
     AgentResult,
     AgentSpec,
@@ -25,6 +25,7 @@ from app.agents.schemas import (
     Permission,
 )
 from app.agents.tools import websearch
+from app.agents.search_policy import Search
 from app.config import get_settings
 
 logger = logging.getLogger("jarvis.capabilities.research_web")
@@ -74,6 +75,17 @@ def _confidence(result: websearch.SearchResult) -> float:
 async def run(handoff: Handoff, choice) -> AgentResult:
     settings = get_settings()
 
+    # Section 24. Whether to reach the web at all is a policy question,
+    # and it is asked before the money is spent rather than after.
+    policy = search_policy.resolve(handoff.constraints, SPEC, settings)
+    if not search_policy.may_search(policy):
+        raise websearch.SearchUnavailable(
+            "Searching the web is switched off, so I cannot research this. "
+            "What I could give you would be the model's recollection with "
+            "a research agent's name on it, which is worse than nothing.",
+            retryable=False,
+        )
+
     question = handoff.objective
     if handoff.context:
         # The briefing goes in as background, not as the question. Folding
@@ -90,6 +102,18 @@ async def run(handoff: Handoff, choice) -> AgentResult:
 
     unresolved = []
     answer = result.answer
+    if not result.sources and search_policy.must_search(policy):
+        # The whole reason `required` exists. Grounding returned nothing,
+        # so what is in hand is the model's memory; on a question marked
+        # required, no answer is the correct answer, and dressing this up
+        # with a caveat would be exactly the substitution the mode was
+        # asked for to prevent.
+        raise websearch.SearchUnavailable(
+            "No sources came back, and this was asked as a question that "
+            "must be answered from sources. I would only be telling you "
+            "what the model already believed, so I am not going to.",
+            retryable=True,
+        )
     if not result.sources:
         # Grounding came back with nothing, which means this is the
         # model's own recollection wearing a research agent's name. The
@@ -110,7 +134,8 @@ async def run(handoff: Handoff, choice) -> AgentResult:
         confidence=_confidence(result),
         evidence=result.sources,
         assumptions=(
-            [f"Searched for: {q}" for q in result.queries] if result.queries else []
+            [f"Search policy: {policy.value}"]
+            + [f"Searched for: {q}" for q in result.queries]
         ),
         unresolved=unresolved,
         next_action=(

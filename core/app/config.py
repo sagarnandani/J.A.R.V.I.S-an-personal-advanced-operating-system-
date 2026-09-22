@@ -176,6 +176,14 @@ class Settings(BaseSettings):
     # can differ without either being pinned to the other.
     search_model: str = ""
 
+    # When JARVIS may consult the live web (see app/agents/search_policy.py):
+    # off, optional, required, fallback. The server-wide default, which a
+    # task or an agent can narrow but which is what applies when neither
+    # says anything. 'optional' because a search that fails should not
+    # take out a task that could still be answered -- the questions where
+    # that is the wrong trade are the ones a task marks 'required'.
+    search_policy: str = "optional"
+
     # --- Model tiers (see app/agents/model_router.py) ---
     # Agents ask for cheap/standard/deep, never a model name. These map
     # the tiers onto real models, so a provider retiring a name is an

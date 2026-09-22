@@ -339,3 +339,16 @@ def test_it_is_told_what_opening_actually_is():
 
     assert "Do not say you are unable to open applications" in JARVIS_SYSTEM_PROMPT
     assert "open YouTube" in JARVIS_SYSTEM_PROMPT
+
+
+def test_it_does_not_deny_being_able_to_read_a_link():
+    """The staleness that already happened once, guarded this time.
+
+    "You cannot open an app" outlived the capability by weeks and JARVIS
+    told its owner it could not do a thing it had shipped. Reading a
+    named page is the next capability of that shape.
+    """
+    p = JARVIS_SYSTEM_PROMPT
+    assert "do not say you cannot open links" in p.lower()
+    # And the other half: it must not answer ABOUT a page it was not given.
+    assert "from what you remember" in p
