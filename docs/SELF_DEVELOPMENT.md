@@ -221,19 +221,43 @@ answer, and a list that only ever grows shorter is one nobody trusts.
 
 | Stage | Item | Status |
 |---|---|---|
-| I | Docker build verification | **Not run.** `docker build` has never executed against this repository — no Docker daemon in the environment these changes were written in. |
+| I | Docker build verification | **Not run here, and now runnable by you.** `bash scripts/verify_container.sh` on a machine with Docker. Still honestly unticked until you run it. |
 | 20 | Agent versioning: candidate → benchmark → promotion | **Built** — a share of real tasks go to the candidate, both are measured, and the numbers decide. Nothing promotes itself. See below. |
 | 23 | Browser access | **Built**, both halves. `research.page` reads a page and falls back to a real Chromium when the cheap read comes back empty; `research.browse` drives one — follows links freely, asks before anything else, never signed in. See below. |
 | 24 | Search policy modes | **Built** — off / optional / required / fallback. See below. |
 | 25 | Computer access layer | **Built** — a fixed list of read-only checks JARVIS runs on its own, and for anything else the exact command shown to you, approved per command. Off until `COMPUTER_ACCESS=true`. See below. |
 | 13/14 | Capability-first tier routing, local/Nano layer | Partly built. The router now escalates on measured failure (below); choosing a *different* model for a job, and a local/Nano layer, are not built. |
 | 15 | Model performance learning from `agent_metrics` | **Built** — see below. |
-| — | `read_only: true` on the container | Needs a real `docker build` to confirm nothing breaks. |
+| — | `read_only: true` on the container | Same script tests it and prints the two lines to paste into `docker-compose.yml` if it passes. |
 
-**What is actually left:** the two Docker rows, which need a Docker
-daemon and cannot be honestly ticked from here, and the local/Nano model
+**What is actually left:** the two Docker rows, and the local/Nano model
 layer in 13/14. Everything else in this table is built and covered by
 tests.
+
+The Docker rows need a Docker daemon, which the environment these
+changes were written in does not have — so rather than leaving them as
+an apology, there is now a script that closes them on a machine that
+does:
+
+```bash
+bash scripts/verify_container.sh                  # build and check
+bash scripts/verify_container.sh --with-browser   # include Chromium
+```
+
+It builds the image, starts it against a throwaway Postgres on its own
+port with its own container names, and checks the things that are
+*claimed* about the container rather than the things that are easy to
+check: that it builds, that it does not run as root, that `/app` is not
+writable by the user it runs as (the Constitution's boundary enforced a
+second time by the filesystem), that it applies its own migrations and
+answers `/health` — and then that it still does all of that with a
+**read-only root filesystem**, which is the second row. If that passes it
+prints the two lines to paste into `docker-compose.yml`. If it fails it
+prints what the container tried to write, which is worth knowing rather
+than guessing at: it means something writes to disk that nobody knew
+wrote to disk.
+
+It removes everything it made, and it cannot touch a real JARVIS.
 
 ## The router learns which model is failing (section 15)
 

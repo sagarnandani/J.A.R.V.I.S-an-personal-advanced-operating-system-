@@ -319,3 +319,110 @@ def test_the_constitution_is_still_mounted_read_only_over_the_repository():
     the running code reads, and it must survive."""
     text = _compose()
     assert "./CONSTITUTION.md:/app/CONSTITUTION.md:ro" in text
+
+
+# --- the browser, which is optional and must stay optional ----------------
+
+def test_the_browser_is_off_unless_the_build_asks_for_it():
+    """~400MB and several minutes. Most deployments never need it.
+
+    The point of the default is that somebody who has never heard of any
+    of this gets a small image that works.
+    """
+    text = DOCKERFILE.read_text()
+    assert re.search(r"^ARG WITH_BROWSER=false", text, re.M), (
+        "the browser is not behind a build argument defaulting to off"
+    )
+
+
+def test_the_browser_is_installed_after_pip_and_before_the_user_drops():
+    """Two orderings, both of which would fail the build at 400MB in.
+
+    `playwright install` is a command the pip package provides, so it
+    cannot run before pip. And it writes into /usr/lib and /ms-playwright
+    as root, so it cannot run after the image drops to the jarvis user --
+    which is the whole point of dropping to it.
+    """
+    lines = DOCKERFILE.read_text().splitlines()
+
+    def line_of(pattern):
+        for n, line in enumerate(lines):
+            if re.search(pattern, line):
+                return n
+        raise AssertionError(f"nothing in the Dockerfile matches {pattern!r}")
+
+    pip = line_of(r"^RUN pip install")
+    browser = line_of(r"playwright install")
+    user = line_of(r"^USER ")
+
+    assert pip < browser, "the browser is installed before pip provides it"
+    assert browser < user, (
+        "the browser is installed after privileges are dropped, so it "
+        "cannot write where it needs to"
+    )
+
+
+def test_the_browser_install_is_guarded_by_the_argument():
+    """Not merely present: actually conditional.
+
+    An unguarded `playwright install` would add 400MB to every image
+    built by anyone, for a capability most of them will never use.
+    """
+    text = DOCKERFILE.read_text()
+    install = next(l for l in text.splitlines() if "playwright install" in l)
+    assert 'if [ "$WITH_BROWSER" = "true" ]' in install, (
+        f"the browser install is not conditional: {install!r}"
+    )
+
+
+def test_playwright_is_a_declared_dependency():
+    """The pip package, which is small, is not optional -- only the
+    browser binary is. Without the package the fallback cannot even
+    report that it has no browser."""
+    requirements = (ROOT / "core" / "requirements.txt").read_text()
+    assert re.search(r"^playwright[><=]", requirements, re.M)
+
+
+# --- the script that checks all of this on a machine with Docker ----------
+
+def test_there_is_a_way_to_verify_the_container_where_docker_exists():
+    """Two items in the brief have been unticked for months for one
+    honest reason: no Docker daemon here. This is what closes them."""
+    script = ROOT / "scripts" / "verify_container.sh"
+    assert script.is_file(), "there is no container verification script"
+    assert script.stat().st_mode & 0o111, f"{script.name} is not executable"
+
+    text = script.read_text()
+    # The two things it exists to prove, beyond "it builds".
+    assert "--read-only" in text, (
+        "the script does not test the read-only filesystem, which is one "
+        "of the two items it is meant to close"
+    )
+    # `--entrypoint id`, because the argument follows the image name.
+    assert "--entrypoint id" in text and '"$IMAGE" -u' in text, (
+        "the script does not check what user the container runs as"
+    )
+    # The probe itself, not merely the path -- which also appears on the
+    # line that tidies the probe up, so checking for the path alone
+    # passed with the probe replaced by `true`.
+    assert "touch /app/app/__probe" in text, (
+        "the script does not try to WRITE into /app, which is the "
+        "Constitution's boundary enforced by the filesystem"
+    )
+
+
+def test_the_verification_script_cleans_up_after_itself():
+    """It starts a database and a container on somebody's real machine."""
+    text = (ROOT / "scripts" / "verify_container.sh").read_text()
+    assert "trap cleanup EXIT" in text, "it can leave containers running"
+    assert "docker rm -f" in text and "docker network rm" in text
+
+
+def test_the_verification_script_never_touches_a_real_jarvis():
+    """Its own names, its own port, its own database. Somebody will run
+    this on the machine their JARVIS is running on."""
+    text = (ROOT / "scripts" / "verify_container.sh").read_text()
+    for own in ("jarvis-verify-db", "jarvis-verify-app", "jarvis-verify-net"):
+        assert own in text, f"the script does not use its own {own}"
+    assert "8791" in text, "it does not use a port of its own"
+    assert "POSTGRES_DB=jarvis" in text and "postgres:16" in text
