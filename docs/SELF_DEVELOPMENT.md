@@ -221,7 +221,7 @@ its agents. It does not mean the release was correct.
 | 20 | Agent versioning: candidate → benchmark → promotion | Not built. The registry keeps version history; nothing benchmarks a candidate against the current one. |
 | 23 | Browser access | **Built** — `research.page` reads a page the owner names. See below. No JavaScript: what comes back is the HTML the server sent. |
 | 24 | Search policy modes | **Built** — off / optional / required / fallback. See below. |
-| 25 | Computer access layer | Not built. |
+| 25 | Computer access layer | **Built** — a fixed list of read-only checks JARVIS runs on its own, and for anything else the exact command shown to you, approved per command. Off until `COMPUTER_ACCESS=true`. See below. |
 | 13/14 | Capability-first tier routing, local/Nano layer | Partly built. The router now escalates on measured failure (below); choosing a *different* model for a job, and a local/Nano layer, are not built. |
 | 15 | Model performance learning from `agent_metrics` | **Built** — see below. |
 | — | `read_only: true` on the container | Needs a real `docker build` to confirm nothing breaks. |
@@ -355,6 +355,62 @@ that quietly stopped JARVIS checking its facts would keep working, which
 is the worst property a bug can have. The policy that was in force is
 written into the task's own record, so "why did it refuse" has an answer
 where the owner will look.
+
+## JARVIS can look at your server (section 25)
+
+The shape here is the owner's own choice, and everything else follows
+from it: **a fixed list of safe things JARVIS may run on its own, and
+for anything else, the exact command shown to him with nothing happening
+until he taps yes.**
+
+**Off until you turn it on.** `COMPUTER_ACCESS=true`. A thing that runs
+commands on a home server should be something you switched on, not
+something that arrived switched on in a deploy you skim-read.
+
+**The list is nine read-only checks** — disk space, memory, uptime, who
+is logged in, the heaviest processes, failed services, one service's
+status, the last lines of its log, which containers are running. Every
+one of them observes and changes nothing. Restarting a service is a
+change to your server, and a change goes through you. That is a line
+drawn on purpose, and a test fails if an entry ever drifts across it.
+
+**Anything else asks, and asks about that command.** This is the part
+that is easy to get quietly wrong. Approval in JARVIS is recorded per
+task and per category, which is right for publishing — you are approving
+a piece of work. For a command it is not: approving `systemctl status
+nginx` would have left that task free to run anything else it liked, and
+you would never have been told. So the approval is checked against **the
+exact argument vector you were shown**, stored as data rather than
+recovered by parsing the sentence that described it. One extra argument
+and it asks again.
+
+**Actions, not command strings.** There is no shell anywhere in
+`app/computer.py` — `exec`, never `shell`, so a semicolon is a semicolon
+and not a second command, and a test proves it rather than claiming it.
+Each parameter carries a pattern it must match, because `--output=` and
+a leading dash are argument injection with no shell needed. A parameter
+with no pattern of its own gets a conservative default; that default
+spent a while being described in a comment and referenced by nothing,
+until a mutation test noticed.
+
+**The keys stay behind.** A subprocess normally inherits its parent's
+environment, and this parent's holds the model provider keys and the
+database URL. It gets a fixed minimal environment instead, so `env`
+prints nothing worth having.
+
+Also: every run is written to the audit log, never as low risk. A hung
+command is killed with its whole process group. Output is capped. The
+emergency stop stops this too. `app/computer.py` is on the
+Constitution's protected list — if JARVIS could add to its own list,
+"ask me for anything else" would mean nothing.
+
+The capability that uses it, `system.machine`, holds `run_command` and
+`read_memory` and deliberately **not** `network`: running things and
+reaching the internet in one pair of hands is one bug away from being a
+way to send the machine's contents somewhere.
+
+`GET /v1/computer` says what it may run, what is missing, and — if it is
+switched off — that it is.
 
 ## The container does not run as root
 

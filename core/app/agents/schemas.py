@@ -56,6 +56,7 @@ class Permission(str, Enum):
     READ_FILES = "read_files"
     WRITE_FILES = "write_files"
     NETWORK = "network"                # fetch public information
+    RUN_COMMAND = "run_command"        # run something on the owner's machine
     EXTERNAL_MESSAGE = "external_message"   # email, chat, anything outbound
     PUBLISH = "publish"                # anything the world can see
     SPEND = "spend"                    # anything that costs real money
@@ -72,6 +73,13 @@ NEVER_DELEGATED = {Permission.MODIFY_CONFIG, Permission.MODIFY_AGENTS}
 
 # Permissions whose use always needs the owner, whatever the agent holds.
 # These map onto the approval categories seeded in Stage 0.
+# Deliberately without RUN_COMMAND. Mapping it here would mean every
+# command asks, including the read-only ones the owner put on the list
+# precisely so they would not -- and the owner who is asked nine times
+# before breakfast stops reading what he is approving. Which commands ask
+# is decided in app/computer.py, because only that knows whether a
+# command is on the list; what it raises when it asks is the same
+# ApprovalRequired as everything else here.
 ALWAYS_APPROVED = {
     Permission.PUBLISH: "publishing",
     Permission.SPEND: "spending",
@@ -202,8 +210,16 @@ class BudgetExceeded(AgentError):
 
 
 class ApprovalRequired(AgentError):
-    """Not a failure. The task waits for the owner."""
+    """Not a failure. The task waits for the owner.
 
-    def __init__(self, message: str, category: str):
+    `saw` is what he is being shown, as data rather than as prose. For a
+    command it is the exact argument vector -- which is what makes it
+    possible to check, when the task resumes, that what runs is what he
+    looked at. Recovering that by parsing the sentence would be a
+    security boundary made of a regular expression.
+    """
+
+    def __init__(self, message: str, category: str, saw: dict | None = None):
         super().__init__(message, retryable=False)
         self.category = category
+        self.saw = saw or {}

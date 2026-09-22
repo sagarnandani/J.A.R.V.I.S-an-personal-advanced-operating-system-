@@ -165,11 +165,19 @@ async def fail(task_id: UUID, reason: str, *, terminal: bool) -> None:
     )
 
 
-async def await_approval(task_id: UUID, reason: str) -> None:
+async def await_approval(task_id: UUID, reason: str, category: str | None = None,
+                         saw: dict | None = None) -> None:
+    """Park the task, and record what it is parked ON.
+
+    `category` comes from the exception that stopped it rather than being
+    worked out later from the task's permissions -- which only ever
+    worked while every category came from a permission.
+    """
     await execute(
         "UPDATE tasks SET status = 'waiting_approval', failure_reason = $2, "
+        "awaiting_category = $3, awaiting_detail = $4, "
         "updated_at = now() WHERE id = $1",
-        task_id, reason,
+        task_id, reason, category, saw or {},
     )
 
 

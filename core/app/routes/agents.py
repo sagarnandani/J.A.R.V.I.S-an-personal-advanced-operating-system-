@@ -296,6 +296,39 @@ async def cron_tick(
 
 # --- approving what is waiting ---------------------------------------------
 
+@router.get("/v1/computer", include_in_schema=False)
+async def computer_access(
+    user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    """What JARVIS may run on this machine, and what it may not.
+
+    Both halves, because a list of what something CAN do tells you
+    nothing on its own -- the useful fact is that everything else stops
+    and asks.
+    """
+    from app import computer
+
+    settings = get_settings()
+    listed = computer.catalogue()
+    return {
+        "enabled": bool(settings.computer_access),
+        "how_to_enable": "Set COMPUTER_ACCESS=true on the server.",
+        "runs_without_asking": listed,
+        "missing": [a["name"] for a in listed if not a["available"]],
+        "anything_else": (
+            "Anything not on this list is shown to you as the exact "
+            "command and does not run until you say yes. Saying yes to "
+            "one command is not saying yes to the next."
+        ),
+        "said": (
+            f"{len(listed)} checks JARVIS can run on its own; everything "
+            f"else needs your approval."
+            if settings.computer_access else
+            "JARVIS cannot run anything on this machine. It is switched off."
+        ),
+    }
+
+
 @router.get("/v1/approvals", include_in_schema=False)
 async def approvals_waiting(
     user: CurrentUser = Depends(get_current_user)
@@ -332,7 +365,11 @@ async def approve(
         # What the owner was looking at. An approval history is only
         # evidence if it records the thing that was approved.
         saw={"objective": row["objective"], "capability": row["capability"],
-             "asked": row["failure_reason"], "result": row["result"]},
+             "asked": row["failure_reason"], "result": row["result"],
+             # The specifics, as data. For a command this is the exact
+             # argument vector, and what resumes is checked against it --
+             # saying yes to one command is not saying yes to the next.
+             **(row.get("awaiting_detail") or {})},
     )
     if decision is None:
         raise HTTPException(
@@ -391,12 +428,22 @@ async def reject(
 def _category_of(task: dict) -> str:
     """Which approval category this task stopped on.
 
-    Read back from the permissions the task declared, so it matches
-    whatever the runtime actually stopped at. Defaulting to 'publishing'
-    would quietly file a spending decision under the wrong heading, and
-    the approval history is meant to be evidence.
+    The task now records it directly, from the exception that stopped it,
+    so that is what is used. The permission-based reading below stays for
+    rows parked before that column existed -- and it was never quite
+    right: it can only name categories that come from a permission, and
+    'this exact command' does not, since the permission is held equally
+    by the commands that ask and the ones that do not.
+
+    Defaulting to 'publishing' would quietly file a spending decision
+    under the wrong heading, and the approval history is meant to be
+    evidence.
     """
     from app.agents.schemas import ALWAYS_APPROVED, Permission
+
+    recorded = task.get("awaiting_category")
+    if recorded:
+        return str(recorded)
 
     for name in (task.get("constraints") or {}).get("permissions", []):
         try:

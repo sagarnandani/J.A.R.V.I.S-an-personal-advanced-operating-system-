@@ -201,7 +201,7 @@ async def run_task(task_id: UUID) -> bool:
 
     except ApprovalRequired as exc:
         # Not a failure. The work is sound; it needs the owner.
-        await tasks.await_approval(task_id, str(exc))
+        await tasks.await_approval(task_id, str(exc), exc.category, exc.saw)
         await telemetry.record(
             "approval_required", workflow_id=workflow_id, task_id=task_id,
             capability=capability, detail={"category": exc.category, "reason": str(exc)},

@@ -82,6 +82,12 @@ PROTECTED: tuple[tuple[str, str], ...] = (
     # everything else on the LAN -- from inside it.
     ("core/app/agents/tools/fetch.py",
      "the check that stops a link reaching your own network"),
+    # The list of what may run on the owner's machine without asking.
+    # If JARVIS could add to this, "ask me for anything else" would mean
+    # nothing: the first thing a change wanting more reach would do is
+    # widen the list, and it would do it in a diff that looked tidy.
+    ("core/app/computer.py",
+     "what may run on your machine without asking you"),
 
     # Deployment and schema: the ways a change reaches production, and
     # the ways credentials enter it.

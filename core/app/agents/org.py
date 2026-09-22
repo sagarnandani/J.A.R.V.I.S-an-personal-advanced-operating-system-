@@ -56,6 +56,8 @@ PERMISSION_WORDS = {
     Permission.READ_FILES: "Read files",
     Permission.WRITE_FILES: "Write files",
     Permission.NETWORK: "Look things up on the live web",
+    Permission.RUN_COMMAND: "Run things on your server — a fixed safe list "
+                            "on its own, anything else only with your yes",
     Permission.EXTERNAL_MESSAGE: "Send messages out — email, chat",
     Permission.PUBLISH: "Publish where the world can see it",
     Permission.SPEND: "Spend real money",

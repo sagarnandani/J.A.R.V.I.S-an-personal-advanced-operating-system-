@@ -184,6 +184,12 @@ class Settings(BaseSettings):
     # that is the wrong trade are the ones a task marks 'required'.
     search_policy: str = "optional"
 
+    # Whether JARVIS may run anything on this machine at all (see
+    # app/computer.py). Off unless the owner turns it on: a capability
+    # that runs commands on a home server should be something he switched
+    # on, not something that arrived switched on in a deploy he skimmed.
+    computer_access: bool = False
+
     # --- Model tiers (see app/agents/model_router.py) ---
     # Agents ask for cheap/standard/deep, never a model name. These map
     # the tiers onto real models, so a provider retiring a name is an
