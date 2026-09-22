@@ -680,6 +680,18 @@ h1, h2, .mono, .stat-value, .clock, .brand { font-family: Orbitron, Rajdhani, sy
 /* The diff. Monospace and scrolling sideways inside its own box, because
    a wrapped patch is a patch nobody can read, and the page itself must
    never scroll sideways. */
+/* The rollback command, and anything else shown as raw text to be copied.
+   A <pre> does not wrap, so a long command -- and a rollback command is a
+   git hash plus a compose line -- made the whole Build tab scroll
+   sideways on a phone. It scrolls inside its own box instead, the same
+   way the diff does: wrapping a command you are about to paste into a
+   terminal is worse than scrolling to read it. Pre-dates the panels
+   below it; found by a check written for them. */
+pre.mono {
+  white-space: pre; overflow-x: auto; max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
 .diff {
   font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .72rem;
   line-height: 1.45; white-space: pre; overflow-x: auto;
@@ -1278,6 +1290,33 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
         <p class="note" id="keyNote"></p>
       </section>
 
+      <!-- A new version of an agent, being tried against the one doing
+           the job. The numbers recommend; the buttons are the owner's.
+           Nothing here promotes itself. -->
+      <section class="panel settings" id="trialPanel">
+        <h2>Trying a new version</h2>
+        <p class="note" id="trialSaid" style="margin-top:0"></p>
+        <div id="trialArms"></div>
+        <div class="row hidden" id="trialButtons" style="margin-top:.6rem">
+          <button class="btn" id="promoteTrialBtn">Promote it</button>
+          <button class="btn danger" id="rejectTrialBtn">Reject it</button>
+          <button class="btn" id="abandonTrialBtn">Stop trying</button>
+        </div>
+        <p class="note" id="trialNote"></p>
+      </section>
+
+      <!-- What JARVIS may do to the machine it runs on, and what it may
+           do in a browser. Both halves shown: a list of what something
+           CAN do says nothing on its own -- the useful fact is that
+           everything else stops and asks. -->
+      <section class="panel settings" id="reachPanel">
+        <h2>What JARVIS may reach</h2>
+        <p class="note" id="computerSaid" style="margin-top:0"></p>
+        <div id="computerList"></div>
+        <p class="note" id="computerElse"></p>
+        <p class="note" id="searchSaid"></p>
+      </section>
+
       <!-- The boundary, on the screen where it is exercised. A setting
            this consequential should not live behind a menu, and it should
            say in words what it currently permits rather than showing a
@@ -1416,6 +1455,6 @@ label.toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem;
      served a cached script against new HTML more than once here, which
      presents as a complete page whose buttons do nothing -- the hardest
      failure to diagnose, because everything looks right. -->
-<script src="/app.js?v=4" type="module"></script>
+<script src="/app.js?v=6" type="module"></script>
 </body>
 </html>

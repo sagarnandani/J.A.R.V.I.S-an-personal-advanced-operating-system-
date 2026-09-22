@@ -275,7 +275,17 @@ async def detail(node_id: str, settings) -> dict | None:
     if node_id == ROOT:
         return await _jarvis_detail(settings)
 
-    spec = await registry.get(node_id)
+    # The version actually doing the work, not merely the highest number.
+    #
+    # `registry.get` with no version returns the newest row whatever its
+    # status, which is right for "show me version 3" and wrong here: the
+    # tree is built from routable agents, so the moment a capability had
+    # a second version registered for testing, clicking it in the tree
+    # opened a panel about a DIFFERENT version -- one not doing the job,
+    # with its own permissions and its own numbers. Found by a check that
+    # compares the page against the registry, the first time anything in
+    # this project had two versions at once.
+    spec = await registry.resolve(node_id) or await registry.get(node_id)
     if spec is None:
         return await _coordinator_detail(node_id)
 
@@ -300,6 +310,11 @@ async def detail(node_id: str, settings) -> dict | None:
             | {"recent": await _recent_model(node_id),
                "measured": await _measured_models(node_id)}
         ),
+        # Whether a newer version is being tried against this one. The
+        # panel is where the owner looks to ask "what is this agent",
+        # and "a different one is taking a fifth of its work" is part of
+        # the answer.
+        "trial": await _trial_for(node_id),
         "permissions": _permissions(spec),
         "performance": await _performance(node_id),
         "economics": await _economics(node_id),
@@ -366,6 +381,27 @@ async def _recent_model(capability: str) -> dict | None:
     detail = row["detail"] or {}
     return {"model": detail.get("model"), "tier": detail.get("tier"),
             "why": detail.get("why"), "when": row["created_at"]}
+
+
+async def _trial_for(capability: str) -> dict | None:
+    """A candidate being tried against this one, if there is one."""
+    from app.agents import trials
+
+    try:
+        running = await trials.running(capability)
+        if running is None:
+            return None
+        call = await trials.verdict(capability)
+    except Exception as exc:  # noqa: BLE001 - a panel, not a decision
+        logger.info("Could not read the trial on %s: %s", capability, exc)
+        return None
+    return {
+        "candidate_version": running["candidate_version"],
+        "baseline_version": running["baseline_version"],
+        "share": float(running["share"]),
+        "verdict": call.as_detail() if call else None,
+        "said": call.said if call else "Nothing measured on either side yet.",
+    }
 
 
 async def _measured_models(capability: str) -> dict:

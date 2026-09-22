@@ -65,6 +65,25 @@ DATABASE_URL=... python tests/browser/seed_busy_agent.py
 node tests/browser/agents_page.mjs agents.png agents-phone.png
 ```
 
+The two new panels on the Build tab -- a trial in progress, and what
+JARVIS may reach:
+
+```bash
+DATABASE_URL=... python tests/browser/seed_trial.py
+node tests/browser/build_panels.mjs build-panels.png
+```
+
+Needs a server started with `COMPUTER_ACCESS=true`. `build_panels.mjs`
+compares each panel against its own endpoint, so a panel showing
+something plausible rather than something true fails here. The
+assertions about the two arms are scoped to the rows and NOT to the
+whole panel: the server's verdict sentence sits in the same panel and
+already contains both rates and both run counts, so a panel-wide check
+passed happily while the rows showed one arm and no run counts at all.
+It also checks all three sizes for content spilling out of a panel and
+for sideways scroll -- which is how the Build tab was found to have
+scrolled sideways on a phone since long before these panels existed.
+
 Which model is good at which job, which needs a measured track record
 the check server can never accumulate on its own:
 

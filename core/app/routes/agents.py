@@ -364,6 +364,30 @@ async def trial_decide(
     return {"ok": True, "decision": decision, "verdict": detail}
 
 
+@router.get("/v1/search-policy", include_in_schema=False)
+async def search_policy_now(
+    user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    """When JARVIS may consult the live web, in the owner's words.
+
+    Read-only on purpose. It is a server setting, and a switch on this
+    page that silently failed to change it would be worse than no switch.
+    """
+    from app.agents import search_policy
+
+    settings = get_settings()
+    mode = search_policy.read(settings.search_policy)
+    return {
+        "mode": mode.value,
+        "means": search_policy.explain(mode),
+        "modes": [{"mode": m.value, "means": search_policy.explain(m)}
+                  for m in search_policy.Search],
+        "set_with": "SEARCH_POLICY on the server",
+        "note": ("A single task can ask for a stricter mode than this. "
+                 "It cannot ask for a looser one."),
+    }
+
+
 @router.get("/v1/shots/{name}", include_in_schema=False)
 async def screenshot(
     name: str, user: CurrentUser = Depends(get_current_user)

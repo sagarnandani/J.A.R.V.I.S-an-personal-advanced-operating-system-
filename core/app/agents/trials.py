@@ -188,11 +188,25 @@ async def start(capability: str, candidate_version: int, *, by: str,
     return dict(row)
 
 
-async def running(capability: str) -> dict | None:
-    row = await fetchrow(
-        "SELECT * FROM agent_trials WHERE capability = $1 AND status = 'running'",
-        capability,
-    )
+async def running(capability: str | None = None) -> dict | None:
+    """The trial on this capability, or -- given nothing -- any trial.
+
+    The second case is what the dashboard needs. It asks "is anything
+    being tried?" without knowing what, and an answer of None to that
+    question made a running trial invisible on the one screen built to
+    show it.
+    """
+    if capability is None:
+        row = await fetchrow(
+            "SELECT * FROM agent_trials WHERE status = 'running' "
+            "ORDER BY started_at DESC LIMIT 1"
+        )
+    else:
+        row = await fetchrow(
+            "SELECT * FROM agent_trials WHERE capability = $1 "
+            "AND status = 'running'",
+            capability,
+        )
     return dict(row) if row else None
 
 
@@ -269,14 +283,16 @@ async def _arm(capability: str, version: int) -> Arm:
     )
 
 
-async def verdict(capability: str) -> Verdict | None:
+async def verdict(capability: str | None = None) -> Verdict | None:
     """What the numbers say. Recommends; never acts."""
     trial = await running(capability)
     if trial is None:
         return None
 
-    candidate = await _arm(capability, trial["candidate_version"])
-    baseline = await _arm(capability, trial["baseline_version"])
+    # The trial's own capability, not the argument, which may be None.
+    subject = trial["capability"]
+    candidate = await _arm(subject, trial["candidate_version"])
+    baseline = await _arm(subject, trial["baseline_version"])
     return judge(candidate, baseline)
 
 
@@ -386,7 +402,7 @@ async def _close(trial_id, status: str, by: str, detail: dict) -> None:
 
 async def state(capability: str | None = None) -> dict:
     """For the dashboard, and for answering "is anything being tried?"."""
-    live = await running(capability) if capability else None
+    live = await running(capability)
     call = await verdict(capability) if live else None
     return {
         "runs_needed_each": ENOUGH_EACH,

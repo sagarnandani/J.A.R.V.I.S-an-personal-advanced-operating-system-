@@ -530,3 +530,93 @@ async def test_the_state_reads_as_plain_words(clean):
     said = (await trials.state(capability))["said"]
     assert str(ENOUGH_EACH) in said, f"does not say what it is waiting for: {said}"
     assert (await trials.state(capability))["running"]["candidate_version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_asking_whether_anything_is_being_tried_finds_it(clean):
+    """The dashboard's question.
+
+    It asks without knowing which capability, and an answer of "nothing"
+    to that made a running trial invisible on the one screen built to
+    show it.
+    """
+    capability = await two_versions()
+    await trials.start(capability, 2, by="user:owner")
+
+    found = await trials.running()
+    assert found is not None and found["capability"] == capability
+
+    state = await trials.state()
+    assert state["running"] is not None
+    assert state["running"]["capability"] == capability
+    assert state["said"] != "Nothing is being trialled."
+
+
+@pytest.mark.asyncio
+async def test_with_genuinely_nothing_running_it_says_so(clean):
+    await two_versions()
+    assert await trials.running() is None
+    assert (await trials.state())["said"] == "Nothing is being trialled."
+
+
+@pytest.mark.asyncio
+async def test_the_verdict_without_a_capability_is_about_the_trial_found(clean):
+    capability = await two_versions()
+    await trials.start(capability, 2, by="user:owner")
+    await measured(clean, capability, 2, wins=18, losses=2)
+    await measured(clean, capability, 1, wins=10, losses=10)
+
+    call = await trials.verdict()
+    assert call is not None and call.call == PROMOTE
+    assert call.candidate.runs == 20, (
+        "it judged the wrong versions when told no capability"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_org_panel_is_about_the_version_doing_the_job(clean):
+    """Click an agent in the tree, get a panel about THAT agent.
+
+    The tree is built from routable agents; the detail used to be built
+    from the highest version number. The moment anything had a candidate
+    registered for testing, those were different agents -- with different
+    permissions and different numbers -- and nothing said so.
+    """
+    from app.agents import org
+    from app.config import Settings
+
+    capability = await two_versions(permissions=frozenset())
+    await trials.start(capability, 2, by="user:owner")
+
+    panel = await org.detail(capability, Settings())
+    assert panel["identity"]["version"] == 1, (
+        "the panel is about the candidate, not the version doing the work")
+    assert panel["identity"]["lifecycle"] == "active"
+
+    # And the candidate is not hidden -- it is just not mistaken for the
+    # live one.
+    assert panel["trial"]["candidate_version"] == 2
+    assert panel["trial"]["baseline_version"] == 1
+    assert panel["trial"]["said"]
+
+
+@pytest.mark.asyncio
+async def test_with_no_trial_the_panel_says_nothing_about_one(clean):
+    from app.agents import org
+    from app.config import Settings
+
+    capability = await two_versions()
+    assert (await org.detail(capability, Settings()))["trial"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_capability_with_nothing_live_still_has_a_panel(clean):
+    """Disabled and experimental versions are still worth reading about."""
+    from app.agents import org
+    from app.config import Settings
+
+    await registry.register(spec("general.writer", 1, status=Lifecycle.DISABLED))
+    panel = await org.detail("general.writer", Settings())
+    assert panel is not None
+    assert panel["identity"]["version"] == 1
+    assert panel["identity"]["routable"] is False

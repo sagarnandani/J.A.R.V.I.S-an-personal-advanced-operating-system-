@@ -2126,6 +2126,8 @@ async function loadBuilds() {
     renderGovernor(data.governor || {});
     renderRecovery(data.recovery || {});
     loadScientist();
+    loadTrials();
+    loadReach();
 
     clearTimeout(buildPoll);
     if (rows.some((r) => r.state === "building") &&
@@ -2228,6 +2230,102 @@ $("govCeiling").onchange = async (e) => {
     else $("govMeans").textContent = "That could not be saved.";
   } catch (err) { $("govMeans").textContent = "That could not be saved."; }
 };
+
+// A new version of an agent being tried against the live one.
+//
+// Both arms are shown with their run counts, because the interesting
+// case is the one where the answer is "not enough yet" -- and a panel
+// that only showed a verdict would make that look like nothing is
+// happening.
+async function loadTrials() {
+  const panel = $("trialPanel");
+  if (!panel) return;
+  try {
+    const res = await api("/v1/trials");
+    if (!res.ok) return;
+    const data = await res.json();
+    const live = data.running;
+
+    $("trialSaid").textContent = data.said || "";
+    $("trialButtons").classList.toggle("hidden", !live);
+    $("trialNote").textContent = live
+      ? `A share of this agent's work goes to the new version. It needs ` +
+        `${data.runs_needed_each} runs on each side before a difference ` +
+        `means anything, and ${Math.round(data.margin * 100)} points of ` +
+        `daylight before it counts as one.`
+      : "";
+
+    if (!live || !live.verdict) { $("trialArms").innerHTML = ""; return; }
+    const v = live.verdict;
+    const arm = (a, label) => kv(
+      `${label} (v${a.version})`,
+      `${percent(a.success_rate)} of ${a.runs} run${a.runs === 1 ? "" : "s"}` +
+      (a.enough_to_judge ? "" : ` ${unknown("— too few to judge")}`));
+    $("trialArms").innerHTML =
+      kv("Capability", esc(live.capability)) +
+      arm(v.candidate, "The new one") +
+      arm(v.baseline, "The one doing the job");
+  } catch (e) { /* the tab is readable without it */ }
+}
+
+for (const [id, decision, confirm] of [
+  ["promoteTrialBtn", "promote", "Promote the new version?"],
+  ["rejectTrialBtn", "reject", "Reject it and keep the current version?"],
+  ["abandonTrialBtn", "abandon", "Stop the trial without deciding?"],
+]) {
+  const btn = $(id);
+  if (!btn) continue;
+  btn.onclick = async () => {
+    const res0 = await api("/v1/trials");
+    if (!res0.ok) return;
+    const live = (await res0.json()).running;
+    if (!live || !window.confirm(confirm)) return;
+    $("trialNote").textContent = "Saving…";
+    try {
+      const res = await api(
+        `/v1/trials/${encodeURIComponent(live.capability)}/${decision}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "" }),
+        });
+      if (res.ok) { loadTrials(); loadBuilds(); }
+      else {
+        // The refusal is the useful part: "the numbers do not support
+        // promoting this" is the panel earning its place.
+        const said = await res.json().catch(() => ({}));
+        $("trialNote").textContent = said.detail || "That could not be done.";
+      }
+    } catch (e) { $("trialNote").textContent = "That could not be done."; }
+  };
+}
+
+// What JARVIS may run on the machine, and when it may search the web.
+// Read-only: both are server settings, and a switch here that silently
+// did nothing would be worse than no switch.
+async function loadReach() {
+  const panel = $("reachPanel");
+  if (!panel) return;
+  try {
+    const res = await api("/v1/computer");
+    if (res.ok) {
+      const c = await res.json();
+      $("computerSaid").textContent = c.said || "";
+      $("computerList").innerHTML = c.enabled
+        ? (c.runs_without_asking || []).map((a) =>
+            kv(esc(a.what), `<span class="mono">${esc(a.command)}</span>` +
+              (a.available ? "" : ` ${unknown("— not installed here")}`))).join("")
+        : "";
+      $("computerElse").textContent = c.enabled
+        ? c.anything_else
+        : c.how_to_enable || "";
+    }
+    const web = await api("/v1/search-policy");
+    if (web.ok) {
+      const w = await web.json();
+      $("searchSaid").textContent = `Searching the web: ${w.means}`;
+    }
+  } catch (e) { /* the tab is readable without it */ }
+}
 
 function renderRecovery(rec) {
   const note = $("recoveryNote");
@@ -2774,6 +2872,15 @@ function agentBody(d) {
     `<p class="note">An agent asks for a tier, never a model name. What a
      tier means today comes from configuration, so a provider retiring a
      name changes one setting rather than every agent.</p>`;
+
+  if (d.trial) {
+    const t = d.trial;
+    html += `<div class="sect">A new version is being tried</div>` +
+      kv("Version being tried", `v${t.candidate_version} — taking ` +
+         `${Math.round(t.share * 100)}% of this agent's work`) +
+      kv("Against", `v${t.baseline_version}, which is doing the rest`) +
+      `<p class="note">${esc(t.said)} Promote or reject it on the Build tab.</p>`;
+  }
 
   const m = d.models.measured;
   if (m && m.rows.length) {
