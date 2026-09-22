@@ -201,9 +201,41 @@ for (const [label, ua, expected] of [
     fail('nothing warns him that JARVIS goes deaf while he is in the app');
   else if (!/starts listening again/i.test(note || ''))
     fail('it does not say that coming back fixes it');
-  else ok('it says plainly that it cannot hear him while he is away, ' +
+  else ok('on a computer it says it cannot hear him while he is away, ' +
           'and that coming back restores it');
   await p3.close();
+}
+
+// --- on an iPad the advice is different, because the facts are --------------
+//
+// iPadOS does not fire the Page Visibility API when you move between
+// apps in Split View. Neither app is hidden, so neither is suspended,
+// and JARVIS keeps listening. "Come back to this tab" describes the
+// problem; "put them side by side" is the way round it, and only one of
+// those is worth reading.
+{
+  const pad = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) ' +
+               'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 ' +
+               'Mobile/15E148 Safari/604.1',
+  });
+  const p4 = await pad.newPage();
+  await p4.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await p4.waitForSelector('#app:not(.hidden)', { timeout: 15000 });
+  await p4.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('jarvis:offer', {
+      detail: { type: 'open', url: 'https://open.spotify.com', site: 'Spotify',
+                said: 'Opening Spotify.' },
+    }));
+  });
+  await p4.waitForTimeout(400);
+  const note = await p4.textContent('.msg.jarvis .note').catch(() => '');
+  if (!/side by side|split view/i.test(note || ''))
+    fail(`an iPad is not told about Split View: ${(note || '').slice(0, 120)}`);
+  else if (/come back to this tab/i.test(note || ''))
+    fail('an iPad is given the phone advice, which is the long way round');
+  else ok('an iPad is told to put them side by side, which keeps it listening');
+  await pad.close();
 }
 
 console.log(out.map((l) => '  ' + l).join('\n'));

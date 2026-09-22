@@ -934,9 +934,30 @@ function addressFor(opening) {
 // Saying so is better than him asking it something and waiting.
 let saidAboutAway = false;
 
+function onAnIPad() {
+  const ua = navigator.userAgent || "";
+  return /iPad/.test(ua) ||
+         (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
 function awayNote() {
   if (saidAboutAway) return "";
   saidAboutAway = true;
+
+  // On an iPad this is not a limitation to apologise for -- it is a
+  // layout choice he has not been told about.
+  //
+  // iPadOS does not fire the Page Visibility API when you move between
+  // apps in Split View: neither is hidden, so neither is suspended and
+  // JARVIS keeps listening. Full screen is the only arrangement where
+  // it goes deaf. Saying "come back to this tab" was the right advice
+  // for a phone and the wrong advice here -- it described the problem
+  // instead of the way round it.
+  if (onAnIPad()) {
+    return " Put them side by side (drag this tab to the edge, or use " +
+           "Split View) and JARVIS keeps listening while you use the " +
+           "other app. Full screen is the only way it goes deaf.";
+  }
   return " While you are in the other app JARVIS cannot hear you — " +
          "come back to this tab and it starts listening again by itself.";
 }
