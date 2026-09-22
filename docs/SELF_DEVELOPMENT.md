@@ -222,9 +222,61 @@ its agents. It does not mean the release was correct.
 | 23 | Browser access | Not built. |
 | 24 | Search policy modes | Not built. |
 | 25 | Computer access layer | Not built. |
-| 13/14 | Capability-first tier routing, local/Nano layer | Not built. |
-| 15 | Model performance learning from `agent_metrics` | Not built. The Scientist reads them; nothing routes on them. |
+| 13/14 | Capability-first tier routing, local/Nano layer | Partly built. The router now escalates on measured failure (below); choosing a *different* model for a job, and a local/Nano layer, are not built. |
+| 15 | Model performance learning from `agent_metrics` | **Built** — see below. |
 | — | `read_only: true` on the container | Needs a real `docker build` to confirm nothing breaks. |
+
+## The router learns which model is failing (section 15)
+
+`agent_metrics` has recorded success, failure, latency, cost and
+confidence since the agent foundation was built. What it never recorded
+was **who produced them** — the model sat in the telemetry blob, which is
+written to be read by a person, not grouped by a query. So "which model
+is good at this" was unanswerable about data JARVIS was already
+collecting.
+
+Migration `011` adds `provider`, `model` and `tier` to every
+measurement. `app/agents/performance.py` reads them back, and
+`run_task` consults it on every routed task.
+
+**Three rules, all of them about not fooling yourself with numbers.**
+
+- *A handful of runs is not evidence.* Two failures out of two is a
+  hundred per cent and means nothing. Below eight runs the answer is
+  "not enough to say", which is a real answer and the honest one.
+- *Recent, not lifetime.* A thirty-day window, so a model that was bad
+  last month and is good now reads as good now.
+- *It only ever escalates.* "This model has been failing here" is a
+  measurable claim. "That model would be better" is not — it would need
+  the models tried on comparable work, which nothing has done. So a poor
+  record raises the tier; it never lowers one, and it never picks a
+  different provider on its own.
+
+**What it cannot override.** The registry (an agent is not escalated past
+a tier it is not registered for), the budget (an empty one still drops
+the tier), and you. If the task names a model, the measurements are not
+even looked up — a success rate quietly beating an instruction is the
+silent substitution the whole preference system exists to prevent.
+
+**Whose failure it was.** A task that dies because no implementation was
+loaded, or because permission was refused, is recorded with **no model
+named**. Blaming the model for that would teach the router to escalate
+away from JARVIS's own bugs — which no model can fix, and which would go
+on costing more every time they happened. A model is only on the hook
+from the moment it is handed the work.
+
+You can see the whole thing per agent: **Build → org chart → any agent →
+"Which model is good at this"**. It is fed by the same query the router
+makes, so the panel and the routing decision cannot disagree.
+
+Thirty tests and a browser check cover it, and every guard was checked by
+breaking the thing it protects and confirming the check failed. Three of
+those attempts did not fail. Two were bad mutations rather than weak
+tests. The third was real: the dashboard panel had its own copy of "which
+model is the one to route around", and its copy picked the *best* of the
+poor models where the router picks the worst — so the panel could name one
+model while the router escalated away from another. There is now one
+implementation and both call it.
 
 ## The container does not run as root
 

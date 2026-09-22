@@ -15,7 +15,15 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.agents import context as ctx
-from app.agents import cost, model_router, permissions, registry, tasks, telemetry
+from app.agents import (
+    cost,
+    model_router,
+    performance,
+    permissions,
+    registry,
+    tasks,
+    telemetry,
+)
 from app.agents.schemas import (
     AgentError,
     AgentResult,
@@ -73,6 +81,13 @@ async def run_task(task_id: UUID) -> bool:
     if not await tasks.claim(task_id):
         return False  # somebody else has it
 
+    # Who the outcome is fair to blame. Stays None until the model has
+    # actually been handed the work: a task that dies because no
+    # implementation was loaded, or because permission was refused, is
+    # JARVIS's failure, and recording it against whichever model happened
+    # to be routed would teach the router to route around its own bugs.
+    attributed = None
+
     try:
         needed = {Permission(p) for p in (task["constraints"] or {}).get("permissions", [])}
         for perm in needed:
@@ -102,24 +117,37 @@ async def run_task(task_id: UUID) -> bool:
                     "chars": package.chars, "omitted": package.omitted},
         )
 
+        constraints = task["constraints"] or {}
+
+        # What the measurements say about this capability. Looked up only
+        # when the task has not named a model itself: a pin the owner (or
+        # a plan) set is an instruction, and a success rate quietly
+        # beating it would be the silent substitution the whole
+        # preference system exists to prevent.
+        measured = None
+        if not constraints.get("model") and not constraints.get("provider"):
+            measured = await performance.struggling(capability)
+
         choice = model_router.choose(
             settings,
-            tier=ModelTier((task["constraints"] or {}).get("tier", "standard")),
+            tier=ModelTier(constraints.get("tier", "standard")),
             allowed=spec.model_tiers,
             budget_left=await cost.remaining(workflow_id),
-            risk=(task["constraints"] or {}).get("risk", "normal"),
+            risk=constraints.get("risk", "normal"),
+            measured=measured,
         )
         await telemetry.record(
             "model_routed", workflow_id=workflow_id, task_id=task_id,
             capability=capability,
             detail={"tier": choice.tier.value, "model": choice.model,
-                    "provider": choice.provider, "why": choice.reason},
+                    "provider": choice.provider, "why": choice.reason,
+                    "measured": measured.as_detail() if measured else None},
         )
 
         handoff = Handoff(
             task_id=task_id, workflow_id=workflow_id, objective=task["objective"],
             inputs=task["inputs"], context=package.text,
-            constraints=task["constraints"] or {},
+            constraints=constraints,
             expected_output=task["expected_output"] or "",
             budget_inr=budget, model_tier=choice.tier,
             permissions=spec.permissions,
@@ -133,6 +161,9 @@ async def run_task(task_id: UUID) -> bool:
                 retryable=False,
             )
 
+        # Past this line the model has the work, so whatever happens next
+        # is its record.
+        attributed = choice
         result: AgentResult = await fn(handoff, choice)
 
         spent = result.cost_inr or cost.price(
@@ -165,7 +196,7 @@ async def run_task(task_id: UUID) -> bool:
             "latency_ms": elapsed, "cost_inr": float(spent),
             "shadow_inr": float(shadow),
             "attempts": task["attempts"] + 1,
-        })
+        }, attributed)
         return True
 
     except ApprovalRequired as exc:
@@ -184,7 +215,11 @@ async def run_task(task_id: UUID) -> bool:
             capability=capability,
             detail={"reason": str(exc), "kind": type(exc).__name__},
         )
-        await _measure(capability, spec.id, task_id, {"success": 0, "refused": 1})
+        # Permissions are checked before the model is chosen, so nothing
+        # was ever handed to one: the refusal is recorded, with no model
+        # named, because it is not a model's failure.
+        await _measure(capability, spec.id, task_id,
+                       {"success": 0, "refused": 1}, attributed)
         return False
 
     except Exception as exc:  # noqa: BLE001 - any agent failure is data
@@ -199,28 +234,44 @@ async def run_task(task_id: UUID) -> bool:
                     "attempt": task["attempts"] + 1,
                     "will_retry": bool(retryable and not exhausted)},
         )
+        # `attributed` is None unless the model had actually been handed
+        # the work -- a failure in routing, or in loading the agent, is
+        # recorded as a failure with no model named.
         await _measure(capability, spec.id, task_id, {
             "success": 0, "failure": 1, "attempts": task["attempts"] + 1,
-        })
+        }, attributed)
         return False
 
 
-async def _measure(capability: str, agent_id, task_id: UUID, metrics: dict) -> None:
+async def _measure(capability: str, agent_id, task_id: UUID, metrics: dict,
+                   choice=None) -> None:
     """Record how it went. Generic on purpose.
 
     Metric name plus number, so a domain-specific measure later -- audience
     retention, say -- is a new row rather than a schema change.
+
+    `choice` is who produced the result. It was missing for a long time,
+    and its absence is what made "which model is best at this" an
+    unanswerable question about data JARVIS was already collecting: the
+    model sat in the telemetry blob, written to be read by a person
+    rather than grouped by a query.
     """
     from app.db import execute
+
+    provider = getattr(choice, "provider", None)
+    model = getattr(choice, "model", None)
+    tier = getattr(getattr(choice, "tier", None), "value", None)
 
     for metric, value in metrics.items():
         if value is None:
             continue
         try:
             await execute(
-                "INSERT INTO agent_metrics (capability, agent_id, task_id, metric, value) "
-                "VALUES ($1,$2,$3,$4,$5)",
-                capability, agent_id, task_id, metric, Decimal(str(float(value))),
+                "INSERT INTO agent_metrics (capability, agent_id, task_id, "
+                "metric, value, provider, model, tier) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+                capability, agent_id, task_id, metric,
+                Decimal(str(float(value))), provider, model, tier,
             )
         except Exception:  # noqa: BLE001 - measuring must not break the measured
             pass

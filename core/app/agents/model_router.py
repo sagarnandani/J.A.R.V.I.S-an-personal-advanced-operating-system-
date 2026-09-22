@@ -30,6 +30,7 @@ def choose(
     allowed: tuple[ModelTier, ...] = (),
     budget_left: Decimal | None = None,
     risk: str = "normal",
+    measured=None,
 ) -> ModelChoice:
     """Pick a model for one task.
 
@@ -44,6 +45,25 @@ def choose(
         beats no answer and an exhausted budget later.
     """
     reasons = []
+
+    # What has actually happened, when the caller took the trouble to
+    # find out. Deliberately a parameter rather than a query: this
+    # function is synchronous and called on every routed task, and a
+    # router that stalls on a statistics table is worse than one that
+    # does not learn.
+    #
+    # Only ever escalates. "This model has been failing at this" is a
+    # measurable claim; "that model would be better" is not -- it would
+    # need the models tried on comparable work, which nothing here has
+    # done. Pretending otherwise would be confident and wrong.
+    if measured is not None and tier is not ModelTier.DEEP:
+        tier = (ModelTier.STANDARD if tier is ModelTier.CHEAP
+                else ModelTier.DEEP)
+        reasons.append(
+            f"raised to {tier.value}: {measured.model} has succeeded "
+            f"{measured.success_rate:.0%} of the time here over "
+            f"{measured.runs} runs"
+        )
 
     if risk == "high" and tier is not ModelTier.DEEP:
         tier = ModelTier.DEEP
@@ -81,6 +101,13 @@ def _model_for(tier: ModelTier, settings) -> tuple[str, str]:
     provider = settings.llm_provider.strip().lower()
     if provider == "claude":
         return "claude", settings.claude_model
+    if provider == "openai":
+        # Missing until now. OpenAI was added as a provider and the
+        # router never learned the name, so every routed task fell
+        # through to the Gemini branch below and was labelled "gemini"
+        # whatever actually answered -- which would have made the
+        # performance history that reads these labels quietly wrong.
+        return "openai", settings.openai_model
     if provider == "mock":
         return "mock", "mock"
     return "gemini", {

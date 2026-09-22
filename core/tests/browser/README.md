@@ -65,6 +65,22 @@ DATABASE_URL=... python tests/browser/seed_busy_agent.py
 node tests/browser/agents_page.mjs agents.png agents-phone.png
 ```
 
+Which model is good at which job, which needs a measured track record
+the check server can never accumulate on its own:
+
+```bash
+DATABASE_URL=... python tests/browser/seed_model_history.py
+node tests/browser/which_model_is_good.mjs which-model.png
+```
+
+`which_model_is_good.mjs` seeds two models on one capability: one failing
+with enough runs behind it to say so, and one failing *worse* on three
+runs. The second is the point. It checks that the failing model is marked
+as the one being routed around, that the three-run model is shown but
+explicitly not judged, and that the model named on screen is the one the
+router would actually escalate away from -- the panel had its own copy of
+that judgement for an hour and the two disagreed.
+
 `agents_page.mjs` fetches `/v1/org` itself and compares the page against
 it, so a page that had drifted from the registry — an agent shown that
 was retired, or one missing that was registered — fails here rather than

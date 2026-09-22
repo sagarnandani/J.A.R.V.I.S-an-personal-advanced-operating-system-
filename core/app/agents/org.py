@@ -293,7 +293,11 @@ async def detail(node_id: str, settings) -> dict | None:
         "role": spec.description,
         "responsibilities": _responsibilities(spec),
         "tools": list(spec.tools) or [],
-        "models": _models(spec, settings) | {"recent": await _recent_model(node_id)},
+        "models": (
+            _models(spec, settings)
+            | {"recent": await _recent_model(node_id),
+               "measured": await _measured_models(node_id)}
+        ),
         "permissions": _permissions(spec),
         "performance": await _performance(node_id),
         "economics": await _economics(node_id),
@@ -360,6 +364,30 @@ async def _recent_model(capability: str) -> dict | None:
     detail = row["detail"] or {}
     return {"model": detail.get("model"), "tier": detail.get("tier"),
             "why": detail.get("why"), "when": row["created_at"]}
+
+
+async def _measured_models(capability: str) -> dict:
+    """How each model has actually fared at this one job.
+
+    `recent` above says which model ran last and why. This says whether
+    that was a good idea -- from the same query AND the same judgement
+    the router makes when it decides whether to escalate, so the panel
+    and the routing decision cannot disagree.
+    """
+    from app.agents import performance
+
+    records = await performance.history(capability)
+    worst = performance.worst_of(records)
+    return {
+        "window_days": performance.WINDOW_DAYS,
+        "enough_runs": performance.ENOUGH,
+        "poor_below": performance.POOR,
+        "rows": [r.as_detail() for r in records],
+        # Asked of the router's own code rather than worked out again
+        # here, so the panel cannot name a different model than the one
+        # being escalated away from.
+        "struggling": worst.model if worst else None,
+    }
 
 
 def _permissions(spec: AgentSpec) -> dict:

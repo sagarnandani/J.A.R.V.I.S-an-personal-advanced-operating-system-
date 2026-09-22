@@ -2775,6 +2775,25 @@ function agentBody(d) {
      tier means today comes from configuration, so a provider retiring a
      name changes one setting rather than every agent.</p>`;
 
+  const m = d.models.measured;
+  if (m && m.rows.length) {
+    html += `<div class="sect">Which model is good at this (${m.window_days} days)</div>` +
+      m.rows.map((r) =>
+        kv(esc(r.model), `${percent(r.success_rate)} of ${r.runs} run${r.runs === 1 ? "" : "s"}` +
+          (r.enough_to_judge ? "" : ` ${unknown("— too few to judge")}`) +
+          (r.model === m.struggling ? ` <span class="tag">routed around</span>` : "") +
+          (r.avg_latency_ms ? `<span class="unknown"> · ${(r.avg_latency_ms / 1000).toFixed(1)}s</span>` : ""))
+      ).join("") +
+      `<p class="note">${m.struggling
+        ? `Below ${Math.round(m.poor_below * 100)}% over ${m.enough_runs} runs or more, JARVIS
+           raises the tier for this job rather than keep spending on a model that
+           is not getting it right. It never lowers one on this evidence, and never
+           overrules a model you named yourself.`
+        : `Nothing here is failing enough to route around. It takes
+           ${m.enough_runs} runs before JARVIS will judge a model at all — a
+           handful of results is not evidence.`}</p>`;
+  }
+
   html += `<div class="sect">Permissions</div>` +
     d.permissions.can.map((c) =>
       `<div class="perm"><span class="y">✓</span> ${esc(c.what)}` +
