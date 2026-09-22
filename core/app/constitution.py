@@ -88,6 +88,12 @@ PROTECTED: tuple[tuple[str, str], ...] = (
     # widen the list, and it would do it in a diff that looked tidy.
     ("core/app/computer.py",
      "what may run on your machine without asking you"),
+    # Where "following a link" ends and "doing something" begins, and
+    # the refusal to type into a password field. Both are lines the owner
+    # drew, and a diff that moved either would read like a small
+    # improvement to how well the browser works.
+    ("core/app/agents/tools/browser.py",
+     "what JARVIS may do in a browser without asking you"),
     # How a new version of an agent gets to replace the one doing the
     # job. A JARVIS that could rewrite this could make `promote` stop
     # reading the verdict, or drop the check that a candidate may not

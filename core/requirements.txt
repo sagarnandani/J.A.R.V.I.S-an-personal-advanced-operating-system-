@@ -42,3 +42,16 @@ python-multipart>=0.0.9,<0.1
 # a home server without apt-get. Only the text is taken out; the original
 # bytes are not kept (see app/attachments.py).
 pypdf>=5.1,<7
+
+# --- A real browser, for pages that build themselves ---
+# app/agents/tools/fetch.py asks a server for a page and reads what it
+# sends. That is right for most pages and useless for one that builds
+# itself in JavaScript, which arrives as an empty shell. Playwright
+# drives a real Chromium for those, and for the pages the owner wants
+# used rather than read.
+#
+# The browser binary is NOT pip-installable and is not pulled in here:
+# after installing, run `playwright install --with-deps chromium` once.
+# Without it JARVIS still runs and still reads ordinary pages -- it says
+# plainly that it has no browser rather than failing.
+playwright>=1.48,<2

@@ -24,7 +24,7 @@ from app.agents.schemas import (
     ModelTier,
     Permission,
 )
-from app.agents.tools import fetch
+from app.agents.tools import browser, fetch
 from app.config import get_settings
 from app.llm import get_provider
 
@@ -76,6 +76,17 @@ def _address(handoff: Handoff) -> str:
     return ""
 
 
+def _as_page(seen, requested: str, max_chars: int) -> fetch.Page:
+    """What the browser saw, in the shape the rest of this expects."""
+    text = seen.text[:max_chars]
+    return fetch.Page(
+        url=seen.url, requested=requested, status=seen.status,
+        title=seen.title, text=text, content_type="text/html",
+        bytes_read=len(text), truncated=seen.truncated or len(seen.text) > max_chars,
+        redirects=[requested] if seen.url != requested else [],
+    )
+
+
 def _confidence(page: fetch.Page) -> float:
     """From what was actually read, not from how sure the model sounds."""
     if page.looks_empty:
@@ -96,11 +107,31 @@ async def run(handoff: Handoff, choice) -> AgentResult:
             retryable=False,
         )
 
-    page = await fetch.read(
-        url,
-        granted=handoff.permissions,
-        max_chars=int(handoff.constraints.get("max_chars", fetch.MAX_CHARS)),
-    )
+    max_chars = int(handoff.constraints.get("max_chars", fetch.MAX_CHARS))
+    page = await fetch.read(url, granted=handoff.permissions, max_chars=max_chars)
+
+    # The cheap read asked the server for the page and got what it sent.
+    # For most pages that is the page. For one that builds itself in the
+    # browser it is an empty shell, and reporting "this page is nearly
+    # blank" about a page that is full of text is a wrong answer
+    # delivered confidently.
+    #
+    # So when the cheap read comes back with nothing, and only then, a
+    # real browser is opened and the page is read as a person would see
+    # it. Second, not first: a browser costs a second or so and a few
+    # hundred megabytes, and most pages never need one.
+    via_browser = False
+    if page.looks_empty:
+        try:
+            async with browser.Session(granted=handoff.permissions) as driven:
+                seen = await driven.go(url)
+            if len(seen.text.strip()) > len(page.text.strip()):
+                page, via_browser = _as_page(seen, url, max_chars), True
+        except fetch.CannotRead as exc:
+            # No browser, or it would not start. The cheap read stands,
+            # and what it found -- almost nothing -- is still the honest
+            # answer, so this is a note rather than a failure.
+            logger.info("No browser to fall back on for %s: %s", url, exc)
 
     provider = get_provider(settings)
     asked = handoff.objective or f"What does {page.url} say?"
@@ -112,6 +143,8 @@ async def run(handoff: Handoff, choice) -> AgentResult:
     unresolved = []
     if page.looks_empty:
         unresolved.append(
+            "This page returned almost no text even in a real browser."
+            if via_browser else
             "This page returned almost no text, which usually means it is "
             "built in the browser. What I read may be a fragment of it."
         )
@@ -126,7 +159,12 @@ async def run(handoff: Handoff, choice) -> AgentResult:
         # The page itself is the evidence, and the title is how the owner
         # recognises whether it is the one they meant.
         evidence=[page.url],
-        assumptions=[f"Read: {page.title or 'untitled'} ({page.bytes_read:,} bytes)"],
+        assumptions=[
+            f"Read: {page.title or 'untitled'} ({page.bytes_read:,} characters)",
+            ("Opened in a real browser, because asking the server for it "
+             "returned an empty shell." if via_browser else
+             "Read as the server sent it; no browser was needed."),
+        ],
         unresolved=unresolved,
         next_action=("Ask for a different page if this was not the one."
                      if page.looks_empty else ""),

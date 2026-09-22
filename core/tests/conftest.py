@@ -42,6 +42,14 @@ def _looks_disposable(url: str) -> bool:
     return any(hint in url for hint in _DISPOSABLE_HINTS)
 
 
+# Where this machine keeps Chromium, if it is somewhere Playwright would
+# not look by itself. Set here rather than in the application, which has
+# no business knowing the layout of the box the tests happen to run on.
+for _candidate in ("/opt/pw-browsers/chromium",):
+    if not os.environ.get("CHROMIUM_PATH") and os.path.exists(_candidate):
+        os.environ["CHROMIUM_PATH"] = _candidate
+
+
 @pytest_asyncio.fixture
 async def db_pool():
     url = _database_url()

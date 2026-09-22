@@ -364,6 +364,21 @@ async def trial_decide(
     return {"ok": True, "decision": decision, "verdict": detail}
 
 
+@router.get("/v1/shots/{name}", include_in_schema=False)
+async def screenshot(
+    name: str, user: CurrentUser = Depends(get_current_user)
+):
+    """One screenshot the browser took. Owner only, like everything here."""
+    from fastapi.responses import FileResponse
+
+    from app import shots
+
+    path = shots.path_for(name)
+    if path is None:
+        raise HTTPException(status_code=404, detail="No such screenshot.")
+    return FileResponse(path, media_type="image/png")
+
+
 @router.get("/v1/computer", include_in_schema=False)
 async def computer_access(
     user: CurrentUser = Depends(get_current_user)

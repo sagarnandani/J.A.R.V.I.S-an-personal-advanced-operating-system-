@@ -223,7 +223,7 @@ answer, and a list that only ever grows shorter is one nobody trusts.
 |---|---|---|
 | I | Docker build verification | **Not run.** `docker build` has never executed against this repository — no Docker daemon in the environment these changes were written in. |
 | 20 | Agent versioning: candidate → benchmark → promotion | **Built** — a share of real tasks go to the candidate, both are measured, and the numbers decide. Nothing promotes itself. See below. |
-| 23 | Browser access | **Built** — `research.page` reads a page the owner names. See below. No JavaScript: what comes back is the HTML the server sent. |
+| 23 | Browser access | **Built**, both halves. `research.page` reads a page and falls back to a real Chromium when the cheap read comes back empty; `research.browse` drives one — follows links freely, asks before anything else, never signed in. See below. |
 | 24 | Search policy modes | **Built** — off / optional / required / fallback. See below. |
 | 25 | Computer access layer | **Built** — a fixed list of read-only checks JARVIS runs on its own, and for anything else the exact command shown to you, approved per command. Off until `COMPUTER_ACCESS=true`. See below. |
 | 13/14 | Capability-first tier routing, local/Nano layer | Partly built. The router now escalates on measured failure (below); choosing a *different* model for a job, and a local/Nano layer, are not built. |
@@ -338,6 +338,76 @@ to.
 `core/app/agents/tools/fetch.py` is on the Constitution's protected list,
 for the same reason the budget guard is. A diff that widened it would
 read like a small improvement.
+
+## A real browser, that JARVIS drives (section 23, second half)
+
+The first version asked a web server for a page and read what it sent
+back. That is cheap, fast and right for most pages — and useless for one
+that builds itself in JavaScript, which arrives as an empty shell. JARVIS
+reported that honestly, which meant reporting "this page is nearly blank"
+about a page full of text.
+
+So there is now an actual Chromium on the server.
+
+**Reading** (`research.page`) tries the cheap way first and falls back to
+the browser **only when the cheap read comes back empty** — a browser
+costs a second and a few hundred megabytes, and most pages never need
+one. If the browser finds *less* than the plain read did, the plain read
+is kept: the fallback is a second opinion, not a replacement. The record
+says which happened, every time.
+
+**Using** (`research.browse`) drives it: follows links, clicks, fills
+things in. Two rules make it safe enough to have built.
+
+**It is never logged in as you.** Every run gets a brand new, empty
+browser profile, thrown away afterwards. Nothing is carried in, nothing
+carried out. A page that talks JARVIS into visiting your webmail gets a
+logged-out webmail, and there is nothing there to take. That is one line
+of code, and it is the whole reason this feature exists in this shape.
+
+**It does not click things on its own.** Following a link is navigation
+and free — the address is checked exactly as any other address is,
+*including* the link's own destination, because navigation being free is
+precisely what would make an unchecked link a way to reach your router in
+one click. Anything else — a button, a form control, typing — stops and
+shows you what it is about to do.
+
+The line is drawn by **what the element is, not what it says.** Button
+text is written by whoever wrote the page, so a page that wanted to be
+clicked would simply label its button "Read more".
+
+A sequence is approved **as a whole, in one tap, up front** — you see all
+six steps before any of them runs. That is not only a convenience: an
+approval is one row per task, so asking again halfway through would hit a
+decision already recorded. And it is checked per step, so a sequence you
+approved cannot grow a seventh step you never saw.
+
+**Passwords are refused outright**, approval or not. Typing into a
+password field is the logins line, and you drew it on the other side. An
+approval prompt is how a line gets crossed one tired evening, so there
+is no prompt.
+
+**Every request the page makes is checked, not just the address you
+gave.** A page can redirect itself with JavaScript, load an iframe, or
+quietly `fetch()` something — blocking only the top-level address leaves
+all of those open. Chromium is told to route every request past the same
+check, and anything resolving to your own machine or network is aborted
+before it leaves. When that happens, JARVIS says so in its answer: a page
+reaching for your LAN is either badly built or up to something, and
+either way you should hear about it.
+
+**Screenshots** are kept for a day, behind the same sign-in as everything
+else, under an unguessable name, and swept afterwards. Not in the
+database: they are worth nothing after the conversation they belong to,
+and Postgres would back them up for ever.
+
+`app/agents/tools/browser.py` is on the Constitution's protected list.
+
+**Deployment.** Chromium is about 400MB and is **off by default**:
+`docker build --build-arg WITH_BROWSER=true`. Without it JARVIS still
+runs and still reads ordinary pages — it says plainly that it has no
+browser rather than failing, which is why this can be an option rather
+than a requirement.
 
 ## When JARVIS may search the web (section 24)
 

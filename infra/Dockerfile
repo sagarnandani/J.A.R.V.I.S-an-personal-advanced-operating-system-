@@ -11,6 +11,24 @@ WORKDIR /app
 COPY core/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# The browser, for pages that build themselves in JavaScript. Off by
+# default because it is ~400MB of Chromium and its system libraries, and
+# most people deploying this will never ask JARVIS to look at such a
+# page. Turn it on with:
+#
+#     docker build --build-arg WITH_BROWSER=true ...
+#
+# Without it JARVIS still runs and still reads ordinary pages. It says
+# plainly that it has no browser rather than failing -- which is why
+# this can be a build argument rather than a requirement.
+#
+# Installed before the user is dropped, because it writes into
+# /usr/lib and /ms-playwright, and after that nothing in this image is
+# allowed to install anything.
+ARG WITH_BROWSER=false
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN if [ "$WITH_BROWSER" = "true" ]; then         playwright install --with-deps chromium &&         chmod -R a+rx /ms-playwright;     fi
+
 COPY core/app ./app
 COPY core/static ./static
 # The Constitution. Without it in the image, the protected core reports

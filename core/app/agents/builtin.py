@@ -149,13 +149,14 @@ async def install() -> None:
     # -- a broken capability should be a missing capability, not a system
     # that will not start.
     from app.agents.capabilities import (
-        factcheck_claims, machine, read_page, research_web,
+        browse_page, factcheck_claims, machine, read_page, research_web,
     )
     from app.dev import patch as dev_patch
     from app.dev import plan as dev_plan
     from app.media import review, script, scout, strategy
 
-    for module in (research_web, read_page, machine, factcheck_claims,
+    for module in (research_web, read_page, browse_page, machine,
+                   factcheck_claims,
                    scout, strategy, script, review,
                    dev_plan, dev_patch):
         try:
