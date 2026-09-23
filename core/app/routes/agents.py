@@ -364,6 +364,40 @@ async def trial_decide(
     return {"ok": True, "decision": decision, "verdict": detail}
 
 
+@router.get("/v1/local-model", include_in_schema=False)
+async def local_model(
+    user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    """Whether there is a model on the owner's own hardware, and if it is up.
+
+    Actually asked, not read off a setting. "Configured" and "running"
+    are different facts and the useful one is the second: a URL in a file
+    proves nothing about whether anything is listening.
+    """
+    from app.llm.local_adapter import reachable
+
+    settings = get_settings()
+    if not settings.local_llm_url:
+        return {
+            "configured": False, "up": False,
+            "said": "No model on your own hardware. Cheap work goes to a "
+                    "paid model.",
+            "how": "Install Ollama, run `ollama pull llama3.2`, and set "
+                   "LOCAL_LLM_URL=http://localhost:11434 on the server.",
+        }
+
+    up, why = await reachable(settings.local_llm_url, settings.local_llm_model)
+    return {
+        "configured": True, "up": up,
+        "url": settings.local_llm_url, "model": settings.local_llm_model,
+        "said": (f"Cheap work goes to {settings.local_llm_model} on your own "
+                 f"machine, free. {why}" if up else
+                 f"A local model is configured but not answering. {why} "
+                 f"Cheap work is going to a paid model instead."),
+        "how": "" if up else "Start it, and this will pick it up with no restart.",
+    }
+
+
 @router.get("/v1/search-policy", include_in_schema=False)
 async def search_policy_now(
     user: CurrentUser = Depends(get_current_user)

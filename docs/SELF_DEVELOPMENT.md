@@ -226,13 +226,12 @@ answer, and a list that only ever grows shorter is one nobody trusts.
 | 23 | Browser access | **Built**, both halves. `research.page` reads a page and falls back to a real Chromium when the cheap read comes back empty; `research.browse` drives one — follows links freely, asks before anything else, never signed in. See below. |
 | 24 | Search policy modes | **Built** — off / optional / required / fallback. See below. |
 | 25 | Computer access layer | **Built** — a fixed list of read-only checks JARVIS runs on its own, and for anything else the exact command shown to you, approved per command. Off until `COMPUTER_ACCESS=true`. See below. |
-| 13/14 | Capability-first tier routing, local/Nano layer | Partly built. The router now escalates on measured failure (below); choosing a *different* model for a job, and a local/Nano layer, are not built. |
+| 13/14 | Capability-first tier routing, local/Nano layer | **Built** — cheap work goes to a model on your own hardware when you have one, free. The router also escalates on measured failure (§15). See below. |
 | 15 | Model performance learning from `agent_metrics` | **Built** — see below. |
 | — | `read_only: true` on the container | Same script tests it and prints the two lines to paste into `docker-compose.yml` if it passes. |
 
-**What is actually left:** the two Docker rows, and the local/Nano model
-layer in 13/14. Everything else in this table is built and covered by
-tests.
+**What is actually left:** the two Docker rows. Everything else in this
+table is built and covered by tests.
 
 The Docker rows need a Docker daemon, which the environment these
 changes were written in does not have — so rather than leaving them as
@@ -571,6 +570,55 @@ the Constitution's protected list.
 
 `GET /v1/trials`, `POST /v1/trials/<capability>`, and
 `POST /v1/trials/<capability>/promote|reject|abandon`.
+
+## A model on your own hardware (sections 13 and 14)
+
+On a ₹3,500 ceiling, the difference between *free* and *a fraction of a
+paisa per call* is the difference between JARVIS noticing things all day
+and JARVIS rationing itself. So cheap work goes to your own machine when
+you have one.
+
+**Setting it up**, on the server JARVIS runs on:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull llama3.2
+```
+
+then `LOCAL_LLM_URL=http://localhost:11434` and restart. That is the
+whole thing.
+
+**It speaks OpenAI's API, which is not an endorsement of OpenAI** — it is
+the shape everything local already speaks: Ollama, llama.cpp's server,
+LM Studio, vLLM, text-generation-webui. JARVIS does not care what is
+serving the model or what hardware it sits on. Swapping one for another
+is a URL change, not a new adapter.
+
+**Only the cheap tier, and never as a fallback.** A 7B model on a home
+server is a real model with real limits. Answering a hard question with
+it because a frontier model was busy is exactly the silent substitution
+the whole provider layer exists to prevent — so it is chosen on purpose,
+for short high-volume low-stakes work, or not at all. It is last in the
+fallback order, and standard and deep work never land there.
+
+**If it is switched off, cheap work goes to a paid model** rather than
+failing. That is what makes "free when it is up" safe to rely on. The
+Build tab says which is happening, and it *asks* rather than reading it
+off a setting: a URL in a file proves nothing about whether anything is
+listening.
+
+**What it costs, and what it saved.** A local call costs nothing, which
+the ledger records correctly. But its *shadow* cost — what the same work
+would have cost on a paid model — is recorded at the cheap paid rate,
+because zero on both sides would make an afternoon of local work look
+like an afternoon of nothing, and "what this would have cost" is the
+number that justifies running it at all.
+
+One honest limit: `LOCAL_LLM_URL` is deliberately **not** checked against
+the network rules that stop a web page reaching your LAN. It is supposed
+to be `localhost:11434` or a box in the next room. The two rules look
+contradictory and are not — the question is never "is this address
+private", it is "who chose it".
 
 ## The container does not run as root
 

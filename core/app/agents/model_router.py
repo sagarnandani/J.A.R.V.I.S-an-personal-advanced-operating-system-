@@ -85,6 +85,8 @@ def choose(
         reasons.append("dropped to standard: little budget left")
 
     provider, model = _model_for(tier, settings)
+    if provider == "local":
+        reasons.append(f"cheap work goes to {model} on your own machine, free")
     if not reasons:
         reasons.append(f"{tier.value} is what the task asked for")
 
@@ -98,6 +100,16 @@ def _model_for(tier: ModelTier, settings) -> tuple[str, str]:
     Every name comes from settings, so a retirement is an environment
     variable and a restart -- not a code change, and not an outage.
     """
+    # Sections 13 and 14: cheap work goes to the owner's own hardware
+    # when he has some. Ahead of the configured provider on purpose --
+    # configuring a local model IS the instruction to use it for this,
+    # and it only ever applies to the cheap tier. Standard and deep work
+    # never lands here: a 7B model on a home server is a real model with
+    # real limits, and quietly answering a hard question with it is the
+    # silent substitution the whole provider layer exists to prevent.
+    if tier is ModelTier.CHEAP and getattr(settings, "local_llm_url", ""):
+        return "local", settings.local_llm_model
+
     provider = settings.llm_provider.strip().lower()
     if provider == "claude":
         return "claude", settings.claude_model

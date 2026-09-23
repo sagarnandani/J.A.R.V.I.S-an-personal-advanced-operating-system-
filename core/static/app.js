@@ -2324,6 +2324,16 @@ async function loadReach() {
       const w = await web.json();
       $("searchSaid").textContent = `Searching the web: ${w.means}`;
     }
+    // Asked, not read off a setting. "Configured" and "running" are
+    // different facts and the useful one is the second.
+    const local = await api("/v1/local-model");
+    if (local.ok) {
+      const l = await local.json();
+      $("localSaid").innerHTML = esc(l.said) +
+        (l.how ? ` <span class="unknown">${esc(l.how)}</span>` : "") +
+        (l.configured && !l.up
+          ? ` <span class="tag">not answering</span>` : "");
+    }
   } catch (e) { /* the tab is readable without it */ }
 }
 

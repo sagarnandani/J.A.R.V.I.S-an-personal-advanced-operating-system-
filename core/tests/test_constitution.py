@@ -240,21 +240,68 @@ def test_no_preference_leaves_the_choice_to_jarvis():
     assert chosen.__class__.__name__ in ("GeminiAdapter", "FallbackProvider")
 
 
-def test_asking_for_a_provider_that_was_never_built_says_so():
+def test_asking_for_a_provider_that_was_never_built_says_so(monkeypatch):
     """"Not configured" and "never built" are different problems with
     different fixes, and he needs to know which one he has.
 
-    This used to use OpenAI as the example. OpenAI now has an adapter, so
-    the example moved to the one that genuinely does not -- rather than
-    the test being deleted, which would have quietly stopped checking
-    that the distinction exists at all.
+    The example has now moved twice: first from OpenAI, then from the
+    local model, as each of them got an adapter. There is nothing left to
+    use as a victim -- every provider named in this codebase is built.
+
+    So this tests the MECHANISM rather than borrowing whichever provider
+    happens to be unfinished. Deleting it when the last example was built
+    would have quietly stopped checking that the distinction exists at
+    all, which is the thing worth keeping: the next provider added will
+    spend a while in this state, and the message it produces is the
+    difference between the owner changing a setting and the owner
+    waiting for me.
     """
+    import app.llm as llm_module
+
+    monkeypatch.setitem(llm_module.NOT_BUILT, "grok",
+                        "No Grok adapter is built yet.")
     settings = Settings(gemini_api_key="x", llm_provider="gemini")
 
+    # Built directly rather than parsed from text: what is being tested
+    # is the refusal, and the parser only knows the names of providers
+    # that exist -- which is the right behaviour and would make this
+    # test about the parser instead.
+    wanted = pref.Preference(provider="grok", mode=pref.HARD,
+                             said="Use grok only for this.")
+
     with pytest.raises(ProviderUnavailable) as refused:
-        get_provider(settings, pref.read("Use a local model only for this."))
+        get_provider(settings, wanted)
     assert "is built yet" in refused.value.why
-    assert "local" in NOT_BUILT
+    assert refused.value.provider == "grok"
+
+
+def test_a_soft_preference_for_something_unbuilt_carries_on(monkeypatch):
+    """The other half. A hard choice that cannot be honoured must fail;
+    a soft one must not take out the task."""
+    import app.llm as llm_module
+
+    monkeypatch.setitem(llm_module.NOT_BUILT, "grok",
+                        "No Grok adapter is built yet.")
+    settings = Settings(gemini_api_key="x", llm_provider="gemini")
+    wanted = pref.Preference(provider="grok", mode=pref.SOFT,
+                             said="Preferably grok for this.")
+
+    provider = get_provider(settings, wanted)
+    assert provider is not None
+    assert "Grok" not in type(provider).__name__
+
+
+def test_every_provider_named_in_the_code_is_actually_built():
+    """The reason the test above needed rewriting.
+
+    If something is listed as real and has no adapter, asking for it by
+    name fails in a way that reads like a bug rather than like a missing
+    feature.
+    """
+    from app.llm import NOT_BUILT, REAL
+
+    unbuilt = [name for name in REAL if name in NOT_BUILT]
+    assert not unbuilt, f"listed as real but never built: {unbuilt}"
 
 
 def test_openai_is_built_now_and_says_the_other_thing():

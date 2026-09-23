@@ -190,6 +190,21 @@ class Settings(BaseSettings):
     # on, not something that arrived switched on in a deploy he skimmed.
     computer_access: bool = False
 
+    # A model running on the owner's own hardware (see
+    # app/llm/local_adapter.py). Anything that speaks OpenAI's chat
+    # completions API: Ollama, llama.cpp's server, LM Studio, vLLM.
+    #
+    # Empty means there is none, which is the default and is fine. When
+    # it is set, the cheap tier goes here instead of to a paid model --
+    # on a Rs.3,500 ceiling the difference between free and a fraction of
+    # a paisa per call is the difference between JARVIS noticing things
+    # all day and JARVIS rationing itself.
+    local_llm_url: str = ""
+    local_llm_model: str = "llama3.2"
+    # Most local servers want no key at all. Only sent if set, for the
+    # case where the owner has put one behind something.
+    local_llm_key: str = ""
+
     # --- Model tiers (see app/agents/model_router.py) ---
     # Agents ask for cheap/standard/deep, never a model name. These map
     # the tiers onto real models, so a provider retiring a name is an

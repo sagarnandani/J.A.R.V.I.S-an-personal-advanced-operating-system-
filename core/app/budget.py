@@ -89,6 +89,17 @@ def shadow_rates(provider: str, settings: Settings) -> tuple[Decimal, Decimal]:
             settings.shadow_gemini_input_usd_per_1m,
             settings.shadow_gemini_output_usd_per_1m,
         )
+    if provider == "local":
+        # A local model costs nothing to run, which `provider_rates`
+        # above says correctly. But zero shadow as well would make an
+        # afternoon of local work look like an afternoon of nothing --
+        # and the number that justifies running it at all is exactly
+        # "what this would have cost if you had paid for it". Priced as
+        # the cheap paid tier, because cheap work is what it does.
+        return (
+            settings.shadow_gemini_input_usd_per_1m,
+            settings.shadow_gemini_output_usd_per_1m,
+        )
     # The mock adapter computes nothing, so there is nothing to shadow.
     return (Decimal("0"), Decimal("0"))
 

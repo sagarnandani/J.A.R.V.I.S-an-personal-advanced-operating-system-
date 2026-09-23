@@ -14,19 +14,24 @@ logger = logging.getLogger("jarvis.llm")
 GEMINI = "gemini"
 CLAUDE = "claude"
 OPENAI = "openai"
+LOCAL = "local"
 MOCK = "mock"
 
 # Every real provider, in the order they are tried as fallbacks for one
 # another. A list rather than a pair: the code used to ask for "the other
 # one", which quietly assumed there would only ever be two of them.
-REAL = (GEMINI, OPENAI, CLAUDE)
+#
+# LOCAL is deliberately LAST. A model on a home server is a real model
+# with real limits, and falling back to it when a frontier model is down
+# would quietly answer a hard question with a small model -- which is the
+# silent substitution this whole package exists to prevent. It is chosen
+# on purpose, for cheap work, or not at all.
+REAL = (GEMINI, OPENAI, CLAUDE, LOCAL)
 
 # Named so that being asked for one produces an honest answer rather than
 # a silent substitution. A provider with no adapter is not "unavailable";
 # it was never built, and those are different things to be told.
-NOT_BUILT = {
-    "local": "No local model adapter is built yet.",
-}
+NOT_BUILT: dict[str, str] = {}
 
 
 class ProviderUnavailable(Exception):
@@ -75,6 +80,12 @@ def _build(name: str, settings: Settings) -> LLMProvider | None:
 
             return OpenAIAdapter(api_key=stored_key,
                                  model=stored_model or settings.openai_model)
+        if name == LOCAL:
+            from app.llm.local_adapter import LocalAdapter
+
+            return LocalAdapter(base_url=settings.local_llm_url,
+                                model=stored_model or settings.local_llm_model,
+                                api_key=stored_key)
 
     if name == GEMINI and settings.gemini_api_key:
         from app.llm.gemini_adapter import GeminiAdapter
@@ -97,6 +108,17 @@ def _build(name: str, settings: Settings) -> LLMProvider | None:
 
         return OpenAIAdapter(
             api_key=settings.openai_api_key, model=settings.openai_model
+        )
+
+    # A URL, not a key: the thing that makes a local model configured is
+    # that there is somewhere to reach it. Most local servers want no key
+    # at all, so requiring one would mean the feature never switched on.
+    if name == LOCAL and settings.local_llm_url:
+        from app.llm.local_adapter import LocalAdapter
+
+        return LocalAdapter(
+            base_url=settings.local_llm_url, model=settings.local_llm_model,
+            api_key=settings.local_llm_key,
         )
 
     return None
@@ -126,7 +148,7 @@ def _chain(providers: list[LLMProvider]) -> LLMProvider:
     return chained
 
 
-def get_provider(settings: Settings, want=None) -> LLMProvider:
+def get_provider(settings: Settings, want=None, tier=None) -> LLMProvider:
     """Pick the provider (and its fallback) for this deployment.
 
     `want` is the owner's own choice for this piece of work, if he made
@@ -150,6 +172,23 @@ def get_provider(settings: Settings, want=None) -> LLMProvider:
         chosen = _for_preference(settings, want)
         if chosen is not None:
             return chosen
+
+    # Cheap work, on the owner's own hardware, when he has some. Below
+    # the owner's own preference and above everything else: he configured
+    # it, and a task that asked for the cheap tier is exactly the work it
+    # is for.
+    #
+    # Wrapped in a fallback rather than used alone, because a local
+    # server that is switched off must not become a task that fails --
+    # the paid model behind it is what makes "free when it is up" safe to
+    # rely on.
+    if str(getattr(tier, "value", tier) or "") == "cheap" and settings.local_llm_url:
+        local = _build(LOCAL, settings)
+        if local is not None:
+            paid = [built for built in
+                    (_build(name, settings) for name in REAL if name != LOCAL)
+                    if built is not None]
+            return _chain([local, *paid]) if paid else local
 
     preferred = settings.llm_provider.strip().lower()
     if preferred not in (*REAL, MOCK):
