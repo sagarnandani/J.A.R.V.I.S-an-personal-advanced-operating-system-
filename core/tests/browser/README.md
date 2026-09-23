@@ -65,6 +65,19 @@ DATABASE_URL=... python tests/browser/seed_busy_agent.py
 node tests/browser/agents_page.mjs agents.png agents-phone.png
 ```
 
+What JARVIS says when it opens something, on the device it is used on:
+
+```bash
+node tests/browser/opening_says_what_happened.mjs
+```
+
+Run twice: once with an iPad user agent, once as a laptop. On iOS Safari
+blocks `window.open` outside a tap -- always -- so the tab never opens by
+itself, and the page must say so rather than claiming "Opening LinkedIn."
+while nothing happens. On a laptop it really does open, and it must not
+tell him to tap something that already worked. The same addresses were
+always correct; what was wrong was the sentence.
+
 This tab as a pair of hands -- the only sidecar an iPad can be:
 
 ```bash

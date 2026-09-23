@@ -934,6 +934,15 @@ function addressFor(opening) {
 // Saying so is better than him asking it something and waiting.
 let saidAboutAway = false;
 
+// Safari on iOS blocks window.open outside a tap -- always, on both the
+// iPhone and the iPad, and including the iPad's desktop-class Safari
+// which reports itself as a Mac. Knowing this is what lets the page stop
+// claiming to have opened something it could not have.
+function onIOS() {
+  const ua = navigator.userAgent || "";
+  return /iPad|iPhone|iPod/.test(ua) || onAnIPad();
+}
+
 function onAnIPad() {
   const ua = navigator.userAgent || "";
   return /iPad/.test(ua) ||
@@ -987,7 +996,13 @@ function openIt(msg, opening) {
   //
   // So the result is discarded. A real link is always left behind, and
   // tapping a link is a gesture no browser refuses.
-  try { window.open(url, "_blank", "noopener"); } catch (e) { /* the link below */ }
+  // On iOS this is known to do nothing. It is still attempted, because
+  // on a laptop it works and saves a tap.
+  let mayHaveOpened = false;
+  try {
+    window.open(url, "_blank", "noopener");
+    mayHaveOpened = !onIOS();
+  } catch (e) { /* the link below */ }
 
   const row = document.createElement("div");
   row.className = "row";
@@ -1004,16 +1019,45 @@ function openIt(msg, opening) {
   link.style.textDecoration = "none";
   link.textContent = `Open ${opening.site}`;
 
+  // What the link SAYS depends on whether anything can have happened
+  // yet. On an iPhone or iPad a tab genuinely cannot open from here --
+  // Safari blocks window.open outside a tap, always -- so "if the tab
+  // did not open, tap this" describes a thing that never happened as if
+  // it were the unlikely case. He read that as JARVIS having failed,
+  // because the sentence above it said "Opening LinkedIn." and nothing
+  // opened.
+  //
+  // So on iOS the link is the instruction, not the fallback.
+  link.textContent = mayHaveOpened
+    ? `Open ${opening.site}`
+    : `Tap to open ${opening.site}`;
+
   const note = document.createElement("span");
   note.className = "note";
   note.textContent =
-    (opening.browser === "chrome" && canChooseBrowser()
-      ? "If Chrome did not open, tap this."
-      : "If the tab did not open, tap this.") +
+    (mayHaveOpened
+      ? (opening.browser === "chrome" && canChooseBrowser()
+          ? "If Chrome did not open, tap this."
+          : "If the tab did not open, tap this.")
+      : "Safari only opens a tab when you tap, so this is waiting for you.") +
     browserNote(opening) + awayNote();
 
   row.append(link, note);
   msg.append(row);
+
+  // And the sentence above it, which the server wrote without knowing
+  // what device this is. "Opening LinkedIn." on an iPad is false:
+  // nothing is opening, and it will not until he taps. He reported that
+  // as JARVIS failing to open LinkedIn, which is exactly what it looked
+  // like.
+  if (!mayHaveOpened) {
+    const body = msg.querySelector(".body");
+    if (body && /^Opening /.test(body.textContent || "")) {
+      body.textContent = (body.textContent || "")
+        .replace(/^Opening /, "Ready to open ")
+        .replace(/\.$/, " — tap below.");
+    }
+  }
 }
 
 /* ------------------------------------------------------------- start-up */

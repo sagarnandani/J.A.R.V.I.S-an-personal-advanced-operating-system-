@@ -8,6 +8,7 @@ deliberately not here yet.
 import asyncio
 import logging
 import time
+from dataclasses import replace
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
@@ -162,6 +163,18 @@ async def send_message(
         if not asked:
             asked = "I have attached a document. What does it say?"
         asked = f"{attachments.as_material(attached)}\n\n{asked}"
+
+    # "Play X" deserves to actually play. browse.read gives a search
+    # results page, which is a correct URL and a wrong answer: he said
+    # play, the site opened, and nothing played. One short fetch turns it
+    # into the video itself. Any failure leaves the search page alone.
+    if opening is not None and opening.query:
+        from app import play
+
+        plays = await play.playable(opening.site, opening.url, opening.query)
+        if plays:
+            opening = replace(opening, url=plays,
+                              said=f"Playing {opening.query} on {opening.site}.")
 
     model_started = time.perf_counter()
     if opening is not None or doing is not None:
