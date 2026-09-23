@@ -26,6 +26,7 @@ from app.routes import (
     live,
     login,
     media,
+    sidecars,
     message,
     records,
     settings_keys,
@@ -274,6 +275,7 @@ app.include_router(live.router)
 app.include_router(admin.router)
 app.include_router(agents.router)
 app.include_router(media.router)
+app.include_router(sidecars.router)
 app.include_router(voice.router)
 app.include_router(settings_keys.router)
 app.include_router(attachments.router)

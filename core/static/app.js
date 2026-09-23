@@ -2326,6 +2326,21 @@ async function loadReach() {
     }
     // Asked, not read off a setting. "Configured" and "running" are
     // different facts and the useful one is the second.
+    // The other machines. Both halves: what each may do, and whether it
+    // is actually connected -- a machine that is asleep is not a machine
+    // that can do anything, however it was paired.
+    const cars = await api("/v1/sidecars");
+    if (cars.ok) {
+      const c = await cars.json();
+      $("sidecarSaid").textContent = `Other machines: ${c.said}` +
+        (c.waiting ? ` ${c.waiting} job(s) waiting for your yes.` : "");
+      $("sidecarList").innerHTML = (c.sidecars || []).map((s) =>
+        kv(esc(s.name), (s.live ? "" : `${unknown("asleep")} · `) +
+          esc(s.capabilities.join(", ") || "nothing") +
+          (s.status !== "active" ? ` <span class="tag">${esc(s.status)}</span>` : "")
+        )).join("");
+    }
+
     const local = await api("/v1/local-model");
     if (local.ok) {
       const l = await local.json();

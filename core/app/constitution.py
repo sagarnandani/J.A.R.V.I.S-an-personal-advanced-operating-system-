@@ -94,6 +94,14 @@ PROTECTED: tuple[tuple[str, str], ...] = (
     # improvement to how well the browser works.
     ("core/app/agents/tools/browser.py",
      "what JARVIS may do in a browser without asking you"),
+    # What the other machines may be asked to do, and the three
+    # narrowings a job has to survive. If JARVIS could rewrite this it
+    # could grant itself a terminal on the owner's laptop -- in a diff
+    # that would read like "support more capabilities".
+    ("core/app/sidecars.py",
+     "what JARVIS may ask your other machines to do"),
+    ("core/app/routes/sidecars.py",
+     "how your other machines are paired and authenticated"),
     # How a new version of an agent gets to replace the one doing the
     # job. A JARVIS that could rewrite this could make `promote` stop
     # reading the verdict, or drop the check that a candidate may not

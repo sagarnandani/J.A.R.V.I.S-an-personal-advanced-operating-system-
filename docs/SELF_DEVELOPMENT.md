@@ -225,13 +225,18 @@ answer, and a list that only ever grows shorter is one nobody trusts.
 | 20 | Agent versioning: candidate → benchmark → promotion | **Built** — a share of real tasks go to the candidate, both are measured, and the numbers decide. Nothing promotes itself. See below. |
 | 23 | Browser access | **Built**, both halves. `research.page` reads a page and falls back to a real Chromium when the cheap read comes back empty; `research.browse` drives one — follows links freely, asks before anything else, never signed in. See below. |
 | 24 | Search policy modes | **Built** — off / optional / required / fallback. See below. |
-| 25 | Computer access layer | **Built** — a fixed list of read-only checks JARVIS runs on its own, and for anything else the exact command shown to you, approved per command. Off until `COMPUTER_ACCESS=true`. See below. |
+| 25 | Computer access layer (server) | **Built** — a fixed list of read-only checks JARVIS runs on its own, and for anything else the exact command shown to you, approved per command. Off until `COMPUTER_ACCESS=true`. See below. |
 | 13/14 | Capability-first tier routing, local/Nano layer | **Built** — cheap work goes to a model on your own hardware when you have one, free. The router also escalates on measured failure (§15). See below. |
 | 15 | Model performance learning from `agent_metrics` | **Built** — see below. |
 | — | `read_only: true` on the container | Same script tests it and prints the two lines to paste into `docker-compose.yml` if it passes. |
 
-**What is actually left:** the two Docker rows. Everything else in this
-table is built and covered by tests.
+| 19/40C | Sidecars — eyes and hands on your Mac/PC | **Built** — pair a machine, grant it named capabilities, it connects out. See below. |
+| 9/40B | Agent Factory — specialists created at runtime | Not built. The registry versions and trials agents; nothing creates one on demand. |
+| 25 | EvolveR — reusable principles from experience | Not built. Outcomes are measured (§15, §20); nothing distils a principle from them. |
+
+**What is actually left:** the two Docker rows, the Agent Factory, and
+EvolveR-style principle extraction. Everything else in this table is
+built and covered by tests.
 
 The Docker rows need a Docker daemon, which the environment these
 changes were written in does not have — so rather than leaving them as
@@ -619,6 +624,62 @@ the network rules that stop a web page reaching your LAN. It is supposed
 to be `localhost:11434` or a box in the next room. The two rules look
 contradictory and are not — the question is never "is this address
 private", it is "who chose it".
+
+## Eyes and hands on your other machines (sections 19 and 40C)
+
+The server is the brain: it runs all the time, holds the memory and the
+Governor, and has no screen, no browser of yours, and no access to your
+Mac. A **sidecar** is a small program you run on one of those machines
+that offers a named, limited set of things it will do on JARVIS's behalf.
+
+`sidecar/jarvis_sidecar.py` — one file, standard library only, so it runs
+on a Mac, a PC or a Pi with no install step. `sidecar/README.md` is the
+page you actually follow.
+
+**It connects out. JARVIS never dials in.** No port is opened on your
+laptop, nothing is forwarded through your router, it works from a cafe,
+and the machine that decides whether to be reachable is the machine
+itself. Closing the lid is the off switch and nothing on the server can
+override it, because there is nothing there listening.
+
+**Three narrowings, and a job has to survive all of them:**
+
+```
+  what you granted that machine   (at pairing, by you)
+∩ what the agent asking holds     (its registry entry)
+∩ what the action needs           (this one job)
+```
+
+Computed once, in `may_run` — not re-derived at each call site, because a
+permission check that exists in four places is a permission check that
+will exist in three after the next refactor. A job that could never pass
+is refused at queue time rather than sitting in a queue until it expires,
+because a failure nobody sees is the worst kind.
+
+**A sidecar never widens itself.** It reports what machine it is and what
+version it runs; it does not report what it may do. A compromised sidecar
+can lie about its hostname and cannot lie about its authority — tested by
+pairing one that claims `terminal`, `files.write` and `admin: true`, and
+getting exactly the screenshot it was granted.
+
+**And the machine refuses too.** The server decides what to ask for; the
+sidecar decides what it is willing to do. Both, independently. Proven by
+writing a `terminal` job straight into the table, past the server's own
+check — the machine still refused it, and said so in the answer.
+
+**`terminal` and `files.write` always ask**, whatever was granted. The
+grant says you are willing for that machine to be *able* to; it is not a
+standing yes for it to happen now, unwatched. One approval releases one
+job, never a category.
+
+**Pairing is a code, once, for fifteen minutes.** The token is stored
+only as a hash, so it cannot be read back out of the server by anybody,
+including you. Revoking is final: "this laptop was stolen" must not be
+undoable by whoever has the laptop.
+
+`app/sidecars.py` and its routes are on the Constitution's protected
+list. A JARVIS that could rewrite them could grant itself a terminal on
+your laptop, in a diff that would read like "support more capabilities".
 
 ## The container does not run as root
 
