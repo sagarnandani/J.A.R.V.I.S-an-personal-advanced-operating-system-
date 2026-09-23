@@ -52,12 +52,42 @@ logger = logging.getLogger("jarvis.sidecars")
 # by a typo, and the dashboard can list them because they are knowable.
 CAPABILITIES: dict[str, str] = {
     "screenshot": "See what is on that screen",
-    "browser": "Drive a browser on that machine",
+    "browser": "Open a page on that device",
     "files.read": "Read files on that machine",
     "files.write": "Write files on that machine",
     "terminal": "Run commands on that machine",
-    "clipboard": "Read and set that machine's clipboard",
-    "notify": "Show a notification on that machine",
+    "clipboard": "Read and set that device's clipboard",
+    "notify": "Show a notification on that device",
+    "speak": "Say something aloud on that device",
+}
+
+# The two kinds of sidecar, and what each can actually perform.
+#
+# `native` is the Python program: a Mac, a PC, a Linux box, a Pi. It can
+# do everything on the list.
+#
+# `browser` is the dashboard itself, open in a tab. That is the only
+# sidecar an iPad or a phone can be: iOS does not allow arbitrary
+# background processes, and no amount of wanting it to changes that. A
+# web page can say something aloud, show a notification and put a link in
+# front of the owner. It cannot run a command, read a file, or take a
+# screenshot without putting a picker in his face.
+#
+# Enforced at PAIRING as well as at run time. Granting an iPad 'terminal'
+# and letting every job for it fail for ever is the worst shape a
+# limitation can take -- invisible until it matters.
+KINDS: dict[str, str] = {
+    "native": "A program you run on a Mac, PC, Linux box or Pi",
+    "browser": "This dashboard, open in a tab on a phone, iPad or laptop",
+}
+
+KIND_CAN_DO: dict[str, frozenset[str]] = {
+    "native": frozenset({"screenshot", "browser", "files.read", "files.write",
+                         "terminal", "clipboard", "notify", "speak"}),
+    # Deliberately short, and every one of these was checked against what
+    # a page can do without a user gesture -- because a sidecar acts when
+    # JARVIS asks, and nobody is there to tap.
+    "browser": frozenset({"notify", "speak", "browser", "clipboard"}),
 }
 
 # Which JARVIS permission an agent must hold before it may use each
@@ -65,6 +95,7 @@ CAPABILITIES: dict[str, str] = {
 # the AGENT is allowed to ask. Both, always.
 NEEDS: dict[str, Permission] = {
     "screenshot": Permission.READ_FILES,
+    "speak": Permission.EXTERNAL_MESSAGE,
     "browser": Permission.NETWORK,
     "files.read": Permission.READ_FILES,
     "files.write": Permission.WRITE_FILES,
@@ -100,6 +131,12 @@ class Sidecar:
     capabilities: frozenset[str]
     status: str
     last_seen_at: object | None
+    kind: str = "native"
+
+    @property
+    def can_do(self) -> frozenset[str]:
+        """What this kind of thing is physically able to perform."""
+        return KIND_CAN_DO.get(self.kind, frozenset())
 
     @property
     def live(self) -> bool:
@@ -113,6 +150,7 @@ class Sidecar:
     def as_detail(self) -> dict:
         return {
             "id": str(self.id), "name": self.name, "machine": self.machine,
+            "kind": self.kind, "kind_means": KINDS.get(self.kind, ""),
             "capabilities": sorted(self.capabilities),
             "can": [CAPABILITIES[c] for c in sorted(self.capabilities)
                     if c in CAPABILITIES],
@@ -125,8 +163,12 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _clean(capabilities) -> frozenset[str]:
-    """Only capabilities that exist. Anything else is dropped, loudly."""
+def _clean(capabilities, kind: str = "native") -> frozenset[str]:
+    """Only capabilities that exist AND that this kind can perform."""
+    if kind not in KINDS:
+        raise SidecarError(
+            f"A sidecar is {' or '.join(sorted(KINDS))}, not {kind!r}.")
+
     asked = {str(c).strip().lower() for c in (capabilities or [])}
     unknown = asked - set(CAPABILITIES)
     if unknown:
@@ -134,12 +176,24 @@ def _clean(capabilities) -> frozenset[str]:
             f"There is no such capability as {', '.join(sorted(unknown))}. "
             f"The ones that exist: {', '.join(sorted(CAPABILITIES))}."
         )
+
+    # Refused here rather than at the first job. An iPad granted
+    # 'terminal' would take the grant happily and then fail every job
+    # queued for it, for ever, for a reason knowable right now.
+    impossible = asked - KIND_CAN_DO[kind]
+    if impossible:
+        raise SidecarError(
+            f"{KINDS[kind]} cannot do "
+            f"{', '.join(sorted(impossible))}. On that kind of sidecar "
+            f"JARVIS can: {', '.join(sorted(KIND_CAN_DO[kind]))}."
+        )
     return frozenset(asked)
 
 
 # --- pairing ---------------------------------------------------------------
 
-async def offer_pairing(name: str, capabilities, *, by: str) -> dict:
+async def offer_pairing(name: str, capabilities, *, by: str,
+                        kind: str = "native") -> dict:
     """A code the owner types into the sidecar on the other machine.
 
     Good once and for fifteen minutes. The capabilities are decided HERE,
@@ -149,11 +203,11 @@ async def offer_pairing(name: str, capabilities, *, by: str) -> dict:
     name = (name or "").strip()
     if not name:
         raise SidecarError("Give the machine a name you will recognise.")
-    granted = _clean(capabilities)
+    granted = _clean(capabilities, kind)
     if not granted:
         raise SidecarError(
             "A sidecar with no capabilities can do nothing. Choose at "
-            "least one of: " + ", ".join(sorted(CAPABILITIES)))
+            "least one of: " + ", ".join(sorted(KIND_CAN_DO[kind])))
 
     existing = await fetchrow(
         "SELECT id FROM sidecars WHERE name = $1 AND status <> 'revoked'", name)
@@ -165,9 +219,9 @@ async def offer_pairing(name: str, capabilities, *, by: str) -> dict:
     # Human-typable: this gets read off one screen and typed into another.
     code = "-".join(secrets.token_hex(2).upper() for _ in range(3))
     await execute(
-        "INSERT INTO sidecar_pairings (code, name, capabilities) "
-        "VALUES ($1,$2,$3)",
-        code, name, sorted(granted),
+        "INSERT INTO sidecar_pairings (code, name, capabilities, kind) "
+        "VALUES ($1,$2,$3,$4)",
+        code, name, sorted(granted), kind,
     )
     logger.info("Pairing offered for %r by %s.", name, by)
     return {"code": code, "name": name, "capabilities": sorted(granted),
@@ -195,10 +249,10 @@ async def redeem_pairing(code: str, reported: dict | None = None) -> dict:
 
     token = secrets.token_urlsafe(32)
     sidecar = await fetchrow(
-        "INSERT INTO sidecars (name, machine, capabilities, token_hash, reported) "
-        "VALUES ($1,$2,$3,$4,$5) RETURNING *",
+        "INSERT INTO sidecars (name, machine, capabilities, token_hash, "
+        "reported, kind) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
         row["name"], str((reported or {}).get("machine", ""))[:200],
-        list(row["capabilities"]), _hash(token), reported or {},
+        list(row["capabilities"]), _hash(token), reported or {}, row["kind"],
     )
     await execute("UPDATE sidecar_pairings SET used_at = now() WHERE code = $1",
                   row["code"])
@@ -206,11 +260,51 @@ async def redeem_pairing(code: str, reported: dict | None = None) -> dict:
     return {"token": token, "sidecar": _to_sidecar(sidecar).as_detail()}
 
 
+async def pair_this_browser(name: str, capabilities, *, by: str,
+                            reported: dict | None = None) -> dict:
+    """Pair the tab the owner is already looking at. One tap, no code.
+
+    A pairing code exists so that a machine JARVIS has never met can
+    prove the owner authorised it -- he reads it off one screen and types
+    it into another. A browser has nothing to type it into, and it does
+    not need to: it is already signed in as him. Asking him to copy a
+    code from a page into that same page would be ceremony, and ceremony
+    that achieves nothing is how people learn to click past security.
+
+    This is the ONLY path that skips the code, and it is reachable only
+    through his own authenticated session.
+    """
+    name = (name or "").strip() or "This device"
+    granted = _clean(capabilities, "browser")
+    if not granted:
+        raise SidecarError(
+            "A sidecar with no capabilities can do nothing. On a browser "
+            "JARVIS can: " + ", ".join(sorted(KIND_CAN_DO["browser"])))
+
+    # Re-pairing the same device replaces it rather than accumulating a
+    # row per visit: he will open this dashboard on the same iPad many
+    # times, and a list of forty "iPad" entries is a list nobody reads.
+    await execute(
+        "UPDATE sidecars SET status = 'revoked' "
+        "WHERE name = $1 AND kind = 'browser' AND status <> 'revoked'", name)
+
+    token = secrets.token_urlsafe(32)
+    row = await fetchrow(
+        "INSERT INTO sidecars (name, machine, capabilities, token_hash, "
+        "reported, kind) VALUES ($1,$2,$3,$4,$5,'browser') RETURNING *",
+        name, str((reported or {}).get("machine", ""))[:200],
+        sorted(granted), _hash(token), reported or {},
+    )
+    logger.info("Browser sidecar %r paired by %s.", name, by)
+    return {"token": token, "sidecar": _to_sidecar(row).as_detail()}
+
+
 def _to_sidecar(row) -> Sidecar:
     return Sidecar(
         id=row["id"], name=row["name"], machine=row["machine"],
         capabilities=frozenset(row["capabilities"] or []),
         status=row["status"], last_seen_at=row["last_seen_at"],
+        kind=row["kind"] if "kind" in row else "native",
     )
 
 
@@ -250,6 +344,13 @@ def may_run(sidecar: Sidecar, capability: str,
         return False, f"There is no such capability as {capability!r}."
     if sidecar.status != "active":
         return False, f"{sidecar.name} is {sidecar.status}."
+    # The backstop for the pairing check. A row that predates the kinds,
+    # or one edited by hand, must not be able to run something its kind
+    # cannot perform.
+    if capability not in sidecar.can_do:
+        return False, (
+            f"{KINDS.get(sidecar.kind, sidecar.kind)} cannot do "
+            f"'{capability}' at all.")
     if capability not in sidecar.capabilities:
         return False, (
             f"{sidecar.name} was not given '{capability}'. It can: "
@@ -445,6 +546,8 @@ async def state() -> dict:
     machines = await listing()
     return {
         "capabilities": [{"name": k, "means": v} for k, v in CAPABILITIES.items()],
+        "kinds": [{"kind": k, "means": v, "can_do": sorted(KIND_CAN_DO[k])}
+                  for k, v in KINDS.items()],
         "always_ask": sorted(ALWAYS_ASK),
         "sidecars": machines,
         "waiting": len(await waiting_for_owner()),

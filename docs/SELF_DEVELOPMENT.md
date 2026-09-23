@@ -230,7 +230,7 @@ answer, and a list that only ever grows shorter is one nobody trusts.
 | 15 | Model performance learning from `agent_metrics` | **Built** — see below. |
 | — | `read_only: true` on the container | Same script tests it and prints the two lines to paste into `docker-compose.yml` if it passes. |
 
-| 19/40C | Sidecars — eyes and hands on your Mac/PC | **Built** — pair a machine, grant it named capabilities, it connects out. See below. |
+| 19/40C | Sidecars — eyes and hands on your devices | **Built** — two kinds: a program for a Mac/PC/Pi, and this dashboard's own tab for an iPad or phone. Named capabilities per device, enforced at pairing. See below. |
 | 9/40B | Agent Factory — specialists created at runtime | Not built. The registry versions and trials agents; nothing creates one on demand. |
 | 25 | EvolveR — reusable principles from experience | Not built. Outcomes are measured (§15, §20); nothing distils a principle from them. |
 
@@ -635,6 +635,31 @@ that offers a named, limited set of things it will do on JARVIS's behalf.
 `sidecar/jarvis_sidecar.py` — one file, standard library only, so it runs
 on a Mac, a PC or a Pi with no install step. `sidecar/README.md` is the
 page you actually follow.
+
+**Two kinds, because a phone is not a laptop.** `native` is the Python
+program — a Mac, a PC, a Linux box, a Pi — and can do everything on the
+list. `browser` is this dashboard, open in a tab, and is the only sidecar
+an iPad or a phone can be: iOS does not allow background programs, and no
+amount of wanting it to changes that. A tab can speak, show a
+notification, put a link in front of you and sometimes set the clipboard.
+It cannot run a command or read a file.
+
+The kind is enforced **at pairing**, not at the first job. Granting an
+iPad `terminal` and letting every job for it fail for ever is the worst
+shape a limitation can take: invisible until it matters. There is a
+run-time backstop too, for a row that predates the kinds or was edited by
+hand.
+
+Pairing a browser takes one tap and no code. The code exists so a machine
+JARVIS has never met can prove you authorised it — read off one screen,
+typed into another. A browser has nothing to type it into and does not
+need to: it is already signed in as you. Ceremony that achieves nothing
+is how people learn to click past security.
+
+A browser sidecar works **while its tab is on screen**. A hidden tab is
+one iOS is about to suspend, so it stops polling and *says* it has
+stopped. In Split View iPadOS never fires `visibilitychange`, so JARVIS
+beside another app keeps working — which is the way to actually use it.
 
 **It connects out. JARVIS never dials in.** No port is opened on your
 laptop, nothing is forwarded through your router, it works from a cafe,

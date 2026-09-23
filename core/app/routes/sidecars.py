@@ -113,6 +113,13 @@ async def finished(
 class OfferIn(BaseModel):
     name: str
     capabilities: list[str] = []
+    kind: str = "native"
+
+
+class ThisBrowserIn(BaseModel):
+    name: str = ""
+    capabilities: list[str] = []
+    reported: dict = {}
 
 
 class StatusIn(BaseModel):
@@ -138,7 +145,29 @@ async def offer(
     await system_control.refuse_if_stopped()
     try:
         return await sidecars.offer_pairing(
-            body.name, body.capabilities,
+            body.name, body.capabilities, kind=body.kind,
+            by=f"user:{user.email or user.uid}")
+    except sidecars.SidecarError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/v1/sidecars/this-browser", include_in_schema=False)
+async def pair_this_browser(
+    body: ThisBrowserIn, user: CurrentUser = Depends(get_current_user)
+) -> dict:
+    """Pair the tab the owner is looking at. One tap, no code.
+
+    The code exists so a machine JARVIS has never met can prove he
+    authorised it -- read off one screen, typed into another. A browser
+    has nothing to type it into and does not need to: it is already
+    signed in as him. Asking him to copy a code from a page into that
+    same page is ceremony, and ceremony that achieves nothing is how
+    people learn to click past security.
+    """
+    await system_control.refuse_if_stopped()
+    try:
+        return await sidecars.pair_this_browser(
+            body.name, body.capabilities, reported=body.reported,
             by=f"user:{user.email or user.uid}")
     except sidecars.SidecarError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

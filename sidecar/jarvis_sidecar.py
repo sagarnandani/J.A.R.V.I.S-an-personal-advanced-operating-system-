@@ -7,6 +7,7 @@ you granted when you paired it, and nothing else.
 
     python3 jarvis_sidecar.py pair https://jarvis.example.com ABCD-1234-EF56
     python3 jarvis_sidecar.py run
+    python3 jarvis_sidecar.py repoint https://jarvis.athome.lan
 
 **This program connects OUT. JARVIS never dials in.**
 
@@ -191,6 +192,29 @@ def do_notify(args: dict) -> dict:
     return {"shown": True}
 
 
+def do_speak(args: dict) -> dict:
+    """Say it aloud on this machine. A Mac has `say` built in."""
+    text = str(args.get("text", ""))[:1000]
+    if not text.strip():
+        raise RuntimeError("Nothing to say.")
+    if sys.platform == "darwin":
+        command = ["say", text]
+    elif sys.platform.startswith("linux"):
+        tool = next((t for t in ("spd-say", "espeak", "espeak-ng")
+                     if shutil.which(t)), None)
+        if tool is None:
+            raise RuntimeError(
+                "Nothing here can speak. Install one: apt install espeak")
+        command = [tool, text]
+    else:
+        command = ["powershell", "-NoProfile", "-Command",
+                   "Add-Type -AssemblyName System.Speech;"
+                   "(New-Object System.Speech.Synthesis.SpeechSynthesizer)"
+                   f".Speak({json.dumps(text)})"]
+    subprocess.run(command, check=True, timeout=ACTION_TIMEOUT)
+    return {"said": text}
+
+
 def do_browser(args: dict) -> dict:
     """Open an address in this machine's own browser.
 
@@ -219,6 +243,7 @@ HANDLERS = {
     "clipboard": do_clipboard,
     "notify": do_notify,
     "browser": do_browser,
+    "speak": do_speak,
 }
 
 
@@ -255,6 +280,41 @@ def command_pair(base: str, code: str) -> None:
     say("This machine may:", ", ".join(answer["sidecar"]["capabilities"]) or "nothing")
     say(f"Token saved to {CONFIG} (readable only by you).")
     say(f"Now run: {sys.argv[0]} run")
+
+
+def command_repoint(base: str) -> None:
+    """JARVIS moved. Same sidecar, new address.
+
+    Moving JARVIS to another machine takes its database with it, so the
+    pairing and the token survive the move -- only the address changes.
+    Without this, every machine he owns would have to be re-paired by
+    hand for a change that is one line in a file, and the temptation
+    would be to skip the pairing step next time.
+    """
+    config = load()
+    was = config["base"]
+    config["base"] = base.rstrip("/")
+    CONFIG.write_text(json.dumps(config, indent=2))
+    CONFIG.chmod(0o600)
+    say(f"Now reporting to {config['base']} (was {was}).")
+
+    try:
+        answer = call(config["base"], "/v1/sidecar/poll",
+                      {"reported": describe(), "limit": 1}, config["token"])
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            say("That server does not know this sidecar. If JARVIS was moved "
+                "WITHOUT its database, pair again from the dashboard there.")
+        else:
+            say(f"That server answered {exc.code}. The address is saved; check "
+                f"it is the right one.")
+        return
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        say(f"Cannot reach it yet ({exc}). The address is saved; try `run` "
+            f"once the server is up.")
+        return
+    say("It answered and still knows this sidecar. May:",
+        ", ".join(answer.get("you_may") or []) or "nothing")
 
 
 def command_run() -> None:
@@ -305,6 +365,8 @@ def main() -> None:
         return command_pair(sys.argv[2], sys.argv[3])
     if len(sys.argv) >= 2 and sys.argv[1] == "run":
         return command_run()
+    if len(sys.argv) == 3 and sys.argv[1] == "repoint":
+        return command_repoint(sys.argv[2])
     print(__doc__)
     sys.exit(2)
 

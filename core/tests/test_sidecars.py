@@ -485,3 +485,100 @@ def test_what_the_other_machines_may_do_is_not_jarvis_s_to_change():
         why = is_protected(path)
         assert why, f"{path} can be rewritten by self-development"
         assert "your other machines" in why
+
+
+# --- what kind of thing a sidecar is --------------------------------------
+#
+# An iPad cannot run a background program. iOS does not allow it, and no
+# amount of wanting it to changes that. What it has is this dashboard,
+# already open. So there are two kinds, and the kind decides what may be
+# granted -- checked at PAIRING, because an iPad granted 'terminal' would
+# take the grant happily and then fail every job for ever, for a reason
+# knowable at the moment of granting.
+
+from app.sidecars import KIND_CAN_DO, KINDS  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_a_browser_cannot_be_granted_what_a_browser_cannot_do(clean):
+    for impossible in ("terminal", "files.read", "files.write", "screenshot"):
+        with pytest.raises(SidecarError, match="cannot do"):
+            await sidecars.offer_pairing("iPad", ["notify", impossible],
+                                         kind="browser", by="user:owner")
+
+
+@pytest.mark.asyncio
+async def test_the_refusal_says_what_that_kind_can_do(clean):
+    with pytest.raises(SidecarError) as raised:
+        await sidecars.offer_pairing("iPad", ["terminal"], kind="browser",
+                                     by="user:owner")
+    said = str(raised.value)
+    for possible in sorted(KIND_CAN_DO["browser"]):
+        assert possible in said, f"the refusal does not mention {possible}"
+
+
+@pytest.mark.asyncio
+async def test_a_browser_can_be_granted_what_it_can_do(clean):
+    got = await sidecars.pair_this_browser(
+        "iPad", ["speak", "notify", "browser"], by="user:owner")
+    assert got["sidecar"]["kind"] == "browser"
+    assert got["sidecar"]["capabilities"] == ["browser", "notify", "speak"]
+
+
+@pytest.mark.asyncio
+async def test_pairing_this_browser_needs_no_code(clean):
+    """It is already signed in as him. Asking him to copy a code from a
+    page into that same page is ceremony, and ceremony that achieves
+    nothing is how people learn to click past security."""
+    got = await sidecars.pair_this_browser("iPad", ["speak"], by="user:owner")
+    assert await sidecars.authenticate(got["token"]) is not None
+    assert await clean.fetchval("SELECT count(*) FROM sidecar_pairings") == 0
+
+
+@pytest.mark.asyncio
+async def test_pairing_the_same_device_again_replaces_it(clean):
+    """He will open this dashboard on the same iPad many times. A list of
+    forty 'iPad' entries is a list nobody reads."""
+    first = await sidecars.pair_this_browser("iPad", ["speak"], by="user:owner")
+    second = await sidecars.pair_this_browser("iPad", ["speak", "notify"],
+                                              by="user:owner")
+
+    assert await sidecars.authenticate(first["token"]) is None, (
+        "the old pairing still works after re-pairing the same device")
+    assert await sidecars.authenticate(second["token"]) is not None
+    assert len([s for s in await sidecars.listing() if s["name"] == "iPad"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_browser_row_cannot_run_a_native_capability_even_if_edited(clean):
+    """The backstop. Pairing refuses it; this catches a row that predates
+    the kinds, or one edited by hand."""
+    got = await sidecars.pair_this_browser("iPad", ["speak"], by="user:owner")
+    await clean.execute(
+        "UPDATE sidecars SET capabilities = ARRAY['speak','terminal'] "
+        "WHERE name = 'iPad'")
+    ipad = await sidecars.authenticate(got["token"])
+
+    assert "terminal" in ipad.capabilities, "the test did not set up what it claims"
+    allowed, why = sidecars.may_run(ipad, "terminal", POWERFUL)
+    assert allowed is False
+    assert "cannot do 'terminal' at all" in why
+
+
+def test_a_native_sidecar_can_do_everything_on_the_list():
+    """If a capability existed that no kind could perform, it would be a
+    grant that always fails."""
+    covered = set().union(*KIND_CAN_DO.values())
+    assert covered == set(CAPABILITIES), (
+        f"no kind can perform: {sorted(set(CAPABILITIES) - covered)}")
+
+
+def test_every_kind_is_explained_in_words():
+    for kind, means in KINDS.items():
+        assert means and not means.endswith("."), kind
+        assert KIND_CAN_DO[kind], f"{kind} can do nothing"
+
+
+def test_an_invented_kind_is_refused():
+    with pytest.raises(SidecarError, match="A sidecar is"):
+        sidecars._clean(["notify"], kind="toaster")

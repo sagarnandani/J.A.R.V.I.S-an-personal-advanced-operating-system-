@@ -2341,6 +2341,9 @@ async function loadReach() {
         )).join("");
     }
 
+    // This tab's own pairing, repainted with the rest of the panel.
+    if (typeof window.sidecarPaint === "function") window.sidecarPaint();
+
     const local = await api("/v1/local-model");
     if (local.ok) {
       const l = await local.json();
@@ -2990,3 +2993,12 @@ function agentBody(d) {
    then activated — agents are not made in production with a button.</p>`;
   return html;
 }
+
+
+// Shared with sidecar.js, which is deliberately NOT a module: it has to
+// run on an old iPad that may not do module scripts, and it is the one
+// piece that must keep working when everything else is being edited.
+window.esc = esc;
+window.kv = kv;
+window.unknown = unknown;
+window.loadReach = loadReach;

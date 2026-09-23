@@ -65,6 +65,18 @@ DATABASE_URL=... python tests/browser/seed_busy_agent.py
 node tests/browser/agents_page.mjs agents.png agents-phone.png
 ```
 
+This tab as a pair of hands -- the only sidecar an iPad can be:
+
+```bash
+node tests/browser/browser_sidecar.mjs browser-sidecar.png
+```
+
+Run at iPad size, because that is the device it exists for. It pairs from
+the page (one tap, no code), speaks, offers a link rather than claiming
+to have opened a tab, refuses a capability it was never paired with even
+when the server asks for it, and stops polling -- and says so -- when the
+tab goes to the background. Needs no seeding: it pairs itself.
+
 The two new panels on the Build tab -- a trial in progress, and what
 JARVIS may reach:
 
