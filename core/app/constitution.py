@@ -100,6 +100,21 @@ PROTECTED: tuple[tuple[str, str], ...] = (
     # that would read like "support more capabilities".
     ("core/app/sidecars.py",
      "what JARVIS may ask your other machines to do"),
+    # Where a new agent's permissions come from. This file holds the
+    # single rule the whole permission system rests on -- a child may
+    # never hold what its parent does not -- and a JARVIS that could
+    # edit it could build itself a child with more authority than
+    # anything that made it, through a door marked "we needed a
+    # specialist".
+    ("core/app/agents/factory.py",
+     "what a newly made agent is allowed to do"),
+    # Posting is the first thing JARVIS does that the world sees and
+    # that cannot be taken back. What it posts as, and what it takes to
+    # let it, are not its own to change.
+    ("core/app/social/linkedin.py",
+     "the account JARVIS posts as"),
+    ("core/app/agents/capabilities/publish.py",
+     "what it takes before something is published"),
     ("core/app/routes/sidecars.py",
      "how your other machines are paired and authenticated"),
     # How a new version of an agent gets to replace the one doing the

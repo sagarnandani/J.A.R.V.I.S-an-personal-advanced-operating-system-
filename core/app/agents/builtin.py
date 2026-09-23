@@ -153,12 +153,13 @@ async def install() -> None:
     )
     from app.dev import patch as dev_patch
     from app.dev import plan as dev_plan
+    from app.agents.capabilities import publish as publish_cap
     from app.media import review, script, scout, strategy
 
     for module in (research_web, read_page, browse_page, machine,
                    factcheck_claims,
                    scout, strategy, script, review,
-                   dev_plan, dev_patch):
+                   dev_plan, dev_patch, publish_cap):
         try:
             await module.install()
         except Exception as exc:  # noqa: BLE001

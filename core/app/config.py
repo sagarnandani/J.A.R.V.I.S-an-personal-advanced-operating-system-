@@ -205,6 +205,21 @@ class Settings(BaseSettings):
     # case where the owner has put one behind something.
     local_llm_key: str = ""
 
+    # Posting to LinkedIn, through LinkedIn's own API (see
+    # app/social/linkedin.py). Empty means JARVIS cannot post at all,
+    # which is the default and is fine.
+    #
+    # Set up once at developers.linkedin.com: create an app, add the
+    # "Sign In with LinkedIn using OpenID Connect" and "Share on
+    # LinkedIn" products, and put its two values here. Then connect the
+    # account once from the Build tab.
+    linkedin_client_id: str = ""
+    linkedin_client_secret: str = ""
+    # LinkedIn dates its API and rejects a version it does not know. A
+    # setting because it moves, and a stale one must be fixable without
+    # a deploy.
+    linkedin_api_version: str = "202405"
+
     # --- Model tiers (see app/agents/model_router.py) ---
     # Agents ask for cheap/standard/deep, never a model name. These map
     # the tiers onto real models, so a provider retiring a name is an

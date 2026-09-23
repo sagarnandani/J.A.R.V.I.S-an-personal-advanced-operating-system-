@@ -231,12 +231,14 @@ answer, and a list that only ever grows shorter is one nobody trusts.
 | — | `read_only: true` on the container | Same script tests it and prints the two lines to paste into `docker-compose.yml` if it passes. |
 
 | 19/40C | Sidecars — eyes and hands on your devices | **Built** — two kinds: a program for a Mac/PC/Pi, and this dashboard's own tab for an iPad or phone. Named capabilities per device, enforced at pairing. See below. |
-| 9/40B | Agent Factory — specialists created at runtime | Not built. The registry versions and trials agents; nothing creates one on demand. |
+| 9/40B | Agent Factory — specialists created at runtime | **Built** — a child may never hold what its parent does not, enforced by intersection. See below. |
 | 25 | EvolveR — reusable principles from experience | Not built. Outcomes are measured (§15, §20); nothing distils a principle from them. |
 
-**What is actually left:** the two Docker rows, the Agent Factory, and
-EvolveR-style principle extraction. Everything else in this table is
-built and covered by tests.
+| 20/33 | Publishing — the last step of the media chain | **Built** — LinkedIn, through LinkedIn's own API, gated on your yes. See below. |
+
+**What is actually left:** the two Docker rows and EvolveR-style
+principle extraction. Everything else in this table is built and covered
+by tests.
 
 The Docker rows need a Docker daemon, which the environment these
 changes were written in does not have — so rather than leaving them as
@@ -705,6 +707,76 @@ undoable by whoever has the laptop.
 `app/sidecars.py` and its routes are on the Constitution's protected
 list. A JARVIS that could rewrite them could grant itself a terminal on
 your laptop, in a diff that would read like "support more capabilities".
+
+## Making a specialist when one is needed (section 40B)
+
+The registry has always held agents; nothing could add one while JARVIS
+was running. So "track the Karnataka EV subsidy rules specifically" got
+squeezed into a general researcher, or waited for a deploy.
+
+`app/agents/factory.py` makes one on demand. It exists to enforce a
+single sentence:
+
+> **A child may never hold what its parent does not.**
+
+Not "should not". The requested permissions are *intersected* with the
+parent's before the row is written, so asking for more comes back with
+less rather than being refused — a refusal is something a caller retries
+with a slightly smaller ask until something slips through; less is not
+retryable.
+
+On top of that, `modify_config`, `modify_agents` and `sensitive` are
+never granted to a made agent **even when the owner asks directly**. A
+factory that can make a factory has no ceiling: the first thing a
+sufficiently motivated chain would build is a child that can build
+children.
+
+Made agents live under `made.`, so one called "research" cannot collide
+with the shipped `general.research`. They arrive as `testing` — routable
+only when asked for by name — unless explicitly asked to persist, and
+unused ones are swept after a day. The factory can retire only what it
+made: one that could retire the shipped agents would be a way to disable
+the Governor's own reviewers by asking politely. Every creation is
+audited as `high_risk`, including **what was refused**, or a narrowing
+leaves no trace.
+
+## Posting it (sections 20 and 33)
+
+The media chain researched, decided whether the piece should exist,
+wrote it, checked its facts, reviewed it and waited for your yes — and
+then stopped. Every gate was built and the last step was missing, so the
+whole chain produced things that could only be published by copy-paste.
+
+**Through LinkedIn's API, not a browser.** Driving a logged-in browser
+would work and is the wrong answer: LinkedIn's User Agreement forbids
+automated access, the account at risk is your real professional
+identity, it would need a browser permanently signed in as you (exactly
+what the sidecar is designed never to be), and it would break silently
+every time LinkedIn moved a button. The API needs a one-off setup and
+then survives redesigns.
+
+**It asks you every time.** `media.publish` holds `PUBLISH`, which is in
+`ALWAYS_APPROVED`, so the runtime stops with the exact text in front of
+you. Posting unasked is possible — section 20 allows "an explicitly
+configured low-risk automation policy" — by setting the `publishing`
+category to `auto`. That is one deliberate act by you in one place, and
+it is unreachable by an agent: changing it is `modify_config`, which is
+never delegated.
+
+**It posts what was reviewed.** Given a piece id, the text comes from
+the record *you approved* — not whatever a model has in hand now. A
+capability that took free text from another agent would let anything
+that can start a task put words on your profile, and every gate upstream
+would be decoration.
+
+**It returns evidence.** The id LinkedIn gave the post and a link to it,
+recorded against the piece. Section 33: "I posted it" is precisely the
+sentence that must never be taken on trust.
+
+Setup is five steps in `.env.example`. The Build tab shows the exact
+redirect URL to paste into the LinkedIn app, built from the address you
+are actually on, so it is right on localhost and on your server without
+three settings that disagree.
 
 ## The container does not run as root
 
